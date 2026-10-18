@@ -1,6 +1,6 @@
 //! WebGL2 renderer: flat-shaded boxes and lines, one shader.
 
-use crate::sim::{Bot, Game, V3};
+use crate::sim::{Bot, Game, HALF, V3};
 use js_sys::Float32Array;
 use web_sys::{
     WebGl2RenderingContext as GL, WebGlProgram, WebGlShader, WebGlUniformLocation, WebGlVertexArrayObject,
@@ -40,6 +40,9 @@ void main() {
     float f = clamp((length(v_pos - u_eye) - 25.0) / 55.0, 0.0, 1.0);
     o = vec4(mix(c, vec3(0.07, 0.09, 0.16), f), 1.0);
 }"#;
+
+/// Distance at which the fog in FRAG is fully opaque: 25 + 55.
+const FOG_END: f32 = 80.0;
 
 const WALL_COLORS: [[f32; 3]; 4] = [[0.36, 0.40, 0.62], [0.30, 0.55, 0.60], [0.55, 0.38, 0.58], [0.62, 0.50, 0.34]];
 
@@ -326,15 +329,17 @@ impl Renderer {
         gl.uniform_matrix4fv_with_f32_array(self.u_vp.as_ref(), false, &vp);
         gl.uniform3f(self.u_eye.as_ref(), eye[0], eye[1], eye[2]);
 
-        self.draw_box([-20.0, -0.3, -20.0], [20.0, 0.0, 20.0], [0.11, 0.13, 0.20], 0.0);
+        self.draw_box([-HALF, -0.3, -HALF], [HALF, 0.0, HALF], [0.11, 0.13, 0.20], 0.0);
         let mut grid = Vec::new();
-        for i in -10..=10 {
+        for i in -(HALF as i32 / 2)..=(HALF as i32 / 2) {
             let c = i as f32 * 2.0;
-            grid.extend_from_slice(&[c, 0.01, -20.0, c, 0.01, 20.0, -20.0, 0.01, c, 20.0, 0.01, c]);
+            grid.extend_from_slice(&[c, 0.01, -HALF, c, 0.01, HALF, -HALF, 0.01, c, HALF, 0.01, c]);
         }
         self.draw_lines(&grid, [0.20, 0.24, 0.36], 1.0);
 
-        for (i, w) in g.walls.iter().enumerate() {
+        // past FOG_END everything is the clear colour already, so there is nothing to draw
+        for i in g.world.near(eye, FOG_END) {
+            let w = &g.world.walls[i];
             self.draw_box(w.min, w.max, WALL_COLORS[i % WALL_COLORS.len()], 0.0);
         }
         for (i, b) in g.bots.iter().enumerate().filter(|(_, b)| b.alive) {

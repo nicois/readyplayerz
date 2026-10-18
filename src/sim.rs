@@ -1,5 +1,8 @@
 //! Game simulation. No browser dependencies, so a server can run the same code.
 
+use crate::grid::Grid;
+use std::rc::Rc;
+
 pub type V3 = [f32; 3];
 
 pub const STEP: f32 = 1.0 / 60.0;
@@ -13,7 +16,13 @@ const SPRINT: f32 = 9.0;
 const RANGE: f32 = 120.0;
 const EPS: f32 = 0.001;
 const SENS: f32 = 0.0022;
-const BOT_COUNT: usize = 6;
+/// Half the side of the square arena.
+pub const HALF: f32 = 40.0;
+/// The hand-built layout fills the middle of the arena out to this; generated cover goes around it.
+const CORE: f32 = 22.0;
+const BOT_COUNT: usize = 10;
+/// Side of one cell of the wall grid.
+const CELL: f32 = 4.0;
 pub const EQUIP_TIME: f32 = 0.35;
 pub const WEAPON_COUNT: usize = 4;
 
@@ -81,7 +90,7 @@ pub fn aabb_at(p: V3, hw: f32, h: f32) -> Aabb {
     Aabb { min: [p[0] - hw, p[1], p[2] - hw], max: [p[0] + hw, p[1] + h, p[2] + hw] }
 }
 
-fn overlaps(a: &Aabb, b: &Aabb) -> bool {
+pub(crate) fn overlaps(a: &Aabb, b: &Aabb) -> bool {
     (0..3).all(|i| a.min[i] < b.max[i] && a.max[i] > b.min[i])
 }
 
@@ -244,7 +253,7 @@ pub struct Debris {
 const MAX_DEBRIS: usize = 300;
 
 pub struct Game {
-    pub walls: Vec<Aabb>,
+    pub world: Rc<Grid>,
     pub debris: Vec<Debris>,
     pub events: Vec<[f32; 3]>,
     pub player: Player,
@@ -259,13 +268,14 @@ fn block(cx: f32, cz: f32, sx: f32, sy: f32, sz: f32) -> Aabb {
     Aabb { min: [cx - sx / 2.0, 0.0, cz - sz / 2.0], max: [cx + sx / 2.0, sy, cz + sz / 2.0] }
 }
 
-fn build_walls() -> Vec<Aabb> {
+fn build_walls(seed: u32) -> Vec<Aabb> {
+    let (edge, len) = (HALF + 0.5, 2.0 * HALF + 2.0);
     let mut w = vec![
-        // perimeter, arena is 40 x 40
-        block(0.0, -20.5, 42.0, 5.0, 1.0),
-        block(0.0, 20.5, 42.0, 5.0, 1.0),
-        block(-20.5, 0.0, 1.0, 5.0, 42.0),
-        block(20.5, 0.0, 1.0, 5.0, 42.0),
+        // perimeter
+        block(0.0, -edge, len, 5.0, 1.0),
+        block(0.0, edge, len, 5.0, 1.0),
+        block(-edge, 0.0, 1.0, 5.0, len),
+        block(edge, 0.0, 1.0, 5.0, len),
         // tall pillars
         block(-8.0, -8.0, 2.0, 4.0, 2.0),
         block(8.0, -8.0, 2.0, 4.0, 2.0),
@@ -286,26 +296,63 @@ fn build_walls() -> Vec<Aabb> {
         block(-14.0, 14.0, 3.0, 0.6, 3.0),
         block(14.0, -14.0, 3.0, 0.6, 3.0),
     ];
-    w.shrink_to_fit();
+    scatter_cover(&mut w, seed);
     w
 }
 
+/// Fills the ground outside the hand-built core with pillars, low walls and steps, about as dense as the core.
+fn scatter_cover(w: &mut Vec<Aabb>, seed: u32) {
+    let mut rng = Rng(seed.wrapping_mul(2_654_435_761).max(1));
+    let want = ((HALF * HALF * 4.0 - CORE * CORE * 4.0) / 110.0) as usize;
+    let mut placed = 0;
+    for _ in 0..want * 20 {
+        if placed == want {
+            break;
+        }
+        let (sx, sz) = (rng.range(1.5, 5.0), rng.range(1.5, 5.0));
+        // mostly low cover and steps you can jump onto, some tall pillars
+        let sy = match rng.f() {
+            r if r < 0.25 => rng.range(3.0, 4.5),
+            r if r < 0.6 => rng.range(0.5, 1.2),
+            _ => rng.range(1.2, 2.2),
+        };
+        let reach = HALF - 2.0;
+        let (x, z) = (rng.range(-reach, reach), rng.range(-reach, reach));
+        let b = block(x, z, sx, sy, sz);
+        let apart = |a: &Aabb, gap: f32| {
+            let grown = Aabb { min: [a.min[0] - gap, 0.0, a.min[2] - gap], max: [a.max[0] + gap, 1.0, a.max[2] + gap] };
+            overlaps(&grown, &Aabb { min: [b.min[0], 0.0, b.min[2]], max: [b.max[0], 1.0, b.max[2]] })
+        };
+        let core = Aabb { min: [-CORE, 0.0, -CORE], max: [CORE, 1.0, CORE] };
+        if apart(&core, 0.0) || w.iter().any(|o| apart(o, 2.5)) {
+            continue;
+        }
+        w.push(b);
+        placed += 1;
+    }
+}
+
 /// Moves one axis and pushes the body out of any wall it ends up inside. Returns true on contact.
-fn move_axis(pos: &mut V3, axis: usize, delta: f32, walls: &[Aabb]) -> bool {
+fn move_axis(pos: &mut V3, axis: usize, delta: f32, world: &Grid) -> bool {
     pos[axis] += delta;
     let (plus, minus) = if axis == 1 { (H, 0.0) } else { (HW, HW) };
     let mut hit = false;
-    for w in walls {
+    // pushing out can move the body back by up to `delta`, so look that far too
+    let mut reach = aabb_at(*pos, HW, H);
+    reach.min[axis] -= delta.abs();
+    reach.max[axis] += delta.abs();
+    world.find(&reach, |w| {
         if overlaps(&aabb_at(*pos, HW, H), w) {
             hit = true;
             pos[axis] = if delta > 0.0 { w.min[axis] - plus - EPS } else { w.max[axis] + minus + EPS };
         }
-    }
+        false
+    });
     hit
 }
 
 /// Shared movement for the player and bots. Returns true if blocked horizontally.
-fn step_body(b: &mut Body, target: [f32; 2], jump: bool, dt: f32, walls: &[Aabb]) -> bool {
+fn step_body(b: &mut Body, target: [f32; 2], jump: bool, dt: f32, world: &Grid) -> bool {
     let accel = if b.on_ground { 60.0 } else { 15.0 };
     let dx = target[0] - b.vel[0];
     let dz = target[1] - b.vel[2];
@@ -324,15 +371,15 @@ fn step_body(b: &mut Body, target: [f32; 2], jump: bool, dt: f32, walls: &[Aabb]
     b.vel[1] -= GRAVITY * dt;
     b.on_ground = false;
 
-    let hx = move_axis(&mut b.pos, 0, b.vel[0] * dt, walls);
+    let hx = move_axis(&mut b.pos, 0, b.vel[0] * dt, world);
     if hx {
         b.vel[0] = 0.0;
     }
-    let hz = move_axis(&mut b.pos, 2, b.vel[2] * dt, walls);
+    let hz = move_axis(&mut b.pos, 2, b.vel[2] * dt, world);
     if hz {
         b.vel[2] = 0.0;
     }
-    if move_axis(&mut b.pos, 1, b.vel[1] * dt, walls) {
+    if move_axis(&mut b.pos, 1, b.vel[1] * dt, world) {
         if b.vel[1] < 0.0 {
             b.on_ground = true;
         }
@@ -366,7 +413,7 @@ fn along(o: V3, d: V3, t: f32) -> V3 {
 impl Game {
     pub fn new(seed: u32) -> Game {
         let mut g = Game {
-            walls: build_walls(),
+            world: Rc::new(Grid::new(build_walls(seed), CELL)),
             debris: Vec::new(),
             events: Vec::new(),
             player: Player {
@@ -437,19 +484,21 @@ impl Game {
     }
 
     fn bot_spawn(&mut self) -> V3 {
-        let corner = |r: &mut Rng| if r.f() < 0.5 { -1.0 } else { 1.0 };
-        let x = corner(&mut self.rng) * self.rng.range(12.0, 18.0);
-        let z = corner(&mut self.rng) * self.rng.range(12.0, 18.0);
-        // never spawn on top of a wall
-        let probe = aabb_at([x, 0.0, z], HW, H);
-        if self.walls.iter().any(|w| overlaps(&probe, w)) {
-            return [x, 1.5, z];
+        // anywhere open that is not on top of the player
+        let reach = HALF - 2.0;
+        for _ in 0..30 {
+            let (x, z) = (self.rng.range(-reach, reach), self.rng.range(-reach, reach));
+            let (dx, dz) = (x - self.player.body.pos[0], z - self.player.body.pos[2]);
+            let probe = aabb_at([x, 0.0, z], HW, H);
+            if dx * dx + dz * dz > 30.0 * 30.0 && !self.world.find(&probe, |w| overlaps(&probe, w)) {
+                return [x, 0.0, z];
+            }
         }
-        [x, 0.0, z]
+        [0.0, 0.0, -16.0]
     }
 
     fn wall_distance(&self, o: V3, d: V3) -> f32 {
-        self.walls.iter().filter_map(|w| ray_aabb(o, d, w)).fold(RANGE, f32::min)
+        self.world.raycast(o, d, RANGE)
     }
 
     fn hurt_player(&mut self, dmg: f32) {
@@ -536,7 +585,7 @@ impl Game {
         }
     }
 
-    fn tick_debris(&mut self, dt: f32, walls: &[Aabb]) {
+    fn tick_debris(&mut self, dt: f32, world: &Grid) {
         for d in &mut self.debris {
             d.life -= dt;
             d.vel[1] -= GRAVITY * if d.glow { 0.5 } else { 1.0 } * dt;
@@ -547,7 +596,7 @@ impl Game {
                 d.pos[axis] += d.vel[axis] * dt;
                 let floor = axis == 1 && d.pos[1] < r;
                 let probe = Aabb { min: [d.pos[0] - r, d.pos[1] - r, d.pos[2] - r], max: [d.pos[0] + r, d.pos[1] + r, d.pos[2] + r] };
-                if floor || walls.iter().any(|w| overlaps(&probe, w)) {
+                if floor || world.find(&probe, |w| overlaps(&probe, w)) {
                     if floor {
                         d.pos[1] = r.max(old);
                     } else {
@@ -647,17 +696,17 @@ impl Game {
 
     pub fn tick(&mut self, dt: f32) {
         self.time += dt;
-        let walls = self.walls.clone();
-        self.tick_player(dt, &walls);
-        self.tick_bots(dt, &walls);
-        self.tick_debris(dt, &walls);
+        let world = self.world.clone();
+        self.tick_player(dt, &world);
+        self.tick_bots(dt, &world);
+        self.tick_debris(dt, &world);
         for t in &mut self.tracers {
             t.life -= dt;
         }
         self.tracers.retain(|t| t.life > 0.0);
     }
 
-    fn tick_player(&mut self, dt: f32, walls: &[Aabb]) {
+    fn tick_player(&mut self, dt: f32, world: &Grid) {
         let inp = self.input;
         self.input.look_dx = 0.0;
         self.input.look_dy = 0.0;
@@ -696,7 +745,7 @@ impl Game {
         }
         let speed = if inp.sprint { SPRINT } else { WALK } * w.speed * (1.0 - 0.4 * p.ads);
         let (was_ground, fall) = (p.body.on_ground, -p.body.vel[1]);
-        step_body(&mut p.body, [wx * speed, wz * speed], inp.jump, dt, walls);
+        step_body(&mut p.body, [wx * speed, wz * speed], inp.jump, dt, world);
         let run = (p.body.vel[0].powi(2) + p.body.vel[2].powi(2)).sqrt();
         if was_ground && !p.body.on_ground && p.body.vel[1] > 0.0 {
             self.events.push([ev::JUMP, 0.0, 0.0]);
@@ -728,7 +777,7 @@ impl Game {
         }
     }
 
-    fn tick_bots(&mut self, dt: f32, walls: &[Aabb]) {
+    fn tick_bots(&mut self, dt: f32, world: &Grid) {
         let target = self.player.body.pos;
         let target_eye = self.player.eye();
         let player_alive = self.player.alive();
@@ -758,7 +807,7 @@ impl Game {
             let strafe = (time * 1.3 + b.phase).sin() * 2.0;
             let go = if player_alive && dist > 6.0 { 3.2 } else { 0.0 };
             let tv = [nx * go - nz * strafe, nz * go + nx * strafe];
-            let blocked = step_body(&mut b.body, tv, false, dt, walls);
+            let blocked = step_body(&mut b.body, tv, false, dt, world);
             if blocked && b.body.on_ground {
                 b.body.vel[1] = JUMP;
             }
@@ -773,7 +822,7 @@ impl Game {
                 let d = len(to);
                 let dir = [to[0] / d, to[1] / d, to[2] / d];
                 b.fire_t = 0.9 + self.rng.f() * 0.6;
-                let clear = self.walls_clear(walls, eye, dir, d);
+                let clear = self.walls_clear(eye, dir, d);
                 if clear {
                     let hit = self.rng.f() < 0.3;
                     let end = if hit { target_eye } else { along(target_eye, [self.rng.range(-1.0, 1.0), self.rng.range(-0.5, 0.5), self.rng.range(-1.0, 1.0)], 1.0) };
@@ -793,8 +842,8 @@ impl Game {
         }
     }
 
-    fn walls_clear(&self, walls: &[Aabb], o: V3, d: V3, dist: f32) -> bool {
-        walls.iter().filter_map(|w| ray_aabb(o, d, w)).all(|t| t > dist)
+    fn walls_clear(&self, o: V3, d: V3, dist: f32) -> bool {
+        self.world.raycast(o, d, dist) >= dist
     }
 }
 
@@ -822,7 +871,33 @@ mod tests {
         g.player.yaw = 0.0; // facing -z
         g.input.w = true;
         idle(&mut g, 8.0);
-        assert!(g.player.body.pos[2] > -20.0 + HW - 0.01, "walked through the wall: {:?}", g.player.body.pos);
+        assert!(g.player.body.pos[2] > -HALF + HW - 0.01, "walked through the wall: {:?}", g.player.body.pos);
+    }
+
+    #[test]
+    fn generated_cover_stays_inside_the_arena_and_out_of_the_core() {
+        let core = Aabb { min: [-CORE, 0.0, -CORE], max: [CORE, 9.0, CORE] };
+        let hand_built = 19; // perimeter and the core layout, before scatter_cover
+        for seed in 1..20 {
+            let walls = build_walls(seed);
+            assert!(walls.len() > hand_built + 30, "seed {seed}: only {} walls", walls.len());
+            for w in &walls[hand_built..] {
+                assert!(w.min[0] >= -HALF && w.max[0] <= HALF && w.min[2] >= -HALF && w.max[2] <= HALF, "{w:?}");
+                assert!(!overlaps(w, &core), "in the core: {w:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn bots_spawn_in_the_open_and_away_from_the_player() {
+        let mut g = Game::new(3);
+        for _ in 0..200 {
+            let p = g.bot_spawn();
+            let probe = aabb_at(p, HW, H);
+            assert!(!g.world.find(&probe, |w| overlaps(&probe, w)), "spawned in a wall: {p:?}");
+            let d = ((p[0] - g.player.body.pos[0]).powi(2) + (p[2] - g.player.body.pos[2]).powi(2)).sqrt();
+            assert!(d > 29.0, "spawned {d} from the player");
+        }
     }
 
     #[test]
