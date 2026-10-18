@@ -31,6 +31,9 @@ uniform mat4 u_lvp;
 uniform float u_inst;
 uniform float u_skin;
 uniform mat4 u_bones[17];
+uniform float u_view;
+uniform mat3 u_envrot;
+uniform vec3 u_eyew;
 uniform float u_batch;
 uniform vec3 u_color;
 uniform float u_mat;
@@ -80,7 +83,13 @@ void main() {
     v_ushiny = inst ? i_misc.x : u_shiny;
     v_unlit = inst ? i_misc.y : u_unlit;
     v_seed = inst ? i_misc.z : u_seed;
-    v_ls = u_lvp * vec4(w.xyz + normalize(v_nrm) * 0.05, 1.0);
+    if (u_view > 0.5) {
+        // the gun is drawn in the camera's own space, but it should be lit and shadowed where it is in the world
+        vec3 nw = normalize(u_envrot * v_nrm);
+        v_ls = u_lvp * vec4(u_eyew + u_envrot * w.xyz + nw * 0.01, 1.0);
+    } else {
+        v_ls = u_lvp * vec4(w.xyz + normalize(v_nrm) * 0.05, 1.0);
+    }
     gl_Position = u_vp * w;
 }"#;
 
@@ -106,6 +115,8 @@ uniform float u_batch;
 uniform float u_pass;
 uniform float u_shon;
 uniform float u_skin;
+uniform float u_view;
+uniform mat3 u_envrot;
 // cuts to the shirt and trousers: hem height, sleeve length, which arm is bare, which leg is torn
 uniform vec4 u_cut;
 // which of hair and beard this one has
@@ -195,6 +206,15 @@ vec3 skin_detail(vec3 c, vec3 p, float aux, float wet) {
     }
     return c;
 }
+// the sky as a mirror sees it, in world directions
+vec3 sky_env(vec3 d) {
+    vec3 zen = vec3(0.34, 0.47, 0.70);
+    float h = d.y;
+    vec3 c = mix(u_fogc, zen, pow(clamp(h * 1.4, 0.0, 1.0), 0.6));
+    if (h < 0.0) c = mix(u_fogc * 0.9, vec3(0.20, 0.18, 0.16), clamp(-h * 2.5, 0.0, 1.0));
+    float sd = max(dot(d, normalize(SUN)), 0.0);
+    return c + vec3(1.0, 0.85, 0.6) * (pow(sd, 400.0) * 3.0 + pow(sd, 12.0) * 0.25);
+}
 // how much of the sun reaches this point: a 3x3 blur of hardware depth comparisons, fading out at the map's edge
 float shadow_term(vec4 ls) {
     vec3 p = ls.xyz / ls.w * 0.5 + 0.5;
@@ -279,11 +299,17 @@ void main() {
     }
     float dist = length(v_pos - u_eye);
     vec3 n = normalize(v_nrm);
+    vec3 V = normalize(u_eye - v_pos);
+    if (u_view > 0.5) {
+        n = normalize(u_envrot * n);
+        V = normalize(u_envrot * V);
+    }
     vec3 l = normalize(SUN);
     bool batch = u_batch > 0.5;
     vec3 base = batch ? v_col : v_ucol;
     float k = 1.0 - smoothstep(18.0, 60.0, dist);
-    bool organic_ = !batch && v_umat > 8.5;
+    bool organic_ = !batch && v_umat > 8.5 && v_umat < 19.5;
+    bool hard = !batch && v_umat > 19.5;
     vec3 albedo = batch ? material(base, v_mat, surf(v_pos, n), k) : (organic_ ? organic(base, v_umat, v_obj + v_seed) : base);
     if (organic_) {
         if (v_umat > 13.5) {
@@ -294,6 +320,23 @@ void main() {
             albedo = skin_detail(albedo, v_rest, v_aux, 0.0);
         } else if (v_umat > 9.5 && v_umat < 10.5 && u_skin > 0.5 && v_rest.y < 0.12 + 0.01 * noise3(v_rest * 50.0)) {
             albedo = u_shoe * (0.6 + 0.6 * noise3(v_rest * 45.0));
+        }
+    }
+    float metal = 0.0;
+    if (hard) {
+        vec3 q = v_obj;
+        float scratch = smoothstep(0.78, 0.9, noise3(q * vec3(700.0, 700.0, 50.0) + 3.0));
+        float grain = noise3(q * 420.0);
+        if (v_umat < 20.5) {
+            albedo = mix(base * (0.93 + 0.14 * grain), vec3(0.55, 0.56, 0.58), scratch * 0.25);
+            metal = 0.85;
+        } else if (v_umat < 22.5) {
+            albedo = base * (0.7 + 0.6 * grain);
+        } else if (v_umat < 23.5) {
+            albedo = mix(base * (0.8 + 0.4 * noise3(q * vec3(40.0, 40.0, 400.0))), vec3(0.62), scratch * 0.3);
+            metal = 1.0;
+        } else {
+            albedo = base * (0.9 + 0.2 * grain);
         }
     }
     float ao = 1.0;
@@ -314,7 +357,7 @@ void main() {
     float d = organic_ ? max(dot(n, l) * 0.6 + 0.4, 0.0) : max(dot(n, l), 0.0);
     float sh = u_shon > 0.5 ? shadow_term(v_ls) : 1.0;
     vec3 lit = albedo * (amb * ao + suncol * d * sh);
-    if (organic_) lit += albedo * pow(1.0 - max(dot(n, normalize(u_eye - v_pos)), 0.0), 3.0) * 0.14;
+    if (organic_) lit += albedo * pow(1.0 - max(dot(n, V), 0.0), 3.0) * 0.14;
     if (organic_ && v_umat < 9.5) {
         // light scattering under the skin: a red glow where the sun just grazes it
         float nl = dot(n, l);
@@ -329,13 +372,26 @@ void main() {
         float fall = clamp(1.0 - dd / 70.0, 0.0, 1.0) / (1.0 + dd * dd * 0.006);
         lit += albedo * vec3(1.0, 0.93, 0.78) * cone * fall * max(dot(n, -dir), 0.0) * 1.8 * u_flash;
     }
+    if (hard) {
+        // a mirror-ish finish: the sky reflected, strongest at grazing angles, plus the sun's glint
+        vec3 R = reflect(-V, n);
+        vec3 env = sky_env(R);
+        float fres = pow(1.0 - max(dot(n, V), 0.0), 4.0);
+        vec3 f0 = mix(vec3(0.04), albedo * 0.9 + 0.1, metal);
+        vec3 F = f0 + (vec3(1.0) - f0) * fres;
+        float rough = metal > 0.5 ? 0.3 : 0.55;
+        vec3 diffuse = albedo * (amb * ao + suncol * d * sh) * (1.0 - 0.85 * metal);
+        float gl = pow(max(dot(n, normalize(l + V)), 0.0), mix(180.0, 30.0, rough)) * 1.4;
+        lit = diffuse + env * F * (0.55 + 0.45 * sh) * (1.0 - 0.5 * rough) + suncol * F * gl * sh;
+    }
     float shiny = v_ushiny;
     float expo = 36.0;
+    if (hard) shiny = 0.0;
     if (organic_) {
         // blood is wet and bright, skin has a faint oily sheen, cloth none
         if (v_umat > 13.5) { shiny = 1.4; expo = 140.0; } else if (v_umat > 11.5) { shiny = 0.18; expo = 24.0; } else if (v_umat > 10.5) { shiny = 1.1; expo = 80.0; } else if (v_umat < 9.5) { shiny = 0.22; expo = 22.0; } else { shiny = 0.0; }
     }
-    float spec = pow(max(dot(n, normalize(l + normalize(u_eye - v_pos))), 0.0), expo) * shiny * sh;
+    float spec = pow(max(dot(n, normalize(l + V)), 0.0), expo) * shiny * sh;
     vec3 c = mix(lit + spec, v_ucol, v_unlit);
     float f = clamp((dist - u_fogr.x) / (u_fogr.y - u_fogr.x), 0.0, 1.0);
     o = vec4(mix(c, u_fogc, f), 1.0);
@@ -536,6 +592,24 @@ struct GpuFigure {
     hair: GpuMesh,
 }
 
+/// One part of the carbine on the GPU, with the look it is drawn in.
+struct GpuPiece {
+    vao: WebGlVertexArrayObject,
+    count: i32,
+    mat: f32,
+    color: [f32; 3],
+    shiny: f32,
+}
+
+/// The carbine and its hands, grouped by what moves together.
+struct GpuCarbine {
+    body: Vec<GpuPiece>,
+    mag: Vec<GpuPiece>,
+    trigger: Vec<GpuPiece>,
+    right_hand: Vec<GpuPiece>,
+    left_hand: Vec<GpuPiece>,
+}
+
 /// A zombie to draw this frame: its bones, how detailed it is, and what it looks like.
 struct SkinJob {
     bones: Vec<f32>,
@@ -567,6 +641,13 @@ struct Targets {
 }
 
 pub struct Renderer {
+    /// where the gun sits in the view, for inspecting it; None for the normal place
+    pub gun_offset: Cell<Option<[f32; 3]>>,
+    pub gun_yaw: Cell<f32>,
+    carbine: GpuCarbine,
+    u_view: Option<WebGlUniformLocation>,
+    u_envrot: Option<WebGlUniformLocation>,
+    u_eyew: Option<WebGlUniformLocation>,
     figures: Vec<GpuFigure>,
     jobs: RefCell<Vec<SkinJob>>,
     u_skin: Option<WebGlUniformLocation>,
@@ -845,6 +926,14 @@ impl Renderer {
         let ao_prog = link(&gl, &sky_vs, &compile(&gl, GL::FRAGMENT_SHADER, AO_FRAG)?)?;
         let comp_prog = link(&gl, &sky_vs, &compile(&gl, GL::FRAGMENT_SHADER, COMP_FRAG)?)?;
 
+        let c = crate::gunmodel::Carbine::new();
+        let carbine = GpuCarbine {
+            body: Self::upload_pieces(&gl, &c.body)?,
+            mag: Self::upload_pieces(&gl, &c.mag)?,
+            trigger: Self::upload_pieces(&gl, &c.trigger)?,
+            right_hand: Self::upload_pieces(&gl, &c.right_hand)?,
+            left_hand: Self::upload_pieces(&gl, &c.left_hand)?,
+        };
         // the zombie body at three levels of detail: close up, in the middle, far away
         let figures = [1.0, 2.0, 4.0].iter().map(|s| Self::upload_figure(&gl, &crate::body::Figure::new(*s))).collect::<Result<Vec<_>, _>>()?;
 
@@ -900,6 +989,12 @@ impl Renderer {
         let u = |n: &str| gl.get_uniform_location(&prog, n);
         let u_mat = u("u_mat");
         Ok(Renderer {
+            gun_offset: Cell::new(None),
+            gun_yaw: Cell::new(0.05),
+            carbine,
+            u_view: u("u_view"),
+            u_envrot: u("u_envrot"),
+            u_eyew: u("u_eyew"),
             figures,
             jobs: RefCell::new(Vec::new()),
             u_skin: u("u_skin"),
@@ -959,6 +1054,28 @@ impl Renderer {
             width,
             height,
         })
+    }
+
+    fn upload_pieces(gl: &GL, pieces: &[crate::gunmodel::Piece]) -> Result<Vec<GpuPiece>, String> {
+        pieces
+            .iter()
+            .map(|p| {
+                let vao = gl.create_vertex_array().ok_or("vao")?;
+                gl.bind_vertex_array(Some(&vao));
+                let vb = gl.create_buffer().ok_or("buffer")?;
+                gl.bind_buffer(GL::ARRAY_BUFFER, Some(&vb));
+                unsafe {
+                    gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(&p.mesh.verts), GL::STATIC_DRAW);
+                }
+                Self::layout(gl);
+                let ib = gl.create_buffer().ok_or("buffer")?;
+                gl.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, Some(&ib));
+                unsafe {
+                    gl.buffer_data_with_array_buffer_view(GL::ELEMENT_ARRAY_BUFFER, &js_sys::Uint32Array::view(&p.mesh.idx), GL::STATIC_DRAW);
+                }
+                Ok(GpuPiece { vao, count: p.mesh.idx.len() as i32, mat: p.mat, color: p.color, shiny: p.shiny })
+            })
+            .collect()
     }
 
     /// Puts a skinned mesh on the GPU: position, normal, four bone indices and weights, and one number for the shader.
@@ -1501,10 +1618,16 @@ impl Renderer {
         gl.uniform_matrix4fv_with_f32_array(self.u_vp.as_ref(), false, &perspective(1.2, aspect, 0.05, 200.0));
         gl.uniform3f(self.u_eye.as_ref(), 0.0, 0.0, 0.0);
         gl.uniform1f(self.u_flash.as_ref(), 0.0);
-        gl.uniform1f(self.u_shon.as_ref(), 0.0);
+        // the gun is lit and shadowed as if it were out in the world, so it needs the camera's orientation
+        let s = norm(cross(fwd, [0.0, 1.0, 0.0]));
+        let u = cross(s, fwd);
+        gl.uniform1f(self.u_view.as_ref(), 1.0);
+        gl.uniform_matrix3fv_with_f32_array(self.u_envrot.as_ref(), false, &[s[0], s[1], s[2], u[0], u[1], u[2], -fwd[0], -fwd[1], -fwd[2]]);
+        gl.uniform3f(self.u_eyew.as_ref(), eye[0], eye[1], eye[2]);
         if !(p.gun().scope && p.ads > 0.6) {
             self.draw_viewmodel(g);
         }
+        gl.uniform1f(self.u_view.as_ref(), 0.0);
         // the gun's depth goes in too, so the occlusion pass treats it as a solid object instead of shading it
         // with whatever is behind it
         self.resolve(t, true);
@@ -1739,6 +1862,48 @@ impl Renderer {
         }
     }
 
+    fn draw_piece(&self, model: &M4, p: &GpuPiece) {
+        let gl = &self.gl;
+        gl.bind_vertex_array(Some(&p.vao));
+        gl.uniform_matrix4fv_with_f32_array(self.u_model.as_ref(), false, model);
+        gl.uniform3f(self.u_color.as_ref(), p.color[0], p.color[1], p.color[2]);
+        gl.uniform1f(self.u_unlit.as_ref(), 0.0);
+        gl.uniform1f(self.u_shiny.as_ref(), p.shiny);
+        gl.uniform1f(self.u_mat.as_ref(), p.mat);
+        gl.draw_elements_with_i32(GL::TRIANGLES, p.count, GL::UNSIGNED_INT, 0);
+    }
+
+    /// The detailed carbine with its hands: the magazine comes out and goes back in during a reload while the left
+    /// hand goes to fetch it, and the trigger is pulled when it fires.
+    fn draw_carbine(&self, gun: &M4, recoil: f32, reload: f32, mag_out: f32) {
+        let c = &self.carbine;
+        for p in &c.body {
+            self.draw_piece(gun, p);
+        }
+        let mag = mul(gun, &mul(&translate(0.0, -0.24 * mag_out, 0.05 * mag_out), &around([0.0, -0.09, -0.045], &rot_x(0.3 * mag_out))));
+        for p in &c.mag {
+            self.draw_piece(&mag, p);
+        }
+        let pull = ((recoil - 0.6) * 5.0).clamp(0.0, 1.0);
+        let trig = mul(gun, &around([0.0, -0.062, -0.031], &rot_x(-0.35 * pull)));
+        for p in &c.trigger {
+            self.draw_piece(&trig, p);
+        }
+        for p in &c.right_hand {
+            self.draw_piece(gun, p);
+        }
+        // the left hand lets go of the handguard, takes the magazine and comes back
+        let ease = |a: f32, b: f32, x: f32| {
+            let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+            t * t * (3.0 - 2.0 * t)
+        };
+        let go = ease(0.0, 0.2, reload) - ease(0.78, 1.0, reload);
+        let hand = mul(gun, &translate(0.0, -0.085 * go - 0.14 * mag_out, 0.23 * go + 0.05 * mag_out));
+        for p in &c.left_hand {
+            self.draw_piece(&hand, p);
+        }
+    }
+
     fn draw_viewmodel(&self, g: &Game) {
         let p = &g.player;
         let w = p.gun();
@@ -1761,6 +1926,9 @@ impl Renderer {
         let kick = if w.pellets > 1 || w.scope { 0.09 } else { 0.05 };
 
         let (parts, flash_z, sight_y) = weapon_parts(p.weapon, mag_out, cycle);
+        // the carbine has its own detailed model, with its own muzzle and sights
+        let carbine = p.weapon == 0;
+        let (flash_z, sight_y) = if carbine { (crate::gunmodel::MUZZLE_Z, crate::gunmodel::SIGHT_Y) } else { (flash_z, sight_y) };
 
         let ads = p.ads;
         let lerp = |a: f32, b: f32| a + (b - a) * ads;
@@ -1768,17 +1936,21 @@ impl Renderer {
         let bob_y = (t * 12.0).sin() * 0.006 * walk + (t * 1.5).sin() * 0.002 * (1.0 - ads);
         let gun = mul(
             &translate(
-                lerp(0.15 + bob_x, 0.0),
-                lerp(-0.17 + bob_y - 0.10 * dip - 0.35 * raise, -sight_y - 0.004),
-                lerp(-0.38, -0.30) + kick * recoil,
+                lerp(self.gun_offset.get().map_or(0.15, |o| o[0]) + bob_x, 0.0),
+                lerp(self.gun_offset.get().map_or(-0.17, |o| o[1]) + bob_y - 0.10 * dip - 0.35 * raise, -sight_y - if carbine { 0.0 } else { 0.004 }),
+                lerp(self.gun_offset.get().map_or(-0.38, |o| o[2]), -0.30) + kick * recoil,
             ),
             &mul(
-                &rot_y(0.05 * (1.0 - ads)),
+                &rot_y(self.gun_yaw.get() * (1.0 - ads)),
                 &mul(&rot_x((0.07 * recoil - 0.25 * dip) * (1.0 - 0.5 * ads) + 0.8 * raise), &rot_z(0.5 * dip)),
             ),
         );
-        for part in &parts {
-            self.draw_part(&gun, part, 0.0);
+        if carbine {
+            self.draw_carbine(&gun, recoil, reload, mag_out);
+        } else {
+            for part in &parts {
+                self.draw_part(&gun, part, 0.0);
+            }
         }
 
         if recoil > 0.55 && w.delay < 0.5 || recoil > 0.9 {

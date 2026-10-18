@@ -39,18 +39,18 @@ pub struct Mesh {
 
 type V = V3;
 
-fn sub(a: V, b: V) -> V {
+pub(crate) fn sub(a: V, b: V) -> V {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
-fn dot(a: V, b: V) -> f32 {
+pub(crate) fn dot(a: V, b: V) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
-fn len(a: V) -> f32 {
+pub(crate) fn len(a: V) -> f32 {
     dot(a, a).sqrt()
 }
 
 /// Union of two shapes with the join rounded off over a distance `k`.
-fn smin(a: f32, b: f32, k: f32) -> f32 {
+pub(crate) fn smin(a: f32, b: f32, k: f32) -> f32 {
     let h = (k - (a - b).abs()).max(0.0) / k;
     a.min(b) - h * h * k * 0.25
 }
@@ -61,7 +61,7 @@ fn smooth_sub(a: f32, b: f32, k: f32) -> f32 {
 }
 
 /// A cone with rounded ends: radius `r1` at `a`, `r2` at `b`.
-fn cone(p: V, a: V, b: V, r1: f32, r2: f32) -> f32 {
+pub(crate) fn cone(p: V, a: V, b: V, r1: f32, r2: f32) -> f32 {
     let ba = sub(b, a);
     let l2 = dot(ba, ba);
     let rr = r1 - r2;
@@ -85,7 +85,7 @@ fn cone(p: V, a: V, b: V, r1: f32, r2: f32) -> f32 {
 }
 
 /// An ellipsoid of half-sizes `r` centred on `c` (a good bound on the distance, not the exact distance).
-fn ell(p: V, c: V, r: V) -> f32 {
+pub(crate) fn ell(p: V, c: V, r: V) -> f32 {
     let q = [(p[0] - c[0]) / r[0], (p[1] - c[1]) / r[1], (p[2] - c[2]) / r[2]];
     let k0 = len(q);
     let k1 = len([q[0] / r[0], q[1] / r[1], q[2] / r[2]]);
@@ -329,7 +329,7 @@ fn weights(p: V, segs: &[Seg]) -> ([f32; 4], [f32; 4]) {
 
 /// Surface nets: samples `f` on a grid of spacing `h` over the box `lo..hi`, only near the surface, and builds a
 /// smooth mesh of where it crosses zero. Returns triangles over vertices at (position, normal).
-fn surface_nets(f: &dyn Fn(V) -> f32, lo: V, hi: V, h: f32) -> (Vec<V>, Vec<V>, Vec<u32>) {
+pub(crate) fn surface_nets(f: &dyn Fn(V) -> f32, lo: V, hi: V, h: f32) -> (Vec<V>, Vec<V>, Vec<u32>) {
     let n = [0, 1, 2].map(|a| ((hi[a] - lo[a]) / h).ceil() as usize + 1);
     let at = |i: usize, j: usize, k: usize| i + n[0] * (j + n[1] * k);
     let pos = |i: usize, j: usize, k: usize| [lo[0] + i as f32 * h, lo[1] + j as f32 * h, lo[2] + k as f32 * h];

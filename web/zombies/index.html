@@ -139,6 +139,7 @@ if (params.has("at")) {
   const [x, z, yaw = 0, y = 0] = params.get("at").split(",").map(Number);
   client.teleport(x, y, z, yaw);
 }
+if (params.has("gun")) { const [x, y, z, yaw = 0.05] = params.get("gun").split(",").map(Number); client.set_gun_offset(x, y, z, yaw); }
 if (params.has("show")) client.show_zombies(Number(params.get("show")) || 3, Number(params.get("dist")) || 2.8, Number(params.get("side")) || 0);
 const locked = () => document.pointerLockElement === canvas;
 menu.addEventListener("click", () => { sound.start(); canvas.requestPointerLock(); });

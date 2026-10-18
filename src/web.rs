@@ -105,6 +105,12 @@ impl Client {
         }
     }
 
+    /// Dev view: puts the gun somewhere else in the picture, to look at it.
+    pub fn set_gun_offset(&mut self, x: f32, y: f32, z: f32, yaw: f32) {
+        self.renderer.gun_offset.set(Some([x, y, z]));
+        self.renderer.gun_yaw.set(yaw);
+    }
+
     pub fn remove_bots(&mut self) {
         self.game.bots.clear();
     }
