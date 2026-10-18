@@ -89,6 +89,7 @@ impl Client {
     pub fn teleport(&mut self, x: f32, y: f32, z: f32, yaw: f32, pitch: f32) {
         self.game.player.body.pos = [x, y, z];
         self.game.player.step_y = 0.0;
+        self.game.player.climb = None;
         self.game.player.yaw = yaw;
         self.game.player.pitch = pitch;
     }

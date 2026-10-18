@@ -1850,6 +1850,8 @@ impl Renderer {
             // the arms wander up and down and out from the body on their own, never in step
             let sh_a = (sh_a + 0.22 * wander(1.3, 5.0 + side)) * (1.0 - 0.75 * dying) + 0.9 * flinch;
             let el_a = el_a + 0.25 * wander(1.7, 9.0 + side);
+            // climbing, both hands reach up over its head onto the ledge
+            let (sh_a, el_a) = if b.climbing() { (2.7 + 0.15 * wander(3.0, side), 0.3) } else { (sh_a, el_a) };
             let splay = 0.12 + 0.1 * wander(0.8, 13.0 + side);
             let sh = mul(&chest, &around([side * body::ARM_X, 1.41, 0.0], &mul(&rot_z(side * splay), &rot_x(sh_a))));
             let el = mul(&sh, &around([0.0, 1.13, 0.0], &rot_x(el_a)));

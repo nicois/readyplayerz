@@ -263,6 +263,8 @@ pub struct Player {
     pub land_t: f32,
     /// how far the eye trails the body after stepping up or down a step, eased away so stairs feel like a slope
     pub step_y: f32,
+    /// pulling up onto a ledge, if partway through it
+    pub climb: Option<Climb>,
     /// seconds since last damage, for regeneration
     since_hurt: f32,
     /// 1 full, 0 empty: sprinting spends it
@@ -338,6 +340,8 @@ pub struct Bot {
     twitch: V3,
     twitch_t: f32,
     stagger: f32,
+    /// pulling itself up onto a ledge on its route, if partway through it
+    climb: Option<Climb>,
     /// where it last stood a metre away from, and how long ago that was: see `STUCK_T`
     anchor: V3,
     stuck_t: f32,
@@ -352,12 +356,17 @@ pub const CORPSE_T: f32 = 6.0;
 impl Bot {
     /// A walker; `spawn_zombie` makes the others from it.
     pub(crate) fn zombie(pos: V3, phase: f32) -> Bot {
-        Bot { body: Body { pos, ..Body::default() }, hp: 100.0, alive: true, fire_t: 0.5, phase, kind: 0, speed: 3.0, scale: 1.0, swing_t: 0.0, growl_t: 0.0, hit_t: 0.0, corpse: false, dead_t: 0.0, face: 0.0, head: [0.0; 3], twitch: [0.0; 3], twitch_t: 0.5, stagger: 0.0, anchor: pos, stuck_t: 0.0, direct: false }
+        Bot { body: Body { pos, ..Body::default() }, hp: 100.0, alive: true, fire_t: 0.5, phase, kind: 0, speed: 3.0, scale: 1.0, swing_t: 0.0, growl_t: 0.0, hit_t: 0.0, corpse: false, dead_t: 0.0, face: 0.0, head: [0.0; 3], twitch: [0.0; 3], twitch_t: 0.5, stagger: 0.0, climb: None, anchor: pos, stuck_t: 0.0, direct: false }
     }
     pub fn body_box(&self) -> Aabb {
         let (p, s) = (self.body.pos, self.scale);
         Aabb { min: [p[0] - 0.32 * s, p[1], p[2] - 0.32 * s], max: [p[0] + 0.32 * s, p[1] + 1.4 * s, p[2] + 0.32 * s] }
     }
+    /// Pulling itself up onto a ledge: hands up on it, and no swinging at anyone.
+    pub fn climbing(&self) -> bool {
+        self.climb.is_some()
+    }
+
     pub fn head_box(&self) -> Aabb {
         let (p, s) = (self.body.pos, self.scale);
         let (sy, cy) = self.face.sin_cos();
@@ -450,6 +459,74 @@ fn move_axis(pos: &mut V3, axis: usize, delta: f32, world: &Grid, lift: f32) -> 
         }
     }
     hit
+}
+
+/// How high above the feet a ledge can be and still be caught: about as far as the hands reach.
+const LEDGE_REACH: f32 = 2.1;
+/// A ledge lower than this is a step or a hop, not a climb.
+const LEDGE_LOW: f32 = 0.25;
+/// How long a pull up takes: so long and so much more a metre of it. Zombies are slower about it.
+const CLIMB_PACE: (f32, f32) = (0.2, 0.15);
+const BOT_CLIMB_PACE: (f32, f32) = (0.4, 0.3);
+/// Zombies climb from the ground whatever the player can get onto by jumping and pulling up.
+const BOT_REACH: f32 = crate::nav::LEDGE + 0.1;
+
+/// A pull up onto a ledge: the body rises beside the face to the top, then moves in over it.
+#[derive(Clone, Copy)]
+pub struct Climb {
+    from: V3,
+    to: V3,
+    t: f32,
+    time: f32,
+}
+
+impl Climb {
+    /// Where the body is `t` seconds in, and whether it is done.
+    fn at(&self) -> (V3, bool) {
+        let ease = |x: f32| {
+            let x = x.clamp(0.0, 1.0);
+            x * x * (3.0 - 2.0 * x)
+        };
+        let s = self.t / self.time;
+        let (up, over) = (ease(s / 0.7), ease((s - 0.7) / 0.3));
+        let (a, b) = (self.from, self.to);
+        ([a[0] + (b[0] - a[0]) * over, a[1] + (b[1] - a[1]) * up, a[2] + (b[2] - a[2]) * over], s >= 1.0)
+    }
+}
+
+/// A ledge in front of a body at `pos` facing `yaw` that it can pull itself up onto: the top of anything within a
+/// metre or so ahead, between a hop and `reach` above the feet, with room to rise beside it and stand on it.
+fn find_ledge(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), world: &Grid) -> Option<Climb> {
+    let f = [yaw.sin(), 0.0, -yaw.cos()];
+    let free = |p: V3| {
+        let b = aabb_at(p, HW, H);
+        !world.find(&b, |w| overlaps(&b, w))
+    };
+    for d in [0.5, 0.7, 0.9, 1.1] {
+        let o = [pos[0] + f[0] * d, pos[1] + reach + 0.05, pos[2] + f[2] * d];
+        let t = world.raycast(o, [0.0, -1.0, 0.0], reach);
+        // starting inside something is a wall too tall to reach the top of; no hit is nothing to climb
+        if t < 0.02 || t > reach + 0.05 - LEDGE_LOW {
+            continue;
+        }
+        // stand well onto the top if there is room, otherwise just over the edge, on whatever is highest under the
+        // feet there (the next step up, on a stair), so long as that is in reach too
+        for c in [[o[0] + f[0] * 0.35, o[2] + f[2] * 0.35], [o[0], o[2]]] {
+            let column = Aabb { min: [c[0] - HW, pos[1] + 0.05, c[1] - HW], max: [c[0] + HW, pos[1] + reach + 0.05, c[1] + HW] };
+            let mut top = 0.0f32;
+            world.find(&column, |w| {
+                if overlaps(&column, w) {
+                    top = top.max(w.max[1]);
+                }
+                false
+            });
+            let top = top + EPS;
+            if top <= pos[1] + reach + 0.05 && free([c[0], top, c[1]]) && free([pos[0], top, pos[2]]) {
+                return Some(Climb { from: pos, to: [c[0], top, c[1]], t: 0.0, time: pace.0 + pace.1 * (top - pos[1]) });
+            }
+        }
+    }
+    None
 }
 
 /// Shared movement for the player and bots. Returns true if blocked horizontally.
@@ -664,6 +741,7 @@ impl Game {
                 sprint_t: 0.0,
                 land_t: 0.0,
                 step_y: 0.0,
+                climb: None,
                 since_hurt: 99.0,
                 stamina: 1.0,
                 winded: false,
@@ -692,6 +770,7 @@ impl Game {
         let p = &mut self.player;
         p.body = Body { pos: at, ..Body::default() };
         p.step_y = 0.0;
+        p.climb = None;
         // look at the middle of the map
         p.yaw = (-at[0]).atan2(at[2]);
         p.pitch = 0.0;
@@ -1028,7 +1107,26 @@ impl Game {
         p.land_t = (p.land_t - dt * 3.0).max(0.0);
         let speed = if sprinting { SPRINT } else { WALK } * w.speed * (1.0 - 0.4 * p.ads);
         let (was_ground, fall, was_y) = (p.body.on_ground, -p.body.vel[1], p.body.pos[1]);
-        step_body(&mut p.body, [wx * speed, wz * speed], inp.jump, dt, world);
+        // space in the air near a ledge pulls the player up onto it, the gun lowered while the hands are busy
+        if p.climb.is_none() && !p.body.on_ground && inp.jump {
+            p.climb = find_ledge(p.body.pos, p.yaw, LEDGE_REACH, CLIMB_PACE, world);
+            if p.climb.is_some() {
+                self.events.push([ev::JUMP, 0.0, 0.0]);
+            }
+        }
+        if let Some(c) = &mut p.climb {
+            c.t += dt;
+            let (at, done) = c.at();
+            p.body.pos = at;
+            p.body.vel = [0.0; 3];
+            p.body.on_ground = done;
+            p.equip_t = p.equip_t.max(EQUIP_TIME * 0.7);
+            if done {
+                p.climb = None;
+            }
+        } else {
+            step_body(&mut p.body, [wx * speed, wz * speed], inp.jump, dt, world);
+        }
         // a step up or down moves the body at once; the eye stays put and catches up
         p.step_y *= (-STEP_EASE * dt).exp();
         if was_ground && p.body.on_ground {
@@ -1084,7 +1182,13 @@ impl Game {
 
         for i in 0..self.bots.len() {
             if !self.bots[i].alive {
-                self.bots[i].dead_t += dt;
+                // one shot off a wall or out of a hop drops to the ground
+                let b = &mut self.bots[i];
+                b.dead_t += dt;
+                b.climb = None;
+                if !b.body.on_ground {
+                    step_body(&mut b.body, [0.0, 0.0], false, dt, world);
+                }
                 continue;
             }
             let b = &mut self.bots[i];
@@ -1148,6 +1252,7 @@ impl Game {
 
             if dist > LOD_RADIUS && player_alive {
                 // out of sight and out of reach: no physics, no shooting, just follow the route
+                b.climb = None;
                 if let Some(to) = self.nav.next(b.body.pos) {
                     let (rx, rz) = (to[0] - b.body.pos[0], to[2] - b.body.pos[2]);
                     let l = (rx * rx + rz * rz).sqrt().max(1e-4);
@@ -1187,36 +1292,54 @@ impl Game {
                 b.direct = target[1] - b.body.pos[1] < 1.1
                     && world.raycast(knee, [to_player[0] / reach, to_player[1] / reach, to_player[2] / reach], reach) >= reach;
             }
-            let mut tv = match self.nav.next(b.body.pos) {
-                Some(to) if !b.direct => {
-                    let (rx, rz) = (to[0] - b.body.pos[0], to[2] - b.body.pos[2]);
-                    let l = (rx * rx + rz * rz).sqrt().max(1e-4);
-                    [rx / l * go, rz / l * go]
+            if let Some(c) = &mut b.climb {
+                c.t += dt;
+                let (at, done) = c.at();
+                b.body.pos = at;
+                b.body.vel = [0.0; 3];
+                b.body.on_ground = done;
+                if done {
+                    b.climb = None;
                 }
-                // out in the open it lurches from side to side; on a route it keeps to the route, which may be a
-                // narrow stair
-                _ => {
-                    let st = if dist > 2.5 && go > 0.0 { b.stagger } else { 0.0 };
-                    [nx * go - nz * st, nz * go + nx * st]
+            } else {
+                let next = self.nav.next(b.body.pos);
+                let mut tv = match next {
+                    Some(to) if !b.direct => {
+                        let (rx, rz) = (to[0] - b.body.pos[0], to[2] - b.body.pos[2]);
+                        let l = (rx * rx + rz * rz).sqrt().max(1e-4);
+                        [rx / l * go, rz / l * go]
+                    }
+                    // out in the open it lurches from side to side; on a route it keeps to the route, which may
+                    // be a narrow stair
+                    _ => {
+                        let st = if dist > 2.5 && go > 0.0 { b.stagger } else { 0.0 };
+                        [nx * go - nz * st, nz * go + nx * st]
+                    }
+                };
+                // push apart from neighbours so a horde doesn't stack into one body
+                for (j, (pj, aj)) in snap.iter().enumerate() {
+                    let (ox, oz) = (b.body.pos[0] - pj[0], b.body.pos[2] - pj[2]);
+                    let d = (ox * ox + oz * oz).sqrt();
+                    if j != i && *aj && d < 0.9 && d > 0.001 {
+                        tv[0] += ox / d * (0.9 - d) * 4.0;
+                        tv[1] += oz / d * (0.9 - d) * 4.0;
+                    }
                 }
-            };
-            // push apart from neighbours so a horde doesn't stack into one body
-            for (j, (pj, aj)) in snap.iter().enumerate() {
-                let (ox, oz) = (b.body.pos[0] - pj[0], b.body.pos[2] - pj[2]);
-                let d = (ox * ox + oz * oz).sqrt();
-                if j != i && *aj && d < 0.9 && d > 0.001 {
-                    tv[0] += ox / d * (0.9 - d) * 4.0;
-                    tv[1] += oz / d * (0.9 - d) * 4.0;
+                let blocked = step_body(&mut b.body, tv, false, dt, world);
+                // a route up a ledge too tall to step or hop: once at its foot, it pulls itself up
+                let ledge = next.filter(|to| !b.direct && to[1] - b.body.pos[1] > 0.65);
+                if let Some(to) = ledge.filter(|to| (to[0] - b.body.pos[0]).hypot(to[2] - b.body.pos[2]) < 1.5) {
+                    let yaw = (to[0] - b.body.pos[0]).atan2(-(to[2] - b.body.pos[2]));
+                    b.climb = find_ledge(b.body.pos, yaw, BOT_REACH, BOT_CLIMB_PACE, world);
                 }
-            }
-            let blocked = step_body(&mut b.body, tv, false, dt, world);
-            if blocked && b.body.on_ground {
-                b.body.vel[1] = JUMP;
+                if b.climb.is_none() && blocked && b.body.on_ground {
+                    b.body.vel[1] = JUMP;
+                }
             }
 
             b.swing_t = (b.swing_t - dt * 2.5).max(0.0);
             b.fire_t -= dt;
-            if player_alive && dist < 1.7 && (target[1] - b.body.pos[1]).abs() < 1.6 && b.fire_t <= 0.0 {
+            if player_alive && b.climb.is_none() && dist < 1.7 && (target[1] - b.body.pos[1]).abs() < 1.6 && b.fire_t <= 0.0 {
                 b.fire_t = 0.9;
                 b.swing_t = 1.0;
                 dmg += if b.kind == 2 { 30.0 } else { 12.0 };
@@ -1228,6 +1351,7 @@ impl Game {
             let at = self.zombie_spawn();
             let b = &mut self.bots[i];
             b.body = Body { pos: at, ..Body::default() };
+            b.climb = None;
             b.anchor = at;
             b.stuck_t = 0.0;
         }
@@ -1668,6 +1792,105 @@ mod tests {
         g.input.fire = false;
         idle(&mut g, WEAPONS[3].delay);
         assert_eq!(g.player.spread(), WEAPONS[3].spread);
+    }
+
+    /// The arena with one box `h` high across the way, its face 0.5 m in front of a player facing it.
+    fn ledge_ahead(h: f32) -> Game {
+        let mut walls = map::perimeter();
+        walls.push(block(0.0, -3.5, 4.0, h, 2.0));
+        let mut g = Game::with_walls(1, walls);
+        g.bots.clear();
+        g.player.body.pos = [0.0, 0.0, -1.6];
+        g.player.yaw = 0.0;
+        g
+    }
+
+    #[test]
+    fn space_in_the_air_pulls_the_player_up_onto_a_ledge() {
+        let mut g = ledge_ahead(2.0);
+        g.input.jump = true;
+        idle(&mut g, 0.1);
+        g.input.jump = false;
+        idle(&mut g, 1.5);
+        let p = g.player.body.pos;
+        assert!((p[1] - 2.0).abs() < 0.05 && p[2] < -2.5, "ended at {p:?}, not on top of the box");
+        assert!(g.player.body.on_ground);
+    }
+
+    #[test]
+    fn a_ledge_out_of_reach_or_without_space_is_not_climbed() {
+        // too high to reach even at the top of a jump
+        let mut g = ledge_ahead(3.6);
+        g.input.jump = true;
+        idle(&mut g, 2.0);
+        assert!(g.player.body.pos[1] < 1.5, "climbed a 3.6 m wall: {:?}", g.player.body.pos);
+        // walking into a crate without jumping only bumps into it
+        let mut g = ledge_ahead(1.0);
+        g.input.w = true;
+        idle(&mut g, 1.5);
+        assert!(g.player.body.pos[1] < 0.01, "got onto the crate without jumping: {:?}", g.player.body.pos);
+    }
+
+    #[test]
+    fn a_ledge_is_caught_falling_past_it() {
+        // short of a roof after a jump: falling with its edge at head height
+        let mut g = ledge_ahead(3.5);
+        g.player.body.pos[1] = 2.2;
+        g.player.body.vel[1] = -4.0;
+        g.player.body.on_ground = false;
+        g.input.jump = true;
+        idle(&mut g, 0.1);
+        g.input.jump = false;
+        idle(&mut g, 1.5);
+        let p = g.player.body.pos;
+        assert!((p[1] - 3.5).abs() < 0.05, "fell to {p:?} instead of pulling up");
+        assert_eq!(g.player.hp, 100.0);
+    }
+
+    /// A container with no stairs, the player camped on top and a zombie on the ground 8 m off.
+    fn camped_container() -> Game {
+        let mut walls = map::perimeter();
+        walls.push(block(0.0, 0.0, 12.0, 2.7, 2.5));
+        let mut g = Game::with_walls(1, walls);
+        g.bots.clear();
+        g.player.hp = 1e6;
+        g.player.body.pos = [0.0, 2.7, 0.0];
+        g.bots.push(Bot::zombie([0.0, 0.0, 8.0], 0.0));
+        g
+    }
+
+    #[test]
+    fn zombies_climb_up_after_a_player_on_a_container() {
+        let mut g = camped_container();
+        g.tick(STEP);
+        let hp = g.player.hp;
+        let mut climbed = false;
+        for _ in 0..(15.0 / STEP) as usize {
+            g.tick(STEP);
+            climbed |= g.bots[0].climb.is_some();
+            if g.player.hp < hp {
+                assert!(climbed, "bitten from below");
+                return;
+            }
+        }
+        panic!("the zombie never got up to the player: it is at {:?}", g.bots[0].body.pos);
+    }
+
+    #[test]
+    fn a_zombie_shot_off_a_wall_falls_down() {
+        let mut g = camped_container();
+        for _ in 0..(15.0 / STEP) as usize {
+            g.tick(STEP);
+            let b = &g.bots[0];
+            if b.climb.is_some() && b.body.pos[1] > 1.0 {
+                break;
+            }
+        }
+        assert!(g.bots[0].body.pos[1] > 1.0, "never caught it partway up");
+        g.bots[0].alive = false;
+        idle(&mut g, 1.5);
+        let y = g.bots[0].body.pos[1];
+        assert!(y < 0.01, "the body hangs on the wall at {y}");
     }
 
     #[test]

@@ -19,6 +19,10 @@ const DROP: f32 = 1.3;
 const REACH_UP: f32 = 1.0;
 /// Body height a standing spot needs clear above it.
 const HEADROOM: f32 = 1.8;
+/// Tallest ledge a bot pulls itself up onto (see `sim::BOT_REACH`), straight on only, with room above it to rise;
+/// a climb costs as much as walking this many steps further, so stairs win where there are any.
+pub const LEDGE: f32 = 3.4;
+const LEDGE_COST: u32 = 40;
 
 /// One standable spot: the middle of a cell at some height.
 pub struct Nav {
@@ -27,6 +31,8 @@ pub struct Nav {
     /// heights of the spots in each cell: `spots[start[c]..start[c + 1]]`
     start: Vec<u32>,
     spots: Vec<f32>,
+    /// how high the open air goes above each spot
+    ceil: Vec<f32>,
     /// path cost to the goal, 10 per straight step and 14 per diagonal
     cost: Vec<u32>,
     goal: Option<usize>,
@@ -39,6 +45,7 @@ impl Nav {
         let n = (2.0 * half / CELL).ceil() as usize;
         let mut start = Vec::with_capacity(n * n + 1);
         let mut spots = Vec::new();
+        let mut ceil = Vec::new();
         let mut spans: Vec<(f32, f32)> = Vec::new();
         for z in 0..n {
             for x in 0..n {
@@ -59,13 +66,14 @@ impl Nav {
                 for h in tops {
                     if !spans.iter().any(|(lo, hi)| *lo < h + HEADROOM && *hi > h + 0.02) {
                         spots.push(h);
+                        ceil.push(spans.iter().filter(|s| s.1 > h + 0.02).map(|s| s.0).fold(f32::INFINITY, f32::min));
                     }
                 }
             }
         }
         start.push(spots.len() as u32);
         let total = spots.len();
-        Nav { half, n, start, spots, cost: vec![UNREACHED; total], goal: None }
+        Nav { half, n, start, spots, ceil, cost: vec![UNREACHED; total], goal: None }
     }
 
     fn cell_of(&self, x: f32, z: f32) -> Option<(i32, i32)> {
@@ -101,12 +109,24 @@ impl Nav {
         to - from <= CLIMB && from - to <= DROP
     }
 
-    /// The spot at `c2` a bot standing at `h` in `c` can walk to, if any. Diagonals need both
-    /// cells beside them to be passable too, so nobody cuts a corner through a wall.
-    fn move_to(&self, c: (i32, i32), h: f32, d: (i32, i32)) -> Option<usize> {
+    /// Whether a bot on spot `from` can pull itself up onto a ledge at height `to`: too tall to step up, within
+    /// reach, and with the air clear above it for the body to rise beside the face.
+    fn can_climb(&self, from: usize, to: f32) -> bool {
+        let rise = to - self.spots[from];
+        rise > CLIMB && rise <= LEDGE && self.ceil[from] >= to + HEADROOM + 0.05
+    }
+
+    /// The spot at `c2` a bot standing on spot `from` in `c` can walk to, if any, or failing that climb up onto
+    /// (straight on only). Diagonals need both cells beside them to be passable too, so nobody cuts a corner
+    /// through a wall.
+    fn move_to(&self, c: (i32, i32), from: usize, d: (i32, i32)) -> Option<usize> {
+        let h = self.spots[from];
         let c2 = (c.0 + d.0, c.1 + d.1);
         let best = |cell: (i32, i32), from: f32| self.in_cell(cell).filter(|&s| self.can_step(from, self.spots[s])).min_by(|a, b| (self.spots[*a] - from).abs().partial_cmp(&(self.spots[*b] - from).abs()).unwrap());
-        let to = best(c2, h)?;
+        let Some(to) = best(c2, h) else {
+            let straight = d.0 == 0 || d.1 == 0;
+            return self.in_cell(c2).filter(|&s| straight && self.can_climb(from, self.spots[s])).min_by(|a, b| self.spots[*a].partial_cmp(&self.spots[*b]).unwrap());
+        };
         if d.0 != 0 && d.1 != 0 {
             let t = self.spots[to];
             for side in [(c.0 + d.0, c.1), (c.0, c.1 + d.1)] {
@@ -187,10 +207,11 @@ impl Nav {
                 // walk the field backwards: find the spots that can step onto this one
                 let from = (c.0 + dx, c.1 + dz);
                 for j in self.in_cell(from) {
-                    if self.move_to(from, self.spots[j], (-dx, -dz)) != Some(i) || !self.can_step(self.spots[j], h) {
+                    if self.move_to(from, j, (-dx, -dz)) != Some(i) {
                         continue;
                     }
-                    let nd = d + if dx != 0 && dz != 0 { 14 } else { 10 };
+                    let climb = if h - self.spots[j] > CLIMB { LEDGE_COST } else { 0 };
+                    let nd = d + climb + if dx != 0 && dz != 0 { 14 } else { 10 };
                     if nd < self.cost[j] {
                         self.cost[j] = nd;
                         heap.push(Reverse((nd, j)));
@@ -237,10 +258,10 @@ impl Nav {
         if here == UNREACHED || here == 0 {
             return None;
         }
-        let (c, h) = (self.cell_at(s), self.spots[s]);
+        let c = self.cell_at(s);
         let mut best = (here, None);
         for d in NEIGHBOURS {
-            if let Some(to) = self.move_to(c, h, d) {
+            if let Some(to) = self.move_to(c, s, d) {
                 if self.cost[to] < best.0 {
                     best = (self.cost[to], Some(to));
                 }
