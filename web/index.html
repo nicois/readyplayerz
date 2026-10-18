@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arena</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #12182a; overflow: hidden; font: 14px/1.4 ui-monospace, Menlo, monospace; color: #e8ecff; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+  #cross { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; }
+  #cross::before, #cross::after { content: ""; position: absolute; background: #fff; opacity: .85; }
+  #cross::before { left: 10px; top: 0; width: 2px; height: 22px; }
+  #cross::after { top: 10px; left: 0; height: 2px; width: 22px; }
+  #cross { transition: transform .05s; }
+  #cross.hit { transform: rotate(45deg) scale(1.3); filter: drop-shadow(0 0 4px #ff5a5a); }
+  #flash { position: absolute; inset: 0; background: radial-gradient(transparent 45%, rgba(255,40,40,.6)); opacity: 0; }
+  #stats { position: absolute; left: 20px; bottom: 18px; font-size: 22px; letter-spacing: .04em; text-shadow: 0 1px 3px #000; }
+  #stats small { display: block; font-size: 13px; opacity: .7; }
+  #ammo { position: absolute; right: 22px; bottom: 18px; font-size: 34px; text-shadow: 0 1px 3px #000; text-align: right; }
+  #ammo small { display: block; font-size: 13px; opacity: .7; }
+  #score { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); font-size: 18px; text-shadow: 0 1px 3px #000; }
+  #dead { position: absolute; top: 40%; width: 100%; text-align: center; font-size: 28px; display: none; text-shadow: 0 2px 6px #000; }
+  #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10,14,28,.72); cursor: pointer; }
+  #menu div { text-align: center; max-width: 440px; padding: 0 20px; }
+  #menu h1 { margin: 0 0 6px; font-size: 40px; letter-spacing: .12em; }
+  #menu p { margin: 4px 0; opacity: .8; }
+  #menu .go { margin-top: 18px; font-size: 18px; opacity: 1; }
+  #err { color: #ff8a8a; }
+  #bar { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; gap: 6px; }
+  .slot { min-width: 74px; padding: 5px 8px; text-align: center; background: rgba(10,14,28,.45); border: 1px solid rgba(255,255,255,.18); border-radius: 4px; opacity: .6; text-shadow: 0 1px 3px #000; }
+  .slot b { display: block; font-size: 11px; font-weight: normal; opacity: .6; }
+  .slot.on { opacity: 1; border-color: #ffd36a; background: rgba(40,34,10,.55); }
+  #scope { position: absolute; inset: 0; display: none; background: radial-gradient(circle at center, transparent 0, transparent 30vmin, #000 30.4vmin); }
+  #scope::before, #scope::after { content: ""; position: absolute; background: #000; }
+  #scope::before { left: 50%; top: calc(50% - 30vmin); width: 2px; height: 60vmin; margin-left: -1px; }
+  #scope::after { top: 50%; left: calc(50% - 30vmin); height: 2px; width: 60vmin; margin-top: -1px; }
+  #scope i { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: #ff3b3b; }
+  #loadout { display: flex; gap: 10px; justify-content: center; margin: 18px 0 4px; }
+  .card { width: 118px; padding: 10px 8px; text-align: center; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.2); border-radius: 6px; cursor: pointer; }
+  .card:hover { background: rgba(255,255,255,.12); }
+  .card.on { border-color: #ffd36a; background: rgba(255,211,106,.14); }
+  .card h3 { margin: 0 0 6px; font-size: 15px; letter-spacing: .06em; }
+  .card small { display: block; font-size: 12px; opacity: .75; text-align: left; }
+  #menu div.wide { max-width: 640px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="flash"></div>
+  <div id="cross"></div>
+  <div id="scope"><i></i></div>
+  <div id="score"></div>
+  <div id="dead"></div>
+  <div id="stats"><span id="hp">100</span> HP<small id="kd"></small></div>
+  <div id="ammo"><span id="am">30</span> / <span id="mg">30</span><small id="rl"></small></div>
+  <div id="bar"></div>
+</div>
+<div id="menu"><div class="wide">
+  <h1>ARENA</h1>
+  <p>WASD move &middot; Shift sprint &middot; Space jump</p>
+  <p>Mouse aim &middot; Click shoot &middot; Right-click aim down sights &middot; R reload</p>
+  <p>1-4 or mouse wheel switch gun</p>
+  <div id="loadout"></div>
+  <p>Headshots hurt. Red boxes shoot back.</p>
+  <p class="go" id="go">Click to play</p>
+  <p id="err"></p>
+</div></div>
+<script type="module">
+import init, { Client } from "./pkg/arena.js";
+
+const canvas = document.getElementById("c");
+const menu = document.getElementById("menu");
+const err = document.getElementById("err");
+const $ = id => document.getElementById(id);
+
+function size() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(innerWidth * dpr);
+  canvas.height = Math.floor(innerHeight * dpr);
+  return [canvas.width, canvas.height];
+}
+
+let client;
+try {
+  await init();
+  size();
+  client = new Client(canvas);
+} catch (e) {
+  err.textContent = String(e);
+  throw e;
+}
+addEventListener("resize", () => client.resize(...size()));
+
+const names = client.weapon_names();
+const stats = client.weapon_stats();
+const cards = [], slots = [];
+names.forEach((name, i) => {
+  const [dmg, rpm, mag, rel] = stats.slice(i * 4, i * 4 + 4);
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `<h3>${i + 1} &middot; ${name}</h3><small>${dmg} dmg</small><small>${Math.round(rpm)} rpm</small><small>${mag} rounds</small><small>${rel}s reload</small>`;
+  card.addEventListener("click", () => client.select_weapon(i));
+  $("loadout").appendChild(card);
+  cards.push(card);
+  const slot = document.createElement("div");
+  slot.className = "slot";
+  slot.innerHTML = `${name}<b>${i + 1}</b>`;
+  $("bar").appendChild(slot);
+  slots.push(slot);
+});
+// clicking a card picks the gun and the click then falls through to start playing
+
+const locked = () => document.pointerLockElement === canvas;
+menu.addEventListener("click", () => canvas.requestPointerLock());
+document.addEventListener("pointerlockchange", () => {
+  menu.style.display = locked() ? "none" : "flex";
+  if (!locked()) client.release_all();
+});
+addEventListener("keydown", e => {
+  if (e.repeat) return;
+  if (locked()) { client.key(e.code, true); if (e.code === "Space") e.preventDefault(); }
+});
+addEventListener("keyup", e => client.key(e.code, false));
+addEventListener("mousemove", e => { if (locked()) client.mouse_move(e.movementX, e.movementY); });
+addEventListener("mousedown", e => { if (locked()) client.mouse_button(e.button, true); });
+addEventListener("mouseup", e => client.mouse_button(e.button, false));
+addEventListener("contextmenu", e => e.preventDefault());
+addEventListener("wheel", e => { if (locked() && e.deltaY) client.cycle_weapon(e.deltaY > 0 ? 1 : -1); }, { passive: true });
+
+function loop(t) {
+  client.frame(t);
+  const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped] = client.hud();
+  $("hp").textContent = Math.ceil(hp);
+  $("am").textContent = ammo;
+  $("mg").textContent = mag;
+  slots.forEach((el, i) => el.classList.toggle("on", i === weapon));
+  cards.forEach((el, i) => el.classList.toggle("on", i === weapon));
+  const scopeOn = scoped && ads > 0.85;
+  $("scope").style.display = scopeOn ? "block" : "none";
+  $("cross").style.display = scopeOn || ads > 0.5 ? "none" : "block";
+  $("rl").textContent = reloading ? "reloading..." : "";
+  $("kd").textContent = `${kills} kills / ${deaths} deaths`;
+  $("score").textContent = `${kills} kills`;
+  $("flash").style.opacity = flash;
+  $("cross").classList.toggle("hit", hit > 0.5);
+  const dead = $("dead");
+  dead.style.display = respawn > 0 ? "block" : "none";
+  dead.textContent = `You died. Respawning in ${respawn.toFixed(1)}`;
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
