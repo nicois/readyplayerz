@@ -86,9 +86,11 @@ impl Client {
     }
 
     /// Puts the player somewhere and facing some way. For looking around and testing.
-    pub fn teleport(&mut self, x: f32, y: f32, z: f32, yaw: f32) {
+    pub fn teleport(&mut self, x: f32, y: f32, z: f32, yaw: f32, pitch: f32) {
         self.game.player.body.pos = [x, y, z];
+        self.game.player.step_y = 0.0;
         self.game.player.yaw = yaw;
+        self.game.player.pitch = pitch;
     }
 
     /// Dev view: replaces the bots with `n` zombies standing in a row `dist` metres in front of the player.

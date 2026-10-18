@@ -51,6 +51,9 @@ const STUCK_T: f32 = 5.0;
 const HEAR_GROWL: f32 = 60.0;
 /// The tallest ledge a walking body climbs without jumping, so stairs and terraces work.
 const STEP_UP: f32 = 0.4;
+/// How fast the eye catches up with the body after a step, per second: running up stairs it trails a little and
+/// rises steadily instead of jerking up each step.
+const STEP_EASE: f32 = 12.0;
 /// Bots further than this from the player just glide along their route instead of simulating a body.
 const LOD_RADIUS: f32 = 40.0;
 /// Side of one cell of the wall grid.
@@ -252,6 +255,8 @@ pub struct Player {
     pub sprint_t: f32,
     /// 1 right after a hard landing, fading out
     pub land_t: f32,
+    /// how far the eye trails the body after stepping up or down a step, eased away so stairs feel like a slope
+    pub step_y: f32,
     /// seconds since last damage, for regeneration
     since_hurt: f32,
     /// 1 full, 0 empty: sprinting spends it
@@ -268,7 +273,7 @@ pub struct Player {
 
 impl Player {
     pub fn eye(&self) -> V3 {
-        [self.body.pos[0], self.body.pos[1] + EYE, self.body.pos[2]]
+        [self.body.pos[0], self.body.pos[1] + EYE + self.step_y, self.body.pos[2]]
     }
     pub fn forward(&self) -> V3 {
         let (sy, cy) = self.yaw.sin_cos();
@@ -433,7 +438,8 @@ fn move_axis(pos: &mut V3, axis: usize, delta: f32, world: &Grid, lift: f32) -> 
 
 /// Shared movement for the player and bots. Returns true if blocked horizontally.
 fn step_body(b: &mut Body, target: [f32; 2], jump: bool, dt: f32, world: &Grid) -> bool {
-    let lift = if b.on_ground { STEP_UP } else { 0.0 };
+    let grounded = b.on_ground;
+    let lift = if grounded { STEP_UP } else { 0.0 };
     let accel = if b.on_ground { 60.0 } else { 15.0 };
     let dx = target[0] - b.vel[0];
     let dz = target[1] - b.vel[2];
@@ -465,6 +471,15 @@ fn step_body(b: &mut Body, target: [f32; 2], jump: bool, dt: f32, world: &Grid) 
             b.on_ground = true;
         }
         b.vel[1] = 0.0;
+    }
+    // walking down a step keeps the feet on it instead of sailing off the edge of each one
+    if grounded && !b.on_ground && b.vel[1] <= 0.0 {
+        let mut down = b.pos;
+        if move_axis(&mut down, 1, -STEP_UP, world, 0.0) || down[1] <= 0.0 {
+            b.pos = [down[0], down[1].max(0.0), down[2]];
+            b.vel[1] = 0.0;
+            b.on_ground = true;
+        }
     }
     if b.pos[1] <= 0.0 {
         b.pos[1] = 0.0;
@@ -632,6 +647,7 @@ impl Game {
                 gait: 0.0,
                 sprint_t: 0.0,
                 land_t: 0.0,
+                step_y: 0.0,
                 since_hurt: 99.0,
                 stamina: 1.0,
                 winded: false,
@@ -659,6 +675,7 @@ impl Game {
         let at = self.pick_spawn(&others, f32::INFINITY);
         let p = &mut self.player;
         p.body = Body { pos: at, ..Body::default() };
+        p.step_y = 0.0;
         // look at the middle of the map
         p.yaw = (-at[0]).atan2(at[2]);
         p.pitch = 0.0;
@@ -994,8 +1011,13 @@ impl Game {
         p.sprint_t += (if sprinting { 1.0 } else { 0.0 } - p.sprint_t) * (dt * 6.0).min(1.0);
         p.land_t = (p.land_t - dt * 3.0).max(0.0);
         let speed = if sprinting { SPRINT } else { WALK } * w.speed * (1.0 - 0.4 * p.ads);
-        let (was_ground, fall) = (p.body.on_ground, -p.body.vel[1]);
+        let (was_ground, fall, was_y) = (p.body.on_ground, -p.body.vel[1], p.body.pos[1]);
         step_body(&mut p.body, [wx * speed, wz * speed], inp.jump, dt, world);
+        // a step up or down moves the body at once; the eye stays put and catches up
+        p.step_y *= (-STEP_EASE * dt).exp();
+        if was_ground && p.body.on_ground {
+            p.step_y = (p.step_y - (p.body.pos[1] - was_y)).clamp(-0.8, 0.8);
+        }
         let run = (p.body.vel[0].powi(2) + p.body.vel[2].powi(2)).sqrt();
         if was_ground && !p.body.on_ground && p.body.vel[1] > 0.0 {
             self.events.push([ev::JUMP, 0.0, 0.0]);
@@ -1105,12 +1127,14 @@ impl Game {
             }
 
             // walk straight at the player when nothing at knee height is in the way (low cover gets
-            // jumped), otherwise follow the route around it
+            // jumped), otherwise follow the route around it. Someone higher up than a hop is followed by the
+            // route too: seen over the edge of a flight or a roof, they would only be clawed at from below
             let knee = [b.body.pos[0], b.body.pos[1] + 0.6, b.body.pos[2]];
             let to_player = [dx, target[1] + 0.6 - knee[1], dz];
             let reach = len(to_player).max(0.001);
             if b.body.on_ground {
-                b.direct = world.raycast(knee, [to_player[0] / reach, to_player[1] / reach, to_player[2] / reach], reach) >= reach;
+                b.direct = target[1] - b.body.pos[1] < 1.1
+                    && world.raycast(knee, [to_player[0] / reach, to_player[1] / reach, to_player[2] / reach], reach) >= reach;
             }
             let mut tv = match self.nav.next(b.body.pos) {
                 Some(to) if !b.direct => {

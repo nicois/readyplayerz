@@ -412,7 +412,16 @@ const loadoutNow = () => {
 const SLOTS = [
   { name: "Primary", guns: guns.filter(g => g.i < primaries) },
   { name: "Secondary", guns: guns.filter(g => g.i >= primaries) },
-].map((slot, s) => ({ ...slot, equipped: () => loadoutNow().picked[s], equip: i => client.pick(i) }));
+].map((slot, s) => ({ ...slot, equipped: () => loadoutNow().picked[s], equip: i => { client.pick(i); saveLoadout(); } }));
+// the loadout is remembered by the guns' names, so a gun added or moved in the list never swaps someone's pick
+function saveLoadout() {
+  try { localStorage.setItem("loadout", JSON.stringify(loadoutNow().picked.map(w => names[w]))); } catch {}
+}
+try {
+  for (const name of JSON.parse(localStorage.getItem("loadout")) || []) {
+    if (names.includes(name)) client.pick(names.indexOf(name));
+  }
+} catch {}
 const pendingText = () => {
   const { carried, picked, inPlay } = loadoutNow();
   const later = picked.filter((w, s) => w !== carried[s]).map(w => names[w]);
@@ -496,7 +505,7 @@ const slots = [0, primaries].map((w, i) => {
 const shownCarried = [0, primaries];
 
 // dev flags: ?demo runs the game behind the menu (for screenshots where pointer lock isn't available),
-// ?calm removes the bots, ?at=x,z,yaw[,y] puts the player somewhere, ?primary=1-8 picks the primary,
+// ?calm removes the bots, ?at=x,z,yaw[,y,pitch] puts the player somewhere, ?primary=1-8 picks the primary,
 // ?sidearm=1-3 the sidearm, ?slot=2 holds the sidearm, ?clean hides the menu, ?screen=loadout|pick|pick2|settings
 // opens a menu screen (pick2 is the sidearm's picker)
 const params = new URLSearchParams(location.search);
@@ -519,8 +528,8 @@ if (params.has("showcase")) {
 }
 
 if (params.has("at")) {
-  const [x, z, yaw = 0, y = 0] = params.get("at").split(",").map(Number);
-  client.teleport(x, y, z, yaw);
+  const [x, z, yaw = 0, y = 0, pitch = 0] = params.get("at").split(",").map(Number);
+  client.teleport(x, y, z, yaw, pitch);
 }
 if (params.has("gun")) { const [x, y, z, yaw = 0.05] = params.get("gun").split(",").map(Number); client.set_gun_offset(x, y, z, yaw); }
 if (params.has("show")) client.show_zombies(Number(params.get("show")) || 3, Number(params.get("dist")) || 2.8, Number(params.get("side")) || 0);
