@@ -144,6 +144,7 @@ float hash(vec2 p) {
     p += dot(p, p + 45.32);
     return fract(p.x * p.y);
 }
+// GRADE
 float noise(vec2 p) {
     vec2 i = floor(p), f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
@@ -228,6 +229,8 @@ float shadow_term(vec4 ls) {
     vec3 p = ls.xyz / ls.w * 0.5 + 0.5;
     if (p.z >= 1.0) return 1.0;
     float e = max(abs(p.x - 0.5), abs(p.y - 0.5)) * 2.0;
+    // past the edge of the map it comes out as full sun whatever the lookups say
+    if (e >= 1.0) return 1.0;
     if (u_soft < 0.5) return mix(texture(u_shadow, vec3(p.xy, p.z - 0.0004)), 1.0, smoothstep(0.8, 1.0, e));
     float t = 1.0 / 2048.0;
     float s = 0.0;
@@ -247,9 +250,16 @@ vec2 surf(vec3 p, vec3 n) {
 }
 // k is how much pattern to show, 1 close up and 0 far away
 vec3 material(vec3 base, float m, vec2 uv, float k) {
+    if (m < 0.5) return base;
+    // far away the pattern is gone, and only the broad tone of the last three is left
+    if (k <= 0.0) {
+        if (m > 7.5) return base * (0.88 + 0.2 * noise(uv * 0.2));
+        if (m > 6.5) return base * (0.9 + 0.2 * noise(uv * 0.2));
+        if (m > 5.5) return base * (0.9 + 0.2 * noise(uv * 0.15));
+        return base;
+    }
     float n1 = noise(uv * 3.0);
     float n2 = noise(uv * 11.0);
-    if (m < 0.5) return base;
     if (m < 1.5) return base * mix(1.0, 0.84 + 0.2 * n1 + 0.1 * (n2 - 0.5), k);
     if (m < 2.5) {
         vec2 b = vec2(uv.x / 0.5, uv.y / 0.22);
@@ -409,7 +419,7 @@ void main() {
     float spec = pow(max(dot(n, normalize(l + V)), 0.0), expo) * shiny * sh;
     vec3 c = mix(lit + spec, v_ucol, v_unlit);
     float f = clamp((dist - u_fogr.x) / (u_fogr.y - u_fogr.x), 0.0, 1.0);
-    o = vec4(mix(c, u_fogc, f), 1.0);
+    o = vec4(grade(mix(c, u_fogc, f)), 1.0);
 }"#;
 
 const SKY_VERT: &str = r#"#version 300 es
@@ -454,6 +464,7 @@ float fbm(vec2 p) {
     }
     return s;
 }
+// GRADE
 
 void main() {
     vec3 d = normalize(u_fwd + u_right * (v_ndc.x * u_tan.x) + u_up * (v_ndc.y * u_tan.y));
@@ -469,99 +480,46 @@ void main() {
         float star = step(0.996, hash(floor(d.xz / (h + 0.2) * 90.0))) * smoothstep(0.05, 0.3, h) * (1.0 - cl);
         c += vec3(star) * u_dark;
     }
-    o = vec4(c, 1.0);
+    o = vec4(grade(c), 1.0);
 }"#;
 
-// Screen-space ambient occlusion: how much of the hemisphere around each pixel is blocked by nearer geometry,
-// from the depth buffer alone.
-const AO_FRAG: &str = r#"#version 300 es
-precision highp float;
-in vec2 v_ndc;
-uniform sampler2D u_depth;
-uniform vec2 u_px;
-uniform vec2 u_range;
-uniform float u_ty;
-uniform float u_rows;
-out vec4 o;
-float lin(float d) {
-    return 2.0 * u_range.x * u_range.y / (u_range.y + u_range.x - (d * 2.0 - 1.0) * (u_range.y - u_range.x));
-}
-float ign(vec2 p) {
-    return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
-}
-void main() {
-    vec2 uv = v_ndc * 0.5 + 0.5;
-    float d0 = texture(u_depth, uv).r;
-    float z0 = lin(d0);
-    if (d0 >= 1.0 || z0 > 90.0) { o = vec4(1.0); return; }
-    // half a metre around the point, in pixels
-    float rpx = 0.6 / z0 * (u_rows * 0.5 / u_ty);
-    rpx = clamp(rpx, 2.0, 60.0);
-    float a0 = ign(gl_FragCoord.xy) * 6.2831853;
-    float occ = 0.0;
-    for (int i = 0; i < 14; i++) {
-        float t = (float(i) + 0.5) / 14.0;
-        float a = a0 + float(i) * 2.399963;
-        vec2 off = vec2(cos(a), sin(a)) * sqrt(t) * rpx * u_px;
-        float zs = lin(texture(u_depth, uv + off).r);
-        float diff = z0 - zs;
-        // a sample well in front is an occluder; one far in front is a different object and counts for less
-        occ += step(0.05, diff) * (1.0 - smoothstep(0.4, 1.4, diff));
-    }
-    float ao = 1.0 - occ / 14.0 * 1.5;
-    o = vec4(mix(clamp(ao, 0.0, 1.0), 1.0, smoothstep(25.0, 85.0, z0)), 0.0, 0.0, 1.0);
-}"#;
-
-// Puts the picture together: the ambient occlusion blurred without crossing edges, then colour grading,
-// a vignette and a little film grain.
-const COMP_FRAG: &str = r#"#version 300 es
-precision highp float;
-in vec2 v_ndc;
-uniform sampler2D u_color;
-uniform sampler2D u_ao;
-uniform sampler2D u_depth;
-uniform vec2 u_px;
-uniform vec2 u_range;
-uniform float u_t;
-uniform float u_aspect;
-uniform float u_aoon;
+// The finish every pixel gets on its way out, put into FRAG and SKY_FRAG where they say GRADE: colour grading,
+// a vignette and a little film grain (none of the last two with u_plain). Done as each surface is drawn rather
+// than in a pass over the finished picture, which saves copying the picture out and drawing it again; with
+// nothing see-through it comes to the same. `grade_rgb` is the grading alone, in Rust, and must keep in step.
+const GRADE: &str = r#"
+uniform vec2 u_screen;
+uniform float u_grain;
 uniform float u_plain;
-out vec4 o;
-float lin(float d) {
-    return 2.0 * u_range.x * u_range.y / (u_range.y + u_range.x - (d * 2.0 - 1.0) * (u_range.y - u_range.x));
-}
-float hash(vec2 p) {
-    p = fract(p * vec2(123.34, 456.21));
-    p += dot(p, p + 45.32);
-    return fract(p.x * p.y);
-}
-void main() {
-    vec2 uv = v_ndc * 0.5 + 0.5;
-    vec3 c = texture(u_color, uv).rgb;
-    if (u_aoon > 0.5) {
-        float z0 = lin(texture(u_depth, uv).r);
-        float ao = 0.0, w = 0.0;
-        for (int y = -2; y <= 2; y++) {
-            for (int x = -2; x <= 2; x++) {
-                vec2 q = uv + vec2(float(x), float(y)) * u_px * 1.5;
-                float wt = exp(-abs(lin(texture(u_depth, q).r) - z0) * 6.0 / max(z0 * 0.1, 0.3));
-                ao += texture(u_ao, q).r * wt;
-                w += wt;
-            }
-        }
-        c *= ao / max(w, 0.0001);
-    }
+vec3 grade(vec3 c) {
+    c = clamp(c, 0.0, 1.0);
     float lum = dot(c, vec3(0.299, 0.587, 0.114));
     c = mix(vec3(lum), c, 1.04);
     c = mix(c, c * c * (3.0 - 2.0 * c), 0.2);
     c *= mix(vec3(1.0), vec3(1.04, 1.0, 0.94), smoothstep(0.3, 0.9, lum));
     if (u_plain < 0.5) {
-        float v = length((uv - 0.5) * vec2(u_aspect, 1.0));
+        vec2 uv = gl_FragCoord.xy / u_screen;
+        float v = length((uv - 0.5) * vec2(u_screen.x / u_screen.y, 1.0));
         c *= 1.0 - 0.38 * smoothstep(0.35, 1.05, v);
-        c += (hash(gl_FragCoord.xy + u_t * 61.0) - 0.5) * 0.03;
+        c += (hash(gl_FragCoord.xy + u_grain * 61.0) - 0.5) * 0.03;
     }
-    o = vec4(clamp(c, 0.0, 1.0), 1.0);
-}"#;
+    return clamp(c, 0.0, 1.0);
+}
+"#;
+
+/// The grading part of GRADE, for a colour that no surface is drawn over (the showcase's background).
+fn grade_rgb(c: [f32; 3]) -> [f32; 3] {
+    let c = c.map(|v| v.clamp(0.0, 1.0));
+    let lum = c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114;
+    let t = ((lum - 0.3) / 0.6).clamp(0.0, 1.0);
+    let warm = t * t * (3.0 - 2.0 * t);
+    let tint = [1.04, 1.0, 0.94];
+    [0, 1, 2].map(|i| {
+        let v = lum + (c[i] - lum) * 1.04;
+        let v = v + (v * v * (3.0 - 2.0 * v) - v) * 0.2;
+        (v * (1.0 + (tint[i] - 1.0) * warm)).clamp(0.0, 1.0)
+    })
+}
 
 /// The fog starts here and is fully opaque at FOG_END; past that there is only haze, so nothing is drawn.
 const FOG_START: f32 = 45.0;
@@ -655,19 +613,33 @@ struct SkinJob {
     seed: f32,
 }
 
-/// The offscreen images the scene is drawn into so it can be post-processed: a multisampled one to draw on,
-/// the resolved colour and depth to read back, and the occlusion image.
+/// The multisampled image the scene is drawn into, and its depth; `present` averages it onto the canvas.
 struct Targets {
     w: u32,
     h: u32,
     samples: i32,
     msaa: WebGlFramebuffer,
     rb: [web_sys::WebGlRenderbuffer; 2],
-    resolve: WebGlFramebuffer,
-    color: WebGlTexture,
-    depth: WebGlTexture,
-    ao_fbo: WebGlFramebuffer,
-    ao: WebGlTexture,
+}
+
+/// Where a program takes what GRADE needs.
+struct Finish {
+    screen: Option<WebGlUniformLocation>,
+    grain: Option<WebGlUniformLocation>,
+    plain: Option<WebGlUniformLocation>,
+}
+
+impl Finish {
+    fn new(gl: &GL, p: &WebGlProgram) -> Finish {
+        Finish { screen: gl.get_uniform_location(p, "u_screen"), grain: gl.get_uniform_location(p, "u_grain"), plain: gl.get_uniform_location(p, "u_plain") }
+    }
+
+    /// For the program in use: the picture's size, the time that moves the grain, and `plain` for no vignette or grain.
+    fn set(&self, gl: &GL, w: u32, h: u32, time: f32, plain: bool) {
+        gl.uniform2f(self.screen.as_ref(), w as f32, h as f32);
+        gl.uniform1f(self.grain.as_ref(), time % 100.0);
+        gl.uniform1f(self.plain.as_ref(), if plain { 1.0 } else { 0.0 });
+    }
 }
 
 pub struct Renderer {
@@ -676,8 +648,6 @@ pub struct Renderer {
     pub gun_yaw: Cell<f32>,
     /// Draws only this gun on a flat grey, for the loadout's pictures (see `draw_showcase`).
     pub showcase: Cell<Option<(usize, f32)>>,
-    /// composites without the vignette and grain
-    plain: Cell<bool>,
     guns: Vec<GpuGun>,
     hands: GpuHands,
     u_view: Option<WebGlUniformLocation>,
@@ -694,8 +664,8 @@ pub struct Renderer {
     u_shoe: Option<WebGlUniformLocation>,
     u_wound: [Option<WebGlUniformLocation>; 3],
     targets: RefCell<Option<Targets>>,
-    ao_prog: WebGlProgram,
-    comp_prog: WebGlProgram,
+    finish: Finish,
+    s_finish: Finish,
     gl: GL,
     prog: WebGlProgram,
     cube_vao: WebGlVertexArrayObject,
@@ -752,16 +722,13 @@ pub struct Renderer {
 /// What each graphics quality turns on. The picture's resolution is picked in JS, which sizes the canvas.
 struct Quality {
     samples: i32,
-    ao: bool,
     soft_shadows: bool,
 }
 
 const QUALITY: [Quality; 3] = [
-    Quality { samples: 0, ao: false, soft_shadows: false },
-    Quality { samples: 2, ao: false, soft_shadows: true },
-    // occlusion off: the depth it read was cleared for the gun, so it only ever shaded the gun, at the cost of
-    // two full-screen passes
-    Quality { samples: 4, ao: false, soft_shadows: true },
+    Quality { samples: 0, soft_shadows: false },
+    Quality { samples: 2, soft_shadows: true },
+    Quality { samples: 4, soft_shadows: true },
 ];
 
 fn compile(gl: &GL, kind: u32, src: &str) -> Result<WebGlShader, String> {
@@ -993,14 +960,12 @@ impl Part {
 
 impl Renderer {
     pub fn new(gl: GL, width: u32, height: u32) -> Result<Renderer, String> {
+        let graded = |src: &str| src.replace("// GRADE\n", GRADE);
         let vs = compile(&gl, GL::VERTEX_SHADER, VERT)?;
-        let fs = compile(&gl, GL::FRAGMENT_SHADER, FRAG)?;
+        let fs = compile(&gl, GL::FRAGMENT_SHADER, &graded(FRAG))?;
         let prog = link(&gl, &vs, &fs)?;
-        let sky = link(&gl, &compile(&gl, GL::VERTEX_SHADER, SKY_VERT)?, &compile(&gl, GL::FRAGMENT_SHADER, SKY_FRAG)?)?;
-
-        let sky_vs = compile(&gl, GL::VERTEX_SHADER, SKY_VERT)?;
-        let ao_prog = link(&gl, &sky_vs, &compile(&gl, GL::FRAGMENT_SHADER, AO_FRAG)?)?;
-        let comp_prog = link(&gl, &sky_vs, &compile(&gl, GL::FRAGMENT_SHADER, COMP_FRAG)?)?;
+        let sky = link(&gl, &compile(&gl, GL::VERTEX_SHADER, SKY_VERT)?, &compile(&gl, GL::FRAGMENT_SHADER, &graded(SKY_FRAG))?)?;
+        let (finish, s_finish) = (Finish::new(&gl, &prog), Finish::new(&gl, &sky));
 
         let guns = crate::gunmodel::guns()
             .iter()
@@ -1028,8 +993,9 @@ impl Renderer {
             left: Self::upload_pieces(&gl, &h.left)?,
             pistol_left: Self::upload_pieces(&gl, &h.pistol_left)?,
         };
-        // the zombie body at three levels of detail: close up, in the middle, far away
-        let figures = [1.0, 2.0, 4.0].iter().map(|s| Self::upload_figure(&gl, &crate::body::Figure::new(*s))).collect::<Result<Vec<_>, _>>()?;
+        // the zombie body at two levels of detail, near and far. A finer one for close up (half the grid) looked
+        // no different even a metre away, and took most of a second to build at every load
+        let figures = [2.0, 4.0].iter().map(|s| Self::upload_figure(&gl, &crate::body::Figure::new(*s))).collect::<Result<Vec<_>, _>>()?;
 
         let cube_vao = gl.create_vertex_array().ok_or("vao")?;
         gl.bind_vertex_array(Some(&cube_vao));
@@ -1087,7 +1053,6 @@ impl Renderer {
             gun_offset: Cell::new(None),
             gun_yaw: Cell::new(0.05),
             showcase: Cell::new(None),
-            plain: Cell::new(false),
             guns,
             hands,
             u_view: u("u_view"),
@@ -1104,8 +1069,8 @@ impl Renderer {
             u_shoe: u("u_shoe"),
             u_wound: [u("u_w0"), u("u_w1"), u("u_w2")],
             targets: RefCell::new(None),
-            ao_prog,
-            comp_prog,
+            finish,
+            s_finish,
             u_vp: u("u_vp"),
             u_model: u("u_model"),
             u_color: u("u_color"),
@@ -1291,8 +1256,9 @@ impl Renderer {
         gl.uniform1f(self.u_skin.as_ref(), 1.0);
         gl.uniform_matrix4fv_with_f32_array(self.u_model.as_ref(), false, &IDENTITY);
         for job in self.jobs.borrow().iter() {
-            // shadows need less detail than the picture
-            let f = &self.figures[if shadow { job.lod.max(1) } else { job.lod }];
+            // shadows need less detail than the picture: the far mesh's grid is about one texel of the shadow
+            // map, which blurs its edges over three
+            let f = &self.figures[if shadow { 1 } else { job.lod }];
             gl.uniform_matrix4fv_with_f32_array(self.u_bones.as_ref(), false, &job.bones);
             gl.uniform1f(self.u_seed_f.as_ref(), job.seed);
             gl.uniform4f(self.u_cut.as_ref(), job.cut[0], job.cut[1], job.cut[2], job.cut[3]);
@@ -1309,17 +1275,19 @@ impl Renderer {
                 gl.uniform1f(self.u_unlit.as_ref(), 0.0);
                 gl.draw_elements_with_i32(GL::TRIANGLES, m.count, GL::UNSIGNED_INT, 0);
             };
+            // outside in: what the clothes and hair cover then fails the depth test instead of being worked out
+            // and painted over, and skin is the dearest thing to draw
+            draw(&f.shirt, job.shirt, 10.0, 0.0);
+            if job.hair_kind[0] > 0.5 || job.hair_kind[1] > 0.5 {
+                draw(&f.hair, job.hair, 12.0, 0.0);
+            }
+            // the trousers have no hem to cut, only a torn leg
+            gl.uniform4f(self.u_cut.as_ref(), -1.0, 0.0, 0.0, job.cut[3]);
+            draw(&f.pants, job.pants, 10.0, 0.0);
             draw(&f.body, job.skin, 9.0, 0.0);
             draw(&f.head, job.skin, 9.0, 0.0);
             draw(&f.hands[0], job.skin, 9.0, 0.0);
             draw(&f.hands[1], job.skin, 9.0, 0.0);
-            draw(&f.shirt, job.shirt, 10.0, 0.0);
-            // the trousers have no hem to cut, only a torn leg
-            gl.uniform4f(self.u_cut.as_ref(), -1.0, 0.0, 0.0, job.cut[3]);
-            draw(&f.pants, job.pants, 10.0, 0.0);
-            if job.hair_kind[0] > 0.5 || job.hair_kind[1] > 0.5 {
-                draw(&f.hair, job.hair, 12.0, 0.0);
-            }
         }
         gl.uniform1f(self.u_skin.as_ref(), 0.0);
     }
@@ -1434,26 +1402,56 @@ impl Renderer {
         gl.uniform_matrix4fv_with_f32_array(self.u_model.as_ref(), false, &IDENTITY);
         gl.uniform1f(self.u_unlit.as_ref(), 0.0);
         gl.uniform1f(self.u_shiny.as_ref(), 0.0);
-        // the ground goes down first and never occludes anything, so markings on it can't fight each other
-        gl.depth_mask(false);
-        gl.draw_arrays(GL::TRIANGLES, w.ground.0, w.ground.1);
-        gl.depth_mask(true);
-        for c in &w.chunks {
-            // past FOG_END everything is haze already, and a cell wholly outside any side of the view is not seen:
-            // its corner furthest into the view is still outside
-            let gap = |a: usize| (c.min[a] - eye[a]).max(eye[a] - c.max[a]).max(0.0);
-            if (gap(0).powi(2) + gap(1).powi(2) + gap(2).powi(2)).sqrt() > self.fog_end {
-                continue;
-            }
-            let outside = sides.iter().any(|p| {
-                let far = [0, 1, 2].map(|a| if p[a] >= 0.0 { c.max[a] } else { c.min[a] });
-                p[0] * far[0] + p[1] * far[1] + p[2] * far[2] + p[3] < 0.0
-            });
-            if outside {
-                continue;
-            }
+        let mut seen: Vec<(f32, &Chunk)> = w
+            .chunks
+            .iter()
+            .filter_map(|c| {
+                // past FOG_END everything is haze already, and a cell wholly outside any side of the view is not
+                // seen: its corner furthest into the view is still outside
+                let gap = |a: usize| (c.min[a] - eye[a]).max(eye[a] - c.max[a]).max(0.0);
+                let d = (gap(0).powi(2) + gap(1).powi(2) + gap(2).powi(2)).sqrt();
+                let outside = sides.iter().any(|p| {
+                    let far = [0, 1, 2].map(|a| if p[a] >= 0.0 { c.max[a] } else { c.min[a] });
+                    p[0] * far[0] + p[1] * far[1] + p[2] * far[2] + p[3] < 0.0
+                });
+                (d <= self.fog_end && !outside).then_some((d, c))
+            })
+            .collect();
+        // nearest first, so what is hidden behind is turned away by the depth test before it is shaded
+        seen.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for (_, c) in seen {
             gl.draw_arrays(GL::TRIANGLES, c.first, c.count);
         }
+        // the ground goes in after the walls, so it is only shaded where it shows. It writes no depth, so markings
+        // on it can't fight each other, and it is pushed back a little so a hill just above it always wins
+        gl.depth_mask(false);
+        gl.enable(GL::POLYGON_OFFSET_FILL);
+        gl.polygon_offset(1.0, 4.0);
+        gl.draw_arrays(GL::TRIANGLES, w.ground.0, w.ground.1);
+        gl.disable(GL::POLYGON_OFFSET_FILL);
+        gl.depth_mask(true);
+        gl.uniform1f(self.u_batch.as_ref(), 0.0);
+    }
+
+    /// Puts the ground's depth in without drawing it again, so the sky drawn after only fills what is left.
+    /// This comes after the zombies: anything of theirs that sinks below the ground still shows, as it did when
+    /// the ground wrote no depth.
+    fn ground_depth(&self) {
+        let (gl, Some(w)) = (&self.gl, &self.world) else {
+            return;
+        };
+        gl.bind_vertex_array(Some(&w.vao));
+        gl.uniform1f(self.u_batch.as_ref(), 1.0);
+        gl.uniform_matrix4fv_with_f32_array(self.u_model.as_ref(), false, &IDENTITY);
+        gl.uniform1f(self.u_pass.as_ref(), 1.0);
+        gl.color_mask(false, false, false, false);
+        gl.enable(GL::POLYGON_OFFSET_FILL);
+        gl.polygon_offset(1.0, 4.0);
+        // the plain ground is the first square; the markings lie on it
+        gl.draw_arrays(GL::TRIANGLES, w.ground.0, 6);
+        gl.disable(GL::POLYGON_OFFSET_FILL);
+        gl.color_mask(true, true, true, true);
+        gl.uniform1f(self.u_pass.as_ref(), 0.0);
         gl.uniform1f(self.u_batch.as_ref(), 0.0);
     }
 
@@ -1469,21 +1467,15 @@ impl Renderer {
         gl.uniform2f(self.s_tan.as_ref(), ty * aspect, ty);
         gl.uniform3f(self.s_haze.as_ref(), self.haze[0], self.haze[1], self.haze[2]);
         gl.uniform1f(self.s_t.as_ref(), time);
+        self.s_finish.set(gl, self.width.max(1), self.height.max(1), time, false);
         gl.uniform1f(self.s_dark.as_ref(), self.dark);
-        gl.disable(GL::DEPTH_TEST);
+        // it lies on the far plane: where anything has been drawn it fails the depth test
+        gl.depth_func(GL::LEQUAL);
+        gl.depth_mask(false);
         gl.bind_vertex_array(None);
         gl.draw_arrays(GL::TRIANGLES, 0, 3);
-        gl.enable(GL::DEPTH_TEST);
-    }
-
-    fn texture(gl: &GL, format: u32, w: i32, h: i32, filter: u32) -> Result<WebGlTexture, String> {
-        let t = gl.create_texture().ok_or("texture")?;
-        gl.bind_texture(GL::TEXTURE_2D, Some(&t));
-        gl.tex_storage_2d(GL::TEXTURE_2D, 1, format, w, h);
-        for (p, v) in [(GL::TEXTURE_MIN_FILTER, filter), (GL::TEXTURE_MAG_FILTER, filter), (GL::TEXTURE_WRAP_S, GL::CLAMP_TO_EDGE), (GL::TEXTURE_WRAP_T, GL::CLAMP_TO_EDGE)] {
-            gl.tex_parameteri(GL::TEXTURE_2D, p, v as i32);
-        }
-        Ok(t)
+        gl.depth_mask(true);
+        gl.depth_func(GL::LESS);
     }
 
     fn make_targets(gl: &GL, w: u32, h: u32, samples: i32) -> Result<Targets, String> {
@@ -1501,34 +1493,18 @@ impl Renderer {
         if gl.check_framebuffer_status(GL::FRAMEBUFFER) != GL::FRAMEBUFFER_COMPLETE {
             return Err("the multisampled framebuffer is incomplete".into());
         }
-
-        let color = Self::texture(gl, GL::RGBA8, wi, hi, GL::LINEAR)?;
-        let depth = Self::texture(gl, GL::DEPTH_COMPONENT24, wi, hi, GL::NEAREST)?;
-        let resolve = gl.create_framebuffer().ok_or("framebuffer")?;
-        gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&resolve));
-        gl.framebuffer_texture_2d(GL::FRAMEBUFFER, GL::COLOR_ATTACHMENT0, GL::TEXTURE_2D, Some(&color), 0);
-        gl.framebuffer_texture_2d(GL::FRAMEBUFFER, GL::DEPTH_ATTACHMENT, GL::TEXTURE_2D, Some(&depth), 0);
-        if gl.check_framebuffer_status(GL::FRAMEBUFFER) != GL::FRAMEBUFFER_COMPLETE {
-            return Err("the resolve framebuffer is incomplete".into());
-        }
-
-        let ao = Self::texture(gl, GL::RGBA8, wi, hi, GL::LINEAR)?;
-        let ao_fbo = gl.create_framebuffer().ok_or("framebuffer")?;
-        gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&ao_fbo));
-        gl.framebuffer_texture_2d(GL::FRAMEBUFFER, GL::COLOR_ATTACHMENT0, GL::TEXTURE_2D, Some(&ao), 0);
         gl.bind_framebuffer(GL::FRAMEBUFFER, None);
-        Ok(Targets { w, h, samples, msaa, rb: [rb_c, rb_d], resolve, color, depth, ao_fbo, ao })
+        Ok(Targets { w, h, samples, msaa, rb: [rb_c, rb_d] })
     }
 
-    /// Copies what has been drawn so far from the multisampled image into the readable one.
-    fn resolve(&self, t: &Targets, depth: bool) {
+    /// Puts the finished picture on the canvas, averaging each pixel's samples on the way.
+    fn present(&self, t: &Targets) {
         let gl = &self.gl;
         gl.bind_framebuffer(GL::READ_FRAMEBUFFER, Some(&t.msaa));
-        gl.bind_framebuffer(GL::DRAW_FRAMEBUFFER, Some(&t.resolve));
+        gl.bind_framebuffer(GL::DRAW_FRAMEBUFFER, None);
         let (w, h) = (t.w as i32, t.h as i32);
-        let mask = if depth { GL::COLOR_BUFFER_BIT | GL::DEPTH_BUFFER_BIT } else { GL::COLOR_BUFFER_BIT };
-        gl.blit_framebuffer(0, 0, w, h, 0, 0, w, h, mask, GL::NEAREST);
-        gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&t.msaa));
+        gl.blit_framebuffer(0, 0, w, h, 0, 0, w, h, GL::COLOR_BUFFER_BIT, GL::NEAREST);
+        gl.bind_framebuffer(GL::FRAMEBUFFER, None);
     }
 
     /// Gun `idx` alone on a flat grey `bg`, from its right side and a little above, sized to fill the picture: the
@@ -1536,9 +1512,12 @@ impl Renderer {
     /// no hands, and none of the vignette or grain.
     fn draw_showcase(&self, t: &Targets, idx: usize, bg: f32, aspect: f32) {
         let gl = &self.gl;
-        gl.clear_color(bg, bg, bg, 1.0);
+        // nothing is drawn over the background, so it is graded here
+        let c = grade_rgb([bg; 3]);
+        gl.clear_color(c[0], c[1], c[2], 1.0);
         gl.clear(GL::COLOR_BUFFER_BIT | GL::DEPTH_BUFFER_BIT);
         gl.use_program(Some(&self.prog));
+        self.finish.set(gl, t.w, t.h, 0.0, true);
         gl.uniform2f(self.u_fogr.as_ref(), 1e4, 2e4);
         gl.uniform1f(self.u_batch.as_ref(), 0.0);
         gl.uniform1f(self.u_shon.as_ref(), 0.0);
@@ -1566,57 +1545,7 @@ impl Renderer {
         );
         self.draw_gun(idx, &model, 0.0, 0.0, 0.0, 0.0, 0.0, false);
         gl.uniform1f(self.u_view.as_ref(), 0.0);
-        self.resolve(t, true);
-        self.plain.set(true);
-        self.post(t, fov, 0.0, false);
-        self.plain.set(false);
-    }
-
-    /// Occlusion from the depth buffer, then everything composited onto the screen.
-    fn post(&self, t: &Targets, fov: f32, time: f32, ao: bool) {
-        let gl = &self.gl;
-        let (px, loc) = ([1.0 / t.w as f32, 1.0 / t.h as f32], |p: &WebGlProgram, n: &str| gl.get_uniform_location(p, n));
-        gl.disable(GL::DEPTH_TEST);
-        gl.bind_vertex_array(None);
-        gl.viewport(0, 0, t.w as i32, t.h as i32);
-
-        if ao {
-            gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&t.ao_fbo));
-            gl.use_program(Some(&self.ao_prog));
-            gl.active_texture(GL::TEXTURE0);
-            gl.bind_texture(GL::TEXTURE_2D, Some(&t.depth));
-            gl.uniform1i(loc(&self.ao_prog, "u_depth").as_ref(), 0);
-            gl.uniform2f(loc(&self.ao_prog, "u_px").as_ref(), px[0], px[1]);
-            gl.uniform2f(loc(&self.ao_prog, "u_range").as_ref(), NEAR, FAR);
-            gl.uniform1f(loc(&self.ao_prog, "u_ty").as_ref(), (fov / 2.0).tan());
-            gl.uniform1f(loc(&self.ao_prog, "u_rows").as_ref(), t.h as f32);
-            gl.draw_arrays(GL::TRIANGLES, 0, 3);
-        }
-
-        gl.bind_framebuffer(GL::FRAMEBUFFER, None);
-        gl.use_program(Some(&self.comp_prog));
-        gl.uniform1f(loc(&self.comp_prog, "u_aoon").as_ref(), if ao { 1.0 } else { 0.0 });
-        gl.bind_texture(GL::TEXTURE_2D, Some(&t.color));
-        gl.active_texture(GL::TEXTURE1);
-        gl.bind_texture(GL::TEXTURE_2D, Some(&t.ao));
-        gl.active_texture(GL::TEXTURE2);
-        gl.bind_texture(GL::TEXTURE_2D, Some(&t.depth));
-        gl.active_texture(GL::TEXTURE0);
-        gl.uniform1i(loc(&self.comp_prog, "u_color").as_ref(), 0);
-        gl.uniform1i(loc(&self.comp_prog, "u_ao").as_ref(), 1);
-        gl.uniform1i(loc(&self.comp_prog, "u_depth").as_ref(), 2);
-        gl.uniform2f(loc(&self.comp_prog, "u_px").as_ref(), px[0], px[1]);
-        gl.uniform2f(loc(&self.comp_prog, "u_range").as_ref(), NEAR, FAR);
-        gl.uniform1f(loc(&self.comp_prog, "u_t").as_ref(), time % 100.0);
-        gl.uniform1f(loc(&self.comp_prog, "u_aspect").as_ref(), t.w as f32 / t.h.max(1) as f32);
-        gl.uniform1f(loc(&self.comp_prog, "u_plain").as_ref(), if self.plain.get() { 1.0 } else { 0.0 });
-        gl.draw_arrays(GL::TRIANGLES, 0, 3);
-        gl.enable(GL::DEPTH_TEST);
-        gl.active_texture(GL::TEXTURE1);
-        gl.bind_texture(GL::TEXTURE_2D, None);
-        gl.active_texture(GL::TEXTURE2);
-        gl.bind_texture(GL::TEXTURE_2D, None);
-        gl.active_texture(GL::TEXTURE0);
+        self.present(t);
     }
 
     /// The sun's view of the area around `centre`, snapped to whole texels so shadows don't shimmer as it moves.
@@ -1680,7 +1609,16 @@ impl Renderer {
         self.jobs.borrow_mut().clear();
         let foot = p.body.pos;
         let centre = [foot[0] + fwd[0] * 18.0, foot[1], foot[2] + fwd[2] * 18.0];
-        for (i, b) in g.bots.iter().enumerate().filter(|(_, b)| b.alive || (b.corpse && b.dead_t < crate::sim::CORPSE_T)) {
+        // nearest first, so a zombie behind another is mostly turned away by the depth test
+        let mut near: Vec<(f32, usize)> = g
+            .bots
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| b.alive || (b.corpse && b.dead_t < crate::sim::CORPSE_T))
+            .map(|(i, b)| ((b.body.pos[0] - eye[0]).hypot(b.body.pos[2] - eye[2]), i))
+            .collect();
+        near.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for (i, b) in near.into_iter().map(|(_, i)| (i, &g.bots[i])) {
             let to = [b.body.pos[0] - eye[0], b.body.pos[1] - eye[1], b.body.pos[2] - eye[2]];
             let near_light = (b.body.pos[0] - centre[0]).hypot(b.body.pos[2] - centre[2]) < SHADOW_HALF * 1.4;
             if dot(to, fwd) >= -3.0 || near_light {
@@ -1698,14 +1636,9 @@ impl Renderer {
         if self.targets.borrow().as_ref().map_or(true, |t| t.w != w || t.h != h || t.samples != samples) {
             if let Some(old) = self.targets.borrow_mut().take() {
                 gl.delete_framebuffer(Some(&old.msaa));
-                gl.delete_framebuffer(Some(&old.resolve));
-                gl.delete_framebuffer(Some(&old.ao_fbo));
                 for r in &old.rb {
                     gl.delete_renderbuffer(Some(r));
                 }
-                gl.delete_texture(Some(&old.color));
-                gl.delete_texture(Some(&old.depth));
-                gl.delete_texture(Some(&old.ao));
             }
             *self.targets.borrow_mut() = Some(Self::make_targets(gl, w, h, samples).expect("render targets"));
         }
@@ -1719,9 +1652,9 @@ impl Renderer {
         }
         gl.clear_color(self.haze[0], self.haze[1], self.haze[2], 1.0);
         gl.clear(GL::COLOR_BUFFER_BIT | GL::DEPTH_BUFFER_BIT);
-        self.draw_sky(fwd, fov, aspect, g.time);
 
         gl.use_program(Some(&self.prog));
+        self.finish.set(gl, w, h, g.time, false);
         gl.uniform3f(self.u_fogc.as_ref(), self.haze[0], self.haze[1], self.haze[2]);
         gl.uniform2f(self.u_fogr.as_ref(), self.fog_start, self.fog_end);
         gl.uniform1f(self.u_batch.as_ref(), 0.0);
@@ -1755,12 +1688,11 @@ impl Renderer {
         for t in &g.tracers {
             self.draw_lines(&[t.a[0], t.a[1], t.a[2], t.b[0], t.b[1], t.b[2]], [1.0, 0.95, 0.6], 1.0);
         }
+        // the sky goes in last, behind everything, so only the part that shows is worked out
+        self.ground_depth();
+        self.draw_sky(fwd, fov, aspect, g.time);
+        gl.use_program(Some(&self.prog));
 
-        // the world's depth is kept for the occlusion pass before the gun gets a depth buffer of its own; without
-        // occlusion nothing reads it, and the one copy at the end does
-        if q.ao {
-            self.resolve(t, true);
-        }
         // viewmodel: drawn in view space on a cleared depth buffer so it never clips into walls
         gl.clear(GL::DEPTH_BUFFER_BIT);
         // the gun keeps its own field of view so zooming the world doesn't magnify it
@@ -1775,10 +1707,7 @@ impl Renderer {
             self.draw_viewmodel(g);
         }
         gl.uniform1f(self.u_view.as_ref(), 0.0);
-        // the gun's depth goes in too, so the occlusion pass treats it as a solid object instead of shading it
-        // with whatever is behind it
-        self.resolve(t, q.ao);
-        self.post(t, fov, g.time, q.ao);
+        self.present(t);
     }
 
     /// A zombie: a smooth skinned human body (see `body`) moved by a jointed skeleton, with clothes, hair and a face.
@@ -1959,7 +1888,11 @@ impl Renderer {
             *w = *s;
         }
         let d = d2.sqrt();
-        let lod = if d < 14.0 { 0 } else if d < 35.0 { 1 } else { 2 };
+        // detail by how big the zombie is in the picture: the distance suits one 1600 pixels tall at the hip's
+        // field of view, and comes nearer for coarser pictures, where the near mesh's triangles would be smaller
+        // than a pixel. It never goes further, so a bigger picture or a zoomed sight costs no more than that
+        let px = (self.height as f32 / 1600.0 * 0.6f32.tan() / (g.player.fov() / 2.0).tan()).min(1.0);
+        let lod = if d < 35.0 * px { 0 } else { 1 };
         self.jobs.borrow_mut().push(SkinJob {
             bones: bones.iter().flatten().copied().collect(),
             lod,

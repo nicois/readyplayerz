@@ -231,13 +231,53 @@ const err = document.getElementById("err");
 const $ = id => document.getElementById(id);
 
 // graphics quality, low / medium / high: how much of the screen's resolution to draw at (the renderer turns
-// multisampling, occlusion and soft shadows up with it). Starts on medium.
+// multisampling and soft shadows up with it). Starts on medium.
 const QUALITY = ["Low", "Medium", "High"];
 const RES_SCALE = [0.5, 0.75, 1];
 let quality = 0;
 
+// automatic resolution: while frames come slower than 60 a second, the picture is drawn at fewer pixels, a step
+// at a time down to 60% of the setting's (never below 40% of the screen's), and stepped back up when there is
+// room again. A screen that shows 60 a second can't say how much room there is, so stepping up is a try: one
+// that goes slow again steps back down and waits twice as long before the next
+const auto = {
+  scale: 1,
+  // the shortest time between frames seen, which is the screen's refresh
+  refresh: Infinity,
+  n: 0, slow: 0, quick: 0, since: 0, changed: 0, rose: 0, wait: 4000,
+};
+const autoMin = () => Math.max(0.6, 0.4 / RES_SCALE[quality]);
+function autoFrame(t, dt) {
+  if (dt > 4) auto.refresh = Math.min(auto.refresh, dt);
+  // a long gap is the tab hidden or a one-off stall, not the drawing
+  if (dt > 200) return;
+  const budget = Math.max(1000 / 60, auto.refresh) * 1.2;
+  auto.n++;
+  if (dt > budget) auto.slow++;
+  if (dt < budget * 0.6) auto.quick++;
+  if (t - auto.since < 1000) return;
+  const slow = auto.slow / auto.n, quick = auto.quick / auto.n;
+  Object.assign(auto, { n: 0, slow: 0, quick: 0, since: t });
+  // the second after a change has the canvas being remade in it
+  if (t - auto.changed < 1000) return;
+  let next = auto.scale;
+  if (slow > 0.25 && auto.scale > autoMin()) {
+    next = Math.max(autoMin(), auto.scale * 0.85);
+    if (t - auto.rose < 4000) auto.wait = Math.min(auto.wait * 2, 60000);
+  } else if (auto.scale < 1 && slow < 0.02 && (quick > 0.9 || t - auto.changed > auto.wait)) {
+    // a faster screen shows when there is room to spare; otherwise it's a try
+    next = Math.min(1, auto.scale / 0.85);
+    auto.rose = t;
+  }
+  if (next !== auto.scale) {
+    auto.scale = next;
+    auto.changed = t;
+    client.resize(...size());
+  }
+}
+
 function size() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2) * RES_SCALE[quality];
+  const dpr = Math.min(window.devicePixelRatio || 1, 2) * RES_SCALE[quality] * auto.scale;
   canvas.width = Math.floor(innerWidth * dpr);
   canvas.height = Math.floor(innerHeight * dpr);
   return [canvas.width, canvas.height];
@@ -366,6 +406,8 @@ function segmented(parent, labels, pick, key, fallback = 0) {
 }
 const setQuality = segmented($("gfx"), QUALITY, i => {
   quality = i;
+  // a new setting starts at its full resolution
+  Object.assign(auto, { scale: 1, wait: 4000 });
   client.set_quality(i);
   client.resize(...size());
 }, "graphics", 1);
@@ -572,8 +614,11 @@ addEventListener("wheel", e => { if (locked() && e.deltaY) client.cycle_weapon(e
 // isn't in it)
 const perf = params.has("perf") ? { n: 0, cpu: 0, worst: 0, since: 0 } : null;
 
+let lastFrame = 0;
 function loop(t) {
   const t0 = performance.now();
+  if (lastFrame) autoFrame(t, t - lastFrame);
+  lastFrame = t;
   client.frame(t);
   if (perf) {
     const ms = performance.now() - t0;
@@ -582,7 +627,7 @@ function loop(t) {
     perf.worst = Math.max(perf.worst, ms);
     if (!perf.since) perf.since = t;
     if (t - perf.since > 2000) {
-      console.log(`perf: ${(perf.n * 1000 / (t - perf.since)).toFixed(0)} fps, ${((t - perf.since) / perf.n).toFixed(2)} ms a frame, game code ${(perf.cpu / perf.n).toFixed(2)} ms (worst ${perf.worst.toFixed(1)})`);
+      console.log(`perf: ${(perf.n * 1000 / (t - perf.since)).toFixed(0)} fps, ${((t - perf.since) / perf.n).toFixed(2)} ms a frame, game code ${(perf.cpu / perf.n).toFixed(2)} ms (worst ${perf.worst.toFixed(1)}), ${canvas.width}x${canvas.height}`);
       Object.assign(perf, { n: 0, cpu: 0, worst: 0, since: t });
     }
   }

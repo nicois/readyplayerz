@@ -22,8 +22,14 @@ impl Client {
     #[wasm_bindgen(constructor)]
     pub fn new(canvas: HtmlCanvasElement) -> Result<Client, JsValue> {
         std::panic::set_hook(Box::new(|info| web_sys::console::error_1(&info.to_string().into())));
+        // the picture is drawn, multisampled, into the renderer's own buffers and only copied onto the canvas,
+        // so the canvas needs no multisampling or depth of its own: they would cost a resolve and memory per frame
+        let options = js_sys::Object::new();
+        for (k, v) in [("antialias", false), ("depth", false), ("stencil", false)] {
+            js_sys::Reflect::set(&options, &k.into(), &v.into())?;
+        }
         let gl = canvas
-            .get_context("webgl2")?
+            .get_context_with_context_options("webgl2", &options)?
             .ok_or("WebGL2 is not available")?
             .dyn_into::<WebGl2RenderingContext>()?;
         let mut renderer = Renderer::new(gl, canvas.width(), canvas.height())?;

@@ -657,7 +657,7 @@ mod tests {
     #[test]
     fn the_figure_has_a_sensible_amount_of_surface() {
         let t = std::time::Instant::now();
-        let f = Figure::new(1.0);
+        let f = Figure::new(2.0);
         println!("built in {:?}", t.elapsed());
         for (name, m) in [("body", &f.body), ("head", &f.head), ("left hand", &f.hands[0]), ("right hand", &f.hands[1]), ("shirt", &f.shirt), ("pants", &f.pants), ("hair", &f.hair)] {
             println!("{name}: {} vertices, {} triangles", m.verts.len() / STRIDE, m.idx.len() / 3);
