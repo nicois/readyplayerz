@@ -100,6 +100,10 @@
   .gun { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; font-size: 15px; letter-spacing: .04em; background: rgba(255,255,255,.05); border: 1px solid transparent; border-radius: 4px; }
   .gun:hover, .gun:focus-visible, .gun.hl { outline: none; border-color: rgba(255,211,106,.6); background: rgba(255,211,106,.1); }
   .gun i { font-size: 10px; font-style: normal; letter-spacing: .1em; color: #ffd36a; }
+  /* the gun's picture, on a soft pool of light so the dark ones stand out from the menu */
+  .pic { display: flex; align-items: center; justify-content: center; height: 150px; margin-bottom: 14px; padding: 12px 20px; border-radius: 6px; background: radial-gradient(ellipse at center, rgba(190,200,225,.30), rgba(190,200,225,.06) 70%); }
+  .pic img { max-width: 100%; max-height: 100%; object-fit: contain; filter: drop-shadow(0 6px 8px rgba(0,0,0,.45)); }
+  .lslot .pic { height: 84px; margin: 12px 0 0; padding: 6px 10px; }
   #detail > span { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; opacity: .6; }
   #detail h3 { margin: 2px 0 14px; font-size: 32px; letter-spacing: .06em; }
   .stat { display: grid; grid-template-columns: 96px 1fr 76px; gap: 12px; align-items: center; margin-top: 10px; font-size: 13px; }
@@ -135,9 +139,6 @@
   #scope::before { left: 50%; top: calc(50% - 30vmin); width: 2px; height: 60vmin; margin-left: -1px; }
   #scope::after { top: 50%; left: calc(50% - 30vmin); height: 2px; width: 60vmin; margin-top: -1px; }
   #scope i { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: #ff3b3b; }
-  #map { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(8,10,14,.86); }
-  #map canvas { position: static; width: min(92vh, 92vw); height: min(92vh, 92vw); border: 1px solid rgba(255,255,255,.3); }
-  #map small { position: absolute; bottom: 10px; opacity: .6; }
   #dead small { display: block; margin-top: 10px; font-size: 15px; }
   #loading { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #12182a; transition: opacity .35s; }
   #loading.done { opacity: 0; pointer-events: none; }
@@ -169,7 +170,6 @@
   <div id="stamina"><div id="sfill"></div></div>
   <div id="bar"></div>
 </div>
-<div id="map"><canvas id="mapcv" width="720" height="720"></canvas><small>Tab to close</small></div>
 <div id="menu">
   <section class="screen on" id="s-main">
     <h1>readyplayerz</h1>
@@ -207,7 +207,6 @@
       <dt>R</dt><dd>Reload</dd>
       <dt>1 or wheel up</dt><dd>Primary</dd>
       <dt>2 or wheel down</dt><dd>Secondary</dd>
-      <dt>Tab</dt><dd>Map</dd>
       <dt>M</dt><dd>Sound on and off</dd>
       <dt>Esc</dt><dd>Pause, and back in the menu</dd>
     </dl>
@@ -400,21 +399,24 @@ const STATS = [
   ["Magazine", g => g.mag, g => g.mag],
 ];
 const best = STATS.map(([, f]) => Math.max(...guns.map(f)));
+// each gun's picture, made from the game's own model (see `?showcase`) and named after it, e.g. guns/ak-47.webp
+const pic = g => `<div class="pic"><img src="guns/${g.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.webp" alt="${g.name}"></div>`;
 const frac = (k, g) => `${Math.max(0.04, STATS[k][1](g) / best[k]) * 100}%`;
 
-// the loadout: a primary to pick, and the pistol everyone carries (its slot opens the same picker, with one gun in it)
+// the loadout: a primary and a sidearm, each picked from its own guns
 const primaries = client.primary_count();
 const loadoutNow = () => {
   const h = client.hud();
-  return { carried: h[18], picked: h[19], inPlay: h[20] > 0 };
+  return { carried: [h[18], h[24]], picked: [h[19], h[25]], inPlay: h[20] > 0 };
 };
 const SLOTS = [
-  { name: "Primary", guns: guns.filter(g => g.i < primaries), equipped: () => loadoutNow().picked, equip: i => client.pick_primary(i) },
-  { name: "Secondary", guns: guns.filter(g => g.i >= primaries), equipped: () => primaries, equip: () => {} },
-];
+  { name: "Primary", guns: guns.filter(g => g.i < primaries) },
+  { name: "Secondary", guns: guns.filter(g => g.i >= primaries) },
+].map((slot, s) => ({ ...slot, equipped: () => loadoutNow().picked[s], equip: i => client.pick(i) }));
 const pendingText = () => {
   const { carried, picked, inPlay } = loadoutNow();
-  return picked !== carried ? `${names[picked]} from your next life` : inPlay ? "Loadout changes are carried from your next life" : "";
+  const later = picked.filter((w, s) => w !== carried[s]).map(w => names[w]);
+  return later.length ? `${later.join(" and ")} from your next life` : inPlay ? "Loadout changes are carried from your next life" : "";
 };
 
 // screens, and where Back goes from each
@@ -433,8 +435,8 @@ function drawLoadout() {
   const { carried, picked } = loadoutNow();
   $("slots").replaceChildren(...SLOTS.map((slot, s) => {
     const g = guns[slot.equipped()];
-    const later = s === 0 && picked !== carried ? `<em>From your next life &middot; the ${names[carried]} until then</em>` : "";
-    const b = el("button", "lslot", `<b>${slot.name.toUpperCase()}</b><h3>${g.name}</h3><span>${g.cls}</span>${later}`);
+    const later = picked[s] !== carried[s] ? `<em>From your next life &middot; the ${names[carried[s]]} until then</em>` : "";
+    const b = el("button", "lslot", `<b>${slot.name.toUpperCase()}</b><h3>${g.name}</h3><span>${g.cls}</span>${pic(g)}${later}`);
     b.addEventListener("click", () => openPicker(s));
     return b;
   }));
@@ -481,9 +483,9 @@ function drawDetail(g) {
     return `<div class="stat"><span>${label}</span><div class="bar"><div style="width:${frac(k, g)}"></div>${mark}</div><span class="${d > 0 ? "up" : d < 0 ? "down" : ""}">${print(g)}</span></div>`;
   });
   const hint = other ? `Click to equip &middot; the marks show your ${eq.name}` : "Equipped";
-  $("detail").innerHTML = `<span>${g.cls}</span><h3>${g.name}</h3>${bars.join("")}<p class="hint">${hint}</p>`;
+  $("detail").innerHTML = `${pic(g)}<span>${g.cls}</span><h3>${g.name}</h3>${bars.join("")}<p class="hint">${hint}</p>`;
 }
-// the bar in play: the carried primary in slot 1, the pistol in slot 2
+// the bar in play: the carried primary in slot 1, the sidearm in slot 2
 const slots = [0, primaries].map((w, i) => {
   const slot = document.createElement("div");
   slot.className = "slot";
@@ -491,21 +493,30 @@ const slots = [0, primaries].map((w, i) => {
   $("bar").appendChild(slot);
   return slot;
 });
-let shownPrimary = 0;
+const shownCarried = [0, primaries];
 
 // dev flags: ?demo runs the game behind the menu (for screenshots where pointer lock isn't available),
-// ?calm removes the bots, ?at=x,z,yaw[,y] puts the player somewhere, ?primary=1-4 picks the primary,
-// ?slot=2 holds the pistol, ?clean hides the menu, ?screen=loadout|pick|settings opens a menu screen
+// ?calm removes the bots, ?at=x,z,yaw[,y] puts the player somewhere, ?primary=1-8 picks the primary,
+// ?sidearm=1-3 the sidearm, ?slot=2 holds the sidearm, ?clean hides the menu, ?screen=loadout|pick|pick2|settings
+// opens a menu screen (pick2 is the sidearm's picker)
 const params = new URLSearchParams(location.search);
-if (params.get("screen") === "pick") openPicker(0);
-else if (params.has("screen")) show(`s-${params.get("screen")}`);
 if (params.has("demo")) client.set_paused(false);
 if (params.has("calm")) client.remove_bots();
-if (params.has("primary")) client.pick_primary(Number(params.get("primary")) - 1);
+if (params.has("primary")) client.pick(Number(params.get("primary")) - 1);
+if (params.has("sidearm")) client.pick(primaries + Number(params.get("sidearm")) - 1);
+if (params.get("screen") === "pick" || params.get("screen") === "pick2") openPicker(params.get("screen") === "pick2" ? 1 : 0);
+else if (params.has("screen")) show(`s-${params.get("screen")}`);
 if (params.has("slot")) client.key("Digit" + params.get("slot"), true);
 if (params.has("clean")) menu.style.visibility = "hidden";
 if (params.has("ads")) client.mouse_button(2, true); // holds aim, to look at the sights
 if (params.has("run")) { client.key("KeyW", true); client.key("ShiftLeft", true); } // holds sprint, to look at the run
+if (params.has("fire")) client.mouse_button(0, true); // holds the trigger, to look at the actions cycling
+if (params.has("reload")) client.key("KeyR", true); // holds reload, so a gun reloads as soon as a shot is gone
+// ?showcase=i&bg=0..1 draws gun i alone on a flat grey with nothing over it, to make the loadout's pictures from
+if (params.has("showcase")) {
+  client.showcase(Number(params.get("showcase")), Number(params.get("bg") || 0));
+  document.querySelectorAll("body > :not(canvas)").forEach(e => (e.style.display = "none"));
+}
 
 if (params.has("at")) {
   const [x, z, yaw = 0, y = 0] = params.get("at").split(",").map(Number);
@@ -527,69 +538,7 @@ document.addEventListener("pointerlockchange", () => {
   music.setInPlay(locked());
   if (!locked()) { client.release_all(); sound.cancel(); show("s-main"); }
 });
-// the whole arena from above: ground markings first, then walls from low to tall so tall things sit on top
-const S = 3.6;
-let mapBase = null;
-const rgb = (r, g, b, k = 1) => `rgb(${Math.min(255, r * k * 255) | 0},${Math.min(255, g * k * 255) | 0},${Math.min(255, b * k * 255) | 0})`;
-function buildMap() {
-  const off = document.createElement("canvas");
-  off.width = off.height = 200 * S;
-  const c = off.getContext("2d");
-  c.fillStyle = rgb(0.23, 0.22, 0.19);
-  c.fillRect(0, 0, off.width, off.height);
-  const px = v => (v + 100) * S;
-  const d = client.decal_data();
-  for (let i = 0; i < d.length; i += 7) {
-    c.fillStyle = rgb(d[i + 4], d[i + 5], d[i + 6]);
-    c.fillRect(px(d[i]), px(d[i + 1]), (d[i + 2] - d[i]) * S, (d[i + 3] - d[i + 1]) * S);
-  }
-  const w = client.map_data();
-  const order = [];
-  for (let i = 0; i < w.length; i += 8) order.push(i);
-  order.sort((a, b) => w[a + 4] - w[b + 4]);
-  for (const i of order) {
-    c.fillStyle = rgb(w[i + 5], w[i + 6], w[i + 7], 0.7 + 0.5 * Math.min(w[i + 4] / 12, 1));
-    c.fillRect(px(w[i]), px(w[i + 1]), Math.max(1, (w[i + 2] - w[i]) * S), Math.max(1, (w[i + 3] - w[i + 1]) * S));
-  }
-  c.font = "bold 13px ui-monospace, Menlo, monospace";
-  c.textAlign = "center";
-  for (const [name, x, z] of [["CLOCK TOWER", 0, 14], ["NORTH YARD", 0, -90], ["CRANE", 0, -58], ["CHURCH", 0, 52], ["HOUSES", -62, 66], ["RADIO HILL", 75, 0], ["TRENCHES", -73, 0], ["WATER TOWER", -78, 34], ["FORTRESS", -79, -99], ["OIL DEPOT", 81, -99], ["GAS STATION", 60, 94], ["SUBSTATION", -79, 94]]) {
-    c.fillStyle = "#000a";
-    c.fillText(name, px(x) + 1, px(z) + 1);
-    c.fillStyle = "#fff";
-    c.fillText(name, px(x), px(z));
-  }
-  return off;
-}
-let showMap = false;
-let lastPos = [0, 0, 0];
-function drawMap() {
-  const c = $("mapcv").getContext("2d");
-  c.drawImage(mapBase, 0, 0);
-  const [x, z, yaw] = lastPos;
-  c.save();
-  c.translate((x + 100) * S, (z + 100) * S);
-  c.rotate(yaw);
-  c.fillStyle = "#ffd36a";
-  c.strokeStyle = "#000";
-  c.beginPath();
-  c.moveTo(0, -11);
-  c.lineTo(7, 8);
-  c.lineTo(-7, 8);
-  c.closePath();
-  c.fill();
-  c.stroke();
-  c.restore();
-}
 addEventListener("keydown", e => {
-  if (e.code === "Tab") {
-    e.preventDefault();
-    if (e.repeat) return;
-    showMap = !showMap;
-    if (showMap && !mapBase) mapBase = buildMap();
-    $("map").style.display = showMap ? "flex" : "none";
-    return;
-  }
   if (e.repeat) return;
   if (e.code === "Escape" && !locked() && BACK[screen]) show(BACK[screen]);
   if (e.code === "KeyM") setSound(sound.muted ? 0 : 1);
@@ -616,19 +565,18 @@ function loop(t) {
       m.className = kind;
     }
   }
-  const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped, killt, px, pz, pyaw, wave, left, carried, picked, inPlay, spread, stamina, winded] = client.hud();
-  lastPos = [px, pz, pyaw];
-  if (showMap) drawMap();
+  const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped, killt, px, pz, pyaw, wave, left, carried, picked, inPlay, spread, stamina, winded, carried2, picked2] = client.hud();
   $("hp").textContent = Math.ceil(hp);
   $("am").textContent = ammo;
   $("mg").textContent = mag;
-  if (carried !== shownPrimary) {
-    shownPrimary = carried;
-    slots[0].querySelector("span").textContent = names[carried];
-  }
-  slots[0].classList.toggle("on", weapon === carried);
-  slots[1].classList.toggle("on", weapon === primaries);
-  $("sum").textContent = `${names[picked]} · ${names[primaries]}`;
+  [carried, carried2].forEach((w, s) => {
+    if (w !== shownCarried[s]) {
+      shownCarried[s] = w;
+      slots[s].querySelector("span").textContent = names[w];
+    }
+    slots[s].classList.toggle("on", weapon === w);
+  });
+  $("sum").textContent = `${names[picked]} · ${names[picked2]}`;
   $("end").style.display = inPlay ? "block" : "none";
   $("play").textContent = inPlay ? "Resume" : "Play";
   const scopeOn = scoped && ads > 0.85;
@@ -647,7 +595,7 @@ function loop(t) {
   dead.style.display = respawn > 0 ? "block" : "none";
   if (respawn > 0) {
     dead.innerHTML = `Overrun on wave ${wave}. Restarting in ${respawn.toFixed(1)}`
-      + `<small>Next life: ${names[picked]} &middot; Esc to change your loadout</small>`;
+      + `<small>Next life: ${names[picked]} and ${names[picked2]} &middot; Esc to change your loadout</small>`;
   }
   if (!loaded) {
     // the first frame has been drawn: show it on the next one

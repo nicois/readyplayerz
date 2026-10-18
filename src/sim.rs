@@ -56,10 +56,11 @@ const LOD_RADIUS: f32 = 40.0;
 /// Side of one cell of the wall grid.
 const CELL: f32 = 4.0;
 pub const EQUIP_TIME: f32 = 0.35;
-pub const WEAPON_COUNT: usize = 5;
-/// The first PRIMARIES weapons are the ones a loadout picks from; the pistol is everyone's sidearm.
-pub const PRIMARIES: usize = 4;
-pub const PISTOL: usize = 4;
+pub const WEAPON_COUNT: usize = 11;
+/// The first PRIMARIES weapons are the ones a loadout picks its primary from, the rest its sidearm.
+pub const PRIMARIES: usize = 8;
+/// The sidearm everyone starts with.
+pub const PISTOL: usize = 8;
 
 /// Things that happened this tick that a client may want to play a sound for.
 /// Each event is `[code, a, b]` in `Game::events`.
@@ -119,7 +120,18 @@ pub static WEAPONS: [Weapon; WEAPON_COUNT] = [
     Weapon { name: "SMG", class: "SMG", mag: 35, delay: 0.065, reload: 1.2, pellets: 1, body_dmg: 20.0, head_dmg: 40.0, spread: 0.045, ads_spread: 0.007, kick: 0.004, auto: true, zoom: 0.85, scope: false, speed: 1.08 },
     Weapon { name: "Shotgun", class: "Shotgun", mag: 6, delay: 0.85, reload: 2.4, pellets: 8, body_dmg: 14.0, head_dmg: 28.0, spread: 0.07, ads_spread: 0.038, kick: 0.045, auto: false, zoom: 0.9, scope: false, speed: 1.0 },
     Weapon { name: "Sniper", class: "Sniper", mag: 5, delay: 1.3, reload: 2.6, pellets: 1, body_dmg: 100.0, head_dmg: 150.0, spread: 0.12, ads_spread: 0.0, kick: 0.03, auto: false, zoom: 0.3, scope: true, speed: 0.92 },
+    // harder hitting than the carbine and harder to hold on target
+    Weapon { name: "AK-47", class: "Assault rifle", mag: 30, delay: 0.10, reload: 1.6, pellets: 1, body_dmg: 42.0, head_dmg: 95.0, spread: 0.07, ads_spread: 0.004, kick: 0.010, auto: true, zoom: 0.8, scope: false, speed: 0.97 },
+    // a hose: very fast and light, but no stock to steady the sights
+    Weapon { name: "Uzi", class: "SMG", mag: 32, delay: 0.055, reload: 1.3, pellets: 1, body_dmg: 17.0, head_dmg: 34.0, spread: 0.05, ads_spread: 0.013, kick: 0.005, auto: true, zoom: 0.88, scope: false, speed: 1.1 },
+    // both barrels go almost at once, then it breaks open for two more shells
+    Weapon { name: "Double barrel", class: "Shotgun", mag: 2, delay: 0.2, reload: 1.7, pellets: 10, body_dmg: 15.0, head_dmg: 30.0, spread: 0.085, ads_spread: 0.05, kick: 0.06, auto: false, zoom: 0.92, scope: false, speed: 1.02 },
+    // iron sights and a quicker bolt than the scoped rifle, and a head shot always kills
+    Weapon { name: "Mosin", class: "Sniper", mag: 5, delay: 1.0, reload: 2.2, pellets: 1, body_dmg: 85.0, head_dmg: 220.0, spread: 0.10, ads_spread: 0.0, kick: 0.028, auto: false, zoom: 0.55, scope: false, speed: 0.96 },
     Weapon { name: "Pistol", class: "Pistol", mag: 12, delay: 0.16, reload: 1.1, pellets: 1, body_dmg: 26.0, head_dmg: 60.0, spread: 0.04, ads_spread: 0.004, kick: 0.012, auto: false, zoom: 0.85, scope: false, speed: 1.05 },
+    Weapon { name: "Revolver", class: "Pistol", mag: 6, delay: 0.42, reload: 2.0, pellets: 1, body_dmg: 60.0, head_dmg: 135.0, spread: 0.045, ads_spread: 0.003, kick: 0.035, auto: false, zoom: 0.85, scope: false, speed: 1.04 },
+    // a hand cannon: every shot throws the aim well up, so quick follow-ups take pulling it back down
+    Weapon { name: "Desert Eagle", class: "Pistol", mag: 7, delay: 0.32, reload: 1.5, pellets: 1, body_dmg: 55.0, head_dmg: 125.0, spread: 0.05, ads_spread: 0.004, kick: 0.10, auto: false, zoom: 0.85, scope: false, speed: 1.0 },
 ];
 
 #[derive(Clone, Copy, Debug)]
@@ -209,10 +221,10 @@ pub struct Player {
     pub pitch: f32,
     pub hp: f32,
     pub weapon: usize,
-    /// the guns carried this life: a primary and the pistol
+    /// the guns carried this life: a primary and a sidearm
     pub loadout: [usize; 2],
-    /// the primary to carry next life; it can only change before the first spawn or while dead
-    pub picked: usize,
+    /// the primary and sidearm to carry next life; the loadout only takes them before the first spawn or on a respawn
+    pub picked: [usize; 2],
     /// has played this life, which locks the loadout until death
     pub in_play: bool,
     /// rounds left per weapon
@@ -602,7 +614,7 @@ impl Game {
                 hp: 100.0,
                 weapon: 0,
                 loadout: [0, PISTOL],
-                picked: 0,
+                picked: [0, PISTOL],
                 in_play: false,
                 ammo: full_ammo(),
                 reload_t: 0.0,
@@ -655,31 +667,36 @@ impl Game {
         p.winded = false;
         p.bloom = 0.0;
         p.ammo = full_ammo();
-        p.loadout[0] = p.picked;
-        p.weapon = p.picked;
+        p.loadout = p.picked;
+        p.weapon = p.picked[0];
         p.reload_t = 0.0;
         p.equip_t = 0.0;
         p.ads = 0.0;
     }
 
-    /// Picks the primary for the loadout. Before the first spawn is played it is carried straight away; otherwise
-    /// from the next life, so a life is always played with the gun it started with.
-    pub fn pick_primary(&mut self, i: usize) -> bool {
-        if i >= PRIMARIES {
+    /// Picks a gun for the loadout: a primary for slot 0 or a sidearm for slot 1, whichever it is. Before the first
+    /// spawn is played it is carried straight away; otherwise from the next life, so a life is always played with
+    /// the guns it started with.
+    pub fn pick(&mut self, i: usize) -> bool {
+        if i >= WEAPON_COUNT {
             return false;
         }
+        let slot = if i < PRIMARIES { 0 } else { 1 };
         let p = &mut self.player;
-        p.picked = i;
+        p.picked[slot] = i;
         if p.alive() && !p.in_play {
-            p.loadout[0] = i;
-            p.weapon = i;
-            p.reload_t = 0.0;
-            p.ads = 0.0;
+            let held = p.weapon == p.loadout[slot];
+            p.loadout[slot] = i;
+            if held {
+                p.weapon = i;
+                p.reload_t = 0.0;
+                p.ads = 0.0;
+            }
         }
         true
     }
 
-    /// Switches to the primary (slot 0) or the pistol (slot 1).
+    /// Switches to the primary (slot 0) or the sidearm (slot 1).
     pub fn select_slot(&mut self, slot: usize) {
         if let Some(&w) = self.player.loadout.get(slot) {
             self.select(w);
@@ -1460,21 +1477,35 @@ mod tests {
     fn a_pick_is_carried_at_once_before_playing_and_from_the_next_life_after() {
         let mut g = arena();
         g.bots.clear();
-        assert!(g.pick_primary(2));
+        assert!(g.pick(2));
         assert_eq!((g.player.weapon, g.player.loadout), (2, [2, PISTOL]));
-        assert!(!g.pick_primary(PISTOL), "the pistol is not a primary");
+        // a sidearm goes in the second slot, and the primary stays in hand
+        assert!(g.pick(PISTOL + 1));
+        assert_eq!((g.player.weapon, g.player.loadout), (2, [2, PISTOL + 1]));
+        assert!(!g.pick(WEAPON_COUNT));
         idle(&mut g, 0.1);
         // picked while alive: carried from the next life
-        assert!(g.pick_primary(1));
-        assert_eq!(g.player.loadout[0], 2, "changed guns mid-life");
+        assert!(g.pick(1));
+        assert!(g.pick(PISTOL));
+        assert_eq!(g.player.loadout, [2, PISTOL + 1], "changed guns mid-life");
         g.select_slot(1);
-        assert_eq!(g.player.weapon, PISTOL);
+        assert_eq!(g.player.weapon, PISTOL + 1);
         g.hurt_player(1e9);
-        assert!(g.pick_primary(3));
+        assert!(g.pick(3));
         assert_eq!(g.player.loadout[0], 2, "the pick should wait for the respawn");
         idle(&mut g, 4.2);
         assert!(g.player.alive());
         assert_eq!((g.player.weapon, g.player.loadout), (3, [3, PISTOL]));
+    }
+
+    #[test]
+    fn primaries_and_sidearms_are_where_the_loadout_expects_them() {
+        assert!(WEAPONS[..PRIMARIES].iter().all(|w| w.class != "Pistol"));
+        assert!(WEAPONS[PRIMARIES..].iter().all(|w| w.class == "Pistol"));
+        assert_eq!(WEAPONS[PISTOL].name, "Pistol");
+        // a Mosin head shot does most of a brute; the double barrel empties in two
+        assert!(WEAPONS[7].head_dmg >= 200.0);
+        assert_eq!(WEAPONS[6].mag, 2);
     }
 
     #[test]
@@ -1536,7 +1567,7 @@ mod tests {
         // a sniper has settled again by the time it can fire
         let mut g = arena();
         g.wave_t = f32::INFINITY;
-        g.pick_primary(3);
+        g.pick(3);
         g.input.fire = true;
         idle(&mut g, 0.05);
         g.input.fire = false;

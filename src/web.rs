@@ -37,7 +37,9 @@ impl Client {
     pub fn end_game(&mut self) {
         let picked = self.game.player.picked;
         self.game = Game::new(self.seed);
-        self.game.pick_primary(picked);
+        for i in picked {
+            self.game.pick(i);
+        }
         self.acc = 0.0;
     }
 
@@ -62,7 +64,7 @@ impl Client {
             "ShiftLeft" | "ShiftRight" => i.sprint = down,
             "KeyR" => i.reload = down,
             _ if down => {
-                // 1 primary, 2 pistol; the loadout itself is picked in the menu
+                // 1 primary, 2 sidearm; the loadout itself is picked in the menu
                 if let Some(n) = code.strip_prefix("Digit").and_then(|d| d.parse::<usize>().ok()) {
                     if self.game.player.alive() {
                         self.game.select_slot(n.wrapping_sub(1));
@@ -81,22 +83,6 @@ impl Client {
     /// The menu is up: keep drawing, stop the simulation.
     pub fn set_paused(&mut self, paused: bool) {
         self.paused = paused;
-    }
-
-    /// Every wall as x0, z0, x1, z1, height, r, g, b: enough to draw a map.
-    pub fn map_data(&self) -> Vec<f32> {
-        let walls = &self.game.world.walls;
-        walls
-            .iter()
-            .zip(&self.game.colors)
-            .filter(|(w, _)| w.max[1] > 0.45)
-            .flat_map(|(w, c)| [w.min[0], w.min[2], w.max[0], w.max[2], w.max[1], c[0], c[1], c[2]])
-            .collect()
-    }
-
-    /// Roads, paving and grass as x0, z0, x1, z1, r, g, b.
-    pub fn decal_data(&self) -> Vec<f32> {
-        self.game.decals.iter().flat_map(|(d, c)| [d.min[0], d.min[2], d.max[0], d.max[2], c[0], c[1], c[2]]).collect()
     }
 
     /// Puts the player somewhere and facing some way. For looking around and testing.
@@ -125,6 +111,12 @@ impl Client {
         self.renderer.gun_yaw.set(yaw);
     }
 
+    /// Draws only gun `i` on a flat grey of brightness `bg` (0 black to 1 white) from now on, for the loadout's
+    /// pictures.
+    pub fn showcase(&mut self, i: usize, bg: f32) {
+        self.renderer.showcase.set(Some((i, bg)));
+    }
+
     pub fn remove_bots(&mut self) {
         self.game.bots.clear();
     }
@@ -134,12 +126,13 @@ impl Client {
         std::mem::take(&mut self.game.events).into_iter().flatten().collect()
     }
 
-    /// Picks the loadout's primary: carried at once before the game starts, otherwise from the next life.
-    pub fn pick_primary(&mut self, i: usize) -> bool {
-        self.game.pick_primary(i)
+    /// Picks a primary or a sidearm for the loadout: carried at once before the game starts, otherwise from the
+    /// next life.
+    pub fn pick(&mut self, i: usize) -> bool {
+        self.game.pick(i)
     }
 
-    /// How many of `weapon_names` are primaries; the one after them is the pistol.
+    /// How many of `weapon_names` are primaries; the sidearms come after them.
     pub fn primary_count(&self) -> usize {
         PRIMARIES
     }
@@ -200,7 +193,7 @@ impl Client {
     /// health, ammo, magazine size, reloading, kills, deaths, hit marker, damage flash, respawn countdown,
     /// weapon index, aim amount, scoped, kill marker, x, z, yaw, wave, zombies left, carried primary,
     /// picked primary, game under way, the circle shots land in as a fraction of half the screen's height,
-    /// stamina, winded
+    /// stamina, winded, carried sidearm, picked sidearm
     pub fn hud(&self) -> Vec<f32> {
         let p = &self.game.player;
         vec![
@@ -223,11 +216,13 @@ impl Client {
             self.game.wave as f32,
             self.game.zombies_left() as f32,
             p.loadout[0] as f32,
-            p.picked as f32,
+            p.picked[0] as f32,
             if p.in_play { 1.0 } else { 0.0 },
             p.spread() / (p.fov() / 2.0).tan(),
             p.stamina,
             if p.winded { 1.0 } else { 0.0 },
+            p.loadout[1] as f32,
+            p.picked[1] as f32,
         ]
     }
 }

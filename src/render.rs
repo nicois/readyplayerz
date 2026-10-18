@@ -518,6 +518,7 @@ uniform vec2 u_range;
 uniform float u_t;
 uniform float u_aspect;
 uniform float u_aoon;
+uniform float u_plain;
 out vec4 o;
 float lin(float d) {
     return 2.0 * u_range.x * u_range.y / (u_range.y + u_range.x - (d * 2.0 - 1.0) * (u_range.y - u_range.x));
@@ -547,9 +548,11 @@ void main() {
     c = mix(vec3(lum), c, 1.04);
     c = mix(c, c * c * (3.0 - 2.0 * c), 0.2);
     c *= mix(vec3(1.0), vec3(1.04, 1.0, 0.94), smoothstep(0.3, 0.9, lum));
-    float v = length((uv - 0.5) * vec2(u_aspect, 1.0));
-    c *= 1.0 - 0.38 * smoothstep(0.35, 1.05, v);
-    c += (hash(gl_FragCoord.xy + u_t * 61.0) - 0.5) * 0.03;
+    if (u_plain < 0.5) {
+        float v = length((uv - 0.5) * vec2(u_aspect, 1.0));
+        c *= 1.0 - 0.38 * smoothstep(0.35, 1.05, v);
+        c += (hash(gl_FragCoord.xy + u_t * 61.0) - 0.5) * 0.03;
+    }
     o = vec4(clamp(c, 0.0, 1.0), 1.0);
 }"#;
 
@@ -620,6 +623,8 @@ struct GpuGun {
     trigger: Vec<GpuPiece>,
     action: Vec<GpuPiece>,
     spec: crate::gunmodel::Spec,
+    /// the box round every part, at rest
+    bounds: (V3, V3),
 }
 
 /// The hands every gun shares.
@@ -664,6 +669,10 @@ pub struct Renderer {
     /// where the gun sits in the view, for inspecting it; None for the normal place
     pub gun_offset: Cell<Option<[f32; 3]>>,
     pub gun_yaw: Cell<f32>,
+    /// Draws only this gun on a flat grey, for the loadout's pictures (see `draw_showcase`).
+    pub showcase: Cell<Option<(usize, f32)>>,
+    /// composites without the vignette and grain
+    plain: Cell<bool>,
     guns: Vec<GpuGun>,
     hands: GpuHands,
     u_view: Option<WebGlUniformLocation>,
@@ -989,7 +998,15 @@ impl Renderer {
         let guns = crate::gunmodel::guns()
             .iter()
             .map(|g| {
+                let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+                for v in g.body.iter().chain(&g.mag).chain(&g.trigger).chain(&g.action).flat_map(|p| p.mesh.verts.chunks(6)) {
+                    for a in 0..3 {
+                        lo[a] = lo[a].min(v[a]);
+                        hi[a] = hi[a].max(v[a]);
+                    }
+                }
                 Ok(GpuGun {
+                    bounds: (lo, hi),
                     body: Self::upload_pieces(&gl, &g.body)?,
                     mag: Self::upload_pieces(&gl, &g.mag)?,
                     trigger: Self::upload_pieces(&gl, &g.trigger)?,
@@ -1062,6 +1079,8 @@ impl Renderer {
         Ok(Renderer {
             gun_offset: Cell::new(None),
             gun_yaw: Cell::new(0.05),
+            showcase: Cell::new(None),
+            plain: Cell::new(false),
             guns,
             hands,
             u_view: u("u_view"),
@@ -1491,6 +1510,47 @@ impl Renderer {
         gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&t.msaa));
     }
 
+    /// Gun `idx` alone on a flat grey `bg`, from its right side and a little above, sized to fill the picture: the
+    /// loadout's pictures are made from these. Lit by the sun from over the viewer's shoulder, with no shadows,
+    /// no hands, and none of the vignette or grain.
+    fn draw_showcase(&self, t: &Targets, idx: usize, bg: f32, aspect: f32) {
+        let gl = &self.gl;
+        gl.clear_color(bg, bg, bg, 1.0);
+        gl.clear(GL::COLOR_BUFFER_BIT | GL::DEPTH_BUFFER_BIT);
+        gl.use_program(Some(&self.prog));
+        gl.uniform2f(self.u_fogr.as_ref(), 1e4, 2e4);
+        gl.uniform1f(self.u_batch.as_ref(), 0.0);
+        gl.uniform1f(self.u_shon.as_ref(), 0.0);
+        gl.uniform1f(self.u_dark.as_ref(), 0.0);
+        gl.uniform1f(self.u_flash.as_ref(), 0.0);
+        let fov = 0.5f32;
+        gl.uniform_matrix4fv_with_f32_array(self.u_vp.as_ref(), false, &perspective(fov, aspect, 0.05, 50.0));
+        gl.uniform3f(self.u_eye.as_ref(), 0.0, 0.0, 0.0);
+        // a camera facing away from the sun, so it lights the side being looked at
+        let fwd = norm([-SUN[0], -0.45, -SUN[2]]);
+        let (s, u) = view_axes(fwd, 0.0);
+        gl.uniform1f(self.u_view.as_ref(), 1.0);
+        gl.uniform_matrix3fv_with_f32_array(self.u_envrot.as_ref(), false, &[s[0], s[1], s[2], u[0], u[1], u[2], -fwd[0], -fwd[1], -fwd[2]]);
+        gl.uniform3f(self.u_eyew.as_ref(), 0.0, 1.6, 0.0);
+
+        let gun = &self.guns[idx];
+        let (lo, hi) = gun.bounds;
+        let centre = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0];
+        // far enough back for the gun's length to fit across, or its height to fit up the picture
+        let half = (fov / 2.0).tan();
+        let dist = ((hi[2] - lo[2]) / 2.0 / (half * aspect)).max((hi[1] - lo[1]) / 2.0 / half) * 1.12;
+        let model = mul(
+            &translate(0.0, 0.0, -dist),
+            &mul(&rot_x(0.10), &mul(&rot_y(-std::f32::consts::FRAC_PI_2 + 0.18), &translate(-centre[0], -centre[1], -centre[2]))),
+        );
+        self.draw_gun(idx, &model, 0.0, 0.0, 0.0, 0.0, 0.0, false);
+        gl.uniform1f(self.u_view.as_ref(), 0.0);
+        self.resolve(t, true);
+        self.plain.set(true);
+        self.post(t, fov, 0.0, false);
+        self.plain.set(false);
+    }
+
     /// Occlusion from the depth buffer, then everything composited onto the screen.
     fn post(&self, t: &Targets, fov: f32, time: f32, ao: bool) {
         let gl = &self.gl;
@@ -1528,6 +1588,7 @@ impl Renderer {
         gl.uniform2f(loc(&self.comp_prog, "u_range").as_ref(), NEAR, FAR);
         gl.uniform1f(loc(&self.comp_prog, "u_t").as_ref(), time % 100.0);
         gl.uniform1f(loc(&self.comp_prog, "u_aspect").as_ref(), t.w as f32 / t.h.max(1) as f32);
+        gl.uniform1f(loc(&self.comp_prog, "u_plain").as_ref(), if self.plain.get() { 1.0 } else { 0.0 });
         gl.draw_arrays(GL::TRIANGLES, 0, 3);
         gl.enable(GL::DEPTH_TEST);
         gl.active_texture(GL::TEXTURE1);
@@ -1631,6 +1692,10 @@ impl Renderer {
         let t = targets.as_ref().expect("render targets");
         gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&t.msaa));
         gl.viewport(0, 0, w as i32, h as i32);
+        if let Some((gun, bg)) = self.showcase.get() {
+            self.draw_showcase(t, gun, bg, aspect);
+            return;
+        }
         gl.clear_color(self.haze[0], self.haze[1], self.haze[2], 1.0);
         gl.clear(GL::COLOR_BUFFER_BIT | GL::DEPTH_BUFFER_BIT);
         self.draw_sky(fwd, fov, aspect, g.time);
@@ -1873,32 +1938,44 @@ impl Renderer {
 
     /// A gun with its hands: the magazine comes out and goes back in during a reload while the left hand goes to
     /// fetch it, the trigger is pulled when it fires, and the pump, bolt or slide cycles after a shot.
-    fn draw_gun(&self, idx: usize, gun: &M4, recoil: f32, reload: f32, mag_out: f32, cycle: f32) {
+    /// `turn` is how many chambers a cylinder has turned through, fractions while it is turning.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_gun(&self, idx: usize, gun: &M4, recoil: f32, reload: f32, mag_out: f32, cycle: f32, turn: f32, hands: bool) {
         use crate::gunmodel::Action;
         let g = &self.guns[idx];
         let s = &g.spec;
         let at = |v: [f32; 3], k: f32| translate(v[0] * k, v[1] * k, v[2] * k);
+        let ease = |a: f32, b: f32, x: f32| {
+            let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+            t * t * (3.0 - 2.0 * t)
+        };
+        // a break action or a cylinder opens at the start of a reload and closes at the end
+        let open = ease(0.04, 0.2, reload) - ease(0.8, 0.94, reload);
         self.draw_pieces(gun, &g.body);
-        let mag = mul(gun, &mul(&at(s.mag_out, mag_out), &around(s.mag_pivot, &rot_x(s.mag_tilt * mag_out))));
-        self.draw_pieces(&mag, &g.mag);
         let pull = ((recoil - 0.6) * 5.0).clamp(0.0, 1.0);
         self.draw_pieces(&mul(gun, &around(s.trigger_pivot, &rot_x(-0.35 * pull))), &g.trigger);
 
-        // the moving part: a pump slides back, a bolt lifts before it pulls back, a slide kicks back as it fires
+        // the moving part: a pump slides back, a bolt lifts before it pulls back, a slide kicks back as it fires,
+        // barrels tip down on their hinge, a cylinder turns and swings out
         let action = match s.action {
             Action::Fixed => IDENTITY,
             Action::Pump => translate(0.0, 0.0, 0.09 * cycle),
             Action::Bolt => mul(&translate(0.0, 0.0, 0.075 * ((cycle - 0.35) / 0.65).max(0.0)), &rot_z((cycle * 2.5).min(1.0) * 1.1)),
             Action::Slide => translate(0.0, 0.0, 0.032 * ((recoil - 0.45) / 0.55).clamp(0.0, 1.0).sqrt()),
+            Action::Break => around(s.pivot, &rot_x(-0.6 * open)),
+            Action::Cylinder => mul(&around(s.swing, &rot_z(1.3 * open)), &around(s.pivot, &rot_z(-turn * std::f32::consts::TAU / 6.0))),
         };
         self.draw_pieces(&mul(gun, &action), &g.action);
+        // shells in a break action ride in the barrels
+        let carrier = if s.action == Action::Break { mul(gun, &action) } else { *gun };
+        let mag = mul(&carrier, &mul(&at(s.mag_out, mag_out), &around(s.mag_pivot, &rot_x(s.mag_tilt * mag_out))));
+        self.draw_pieces(&mag, &g.mag);
+        if !hands {
+            return;
+        }
 
         self.draw_pieces(&mul(gun, &at(s.right_at, 1.0)), &self.hands.right);
         // the left hand lets go, takes the magazine and comes back; on a pump it rides the forend
-        let ease = |a: f32, b: f32, x: f32| {
-            let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
-            t * t * (3.0 - 2.0 * t)
-        };
         let go = ease(0.0, 0.2, reload) - ease(0.78, 1.0, reload);
         let reach = if s.pistol_hold { [0.0, -0.07, 0.02] } else { [0.0, -0.085, 0.23] };
         let mut hand = mul(gun, &mul(&at(s.left_at, 1.0), &mul(&at(reach, go), &at(s.mag_out, 0.6 * mag_out))));
@@ -1926,10 +2003,9 @@ impl Renderer {
         };
         // swinging up from below when the gun was just selected
         let raise = (p.equip_t / crate::sim::EQUIP_TIME).powi(2);
-        // a long gun needs more kick to read as one
-        let kick = if w.pellets > 1 || w.scope { 0.09 } else { 0.05 };
-
         let spec = self.guns[p.weapon].spec;
+        // a long gun needs more kick to read as one, and a gun that flips hard shoves back hard too
+        let kick = if w.pellets > 1 || w.scope { 0.09f32 } else { 0.05 }.max(spec.flip * 0.2);
         let (flash_z, hold) = (spec.muzzle_z, spec.hold);
         // where the eye sits when aiming, above the gun's origin
         let sight_y = spec.sight_y + hold[1];
@@ -1943,22 +2019,34 @@ impl Renderer {
         let bob_y = -(2.0 * th).cos() * 0.007 * walk * big + (t * 1.5).sin() * 0.002 * (1.0 - ads);
         // sprinting carries the gun low and canted across the body; firing brings it straight back up
         let carry = p.sprint_t * (1.0 - ads) * (1.0 - recoil).max(0.0) * (1.0 - dip);
+        // how a reload carries the gun: most go low and cant over; a break action or a cylinder is held up and
+        // turned toward the eye instead, so the open breech can be seen
+        use crate::gunmodel::Action;
+        let (lower, pitch, roll, across) = match spec.action {
+            Action::Break => (0.01, 0.05, 0.55, 0.06),
+            Action::Cylinder => (0.0, 0.25, 0.75, 0.07),
+            _ => (0.10, -0.25, 0.5, 0.0),
+        };
         let gun = mul(
             &translate(
-                lerp(self.gun_offset.get().map_or(0.15, |o| o[0]) + bob_x - 0.04 * carry, 0.0),
-                lerp(self.gun_offset.get().map_or(-0.17, |o| o[1]) + bob_y - 0.10 * dip - 0.35 * raise - 0.05 * carry, -sight_y),
+                lerp(self.gun_offset.get().map_or(0.15, |o| o[0]) + bob_x - 0.04 * carry - across * dip, 0.0),
+                lerp(self.gun_offset.get().map_or(-0.17, |o| o[1]) + bob_y - lower * dip - 0.35 * raise - 0.05 * carry, -sight_y),
                 lerp(self.gun_offset.get().map_or(-0.38, |o| o[2]), -0.30) + kick * recoil + 0.03 * carry,
             ),
             &mul(
                 &rot_y(self.gun_yaw.get() * (1.0 - ads) + 0.55 * carry + th.sin() * 0.03 * walk * p.sprint_t),
                 &mul(
-                    &rot_x((0.07 * recoil - 0.25 * dip) * (1.0 - 0.5 * ads) + 0.8 * raise - 0.22 * carry),
-                    &rot_z(0.5 * dip + 0.45 * carry + th.sin() * 0.05 * walk * p.sprint_t),
+                    &rot_x((spec.flip * recoil + pitch * dip) * (1.0 - 0.5 * ads) + 0.8 * raise - 0.22 * carry),
+                    &rot_z(roll * dip + 0.45 * carry + th.sin() * 0.05 * walk * p.sprint_t),
                 ),
             ),
         );
         let gun = mul(&gun, &translate(hold[0], hold[1], hold[2]));
-        self.draw_gun(p.weapon, &gun, recoil, reload, mag_out, cycle);
+        // a cylinder turns on to the next chamber as the shot settles; six-fold, so a full one looks like an empty one
+        let fired = (w.mag - p.ammo[p.weapon]) as f32;
+        let settle = (((1.0 - recoil) / 0.4).clamp(0.0, 1.0)).powi(2);
+        let turn = if recoil > 0.0 { fired - 1.0 + settle } else { fired };
+        self.draw_gun(p.weapon, &gun, recoil, reload, mag_out, cycle, turn, true);
 
         if recoil > 0.55 && w.delay < 0.5 || recoil > 0.9 {
             // muzzle flash, spun a different amount each shot

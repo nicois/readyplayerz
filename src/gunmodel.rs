@@ -235,6 +235,11 @@ pub enum Action {
     Bolt,
     /// the slide kicks back with every shot
     Slide,
+    /// the barrels tip down about `Spec::pivot` to reload, taking the shells in them along
+    Break,
+    /// the cylinder turns a chamber about its axis through `Spec::pivot` with every shot, and swings out about
+    /// `Spec::swing` to reload
+    Cylinder,
 }
 
 /// How a gun sits in the hands and moves.
@@ -257,6 +262,42 @@ pub struct Spec {
     pub pistol_hold: bool,
     /// moves the whole gun in the view, e.g. a pistol is held out at arm's length
     pub hold: V,
+    /// how far the muzzle flips up on a shot, in radians
+    pub flip: f32,
+    /// the hinge of a break action, or the axis of a cylinder (see `Action`)
+    pub pivot: V,
+    /// the axis a cylinder swings out about
+    pub swing: V,
+}
+
+/// What every gun's spec has unless it says otherwise.
+const SPEC: Spec = Spec {
+    muzzle_z: 0.0,
+    sight_y: 0.0,
+    action: Action::Fixed,
+    trigger_pivot: TRIGGER_PIVOT,
+    mag_out: [0.0; 3],
+    mag_pivot: [0.0; 3],
+    mag_tilt: 0.0,
+    right_at: [0.0; 3],
+    left_at: [0.0; 3],
+    pistol_hold: false,
+    hold: [0.0; 3],
+    flip: 0.07,
+    pivot: [0.0; 3],
+    swing: [0.0; 3],
+};
+
+/// A block that changes size along its length, as for a stock: `x` half widths and `y` bottom and top at `z0`
+/// and at `z1`.
+fn taper(m: &mut Mesh, z0: f32, x0: f32, y0: [f32; 2], z1: f32, x1: f32, y1: [f32; 2], bevel: f32) {
+    m.hex(
+        [
+            [-x0, y0[0], z0], [x0, y0[0], z0], [-x0, y0[1], z0], [x0, y0[1], z0],
+            [-x1, y1[0], z1], [x1, y1[0], z1], [-x1, y1[1], z1], [x1, y1[1], z1],
+        ],
+        bevel,
+    );
 }
 
 /// All the parts of one gun, grouped by what moves together.
@@ -283,7 +324,7 @@ impl Hands {
 
 /// Every gun, in the order of `sim::WEAPONS`.
 pub fn guns() -> Vec<Gun> {
-    vec![carbine(), smg(), shotgun(), sniper(), pistol()]
+    vec![carbine(), smg(), shotgun(), sniper(), ak47(), uzi(), double_barrel(), mosin(), pistol(), revolver(), deagle()]
 }
 
 const GLOVE: [f32; 3] = [0.06, 0.06, 0.065];
@@ -291,6 +332,8 @@ const SLEEVE: [f32; 3] = [0.20, 0.24, 0.17];
 const BLACK: [f32; 3] = [0.025, 0.025, 0.03];
 const GLASS: [f32; 3] = [0.04, 0.07, 0.10];
 const BRASS: [f32; 3] = [0.55, 0.42, 0.18];
+/// blued steel, nearly black with a cold sheen
+const BLUED: [f32; 3] = [0.09, 0.095, 0.11];
 
 /// The carbine's grip and trigger: where the shared right hand closes, so every long gun has them in this place.
 const TRIGGER_PIVOT: V = [0.0, -0.062, -0.031];
@@ -445,6 +488,7 @@ fn carbine() -> Gun {
             left_at: [0.0; 3],
             pistol_hold: false,
             hold: [0.0; 3],
+            ..SPEC
         },
     }
 }
@@ -570,6 +614,7 @@ fn smg() -> Gun {
             left_at: [0.0, 0.0, 0.02],
             pistol_hold: false,
             hold: [0.0; 3],
+            ..SPEC
         },
     }
 }
@@ -684,6 +729,7 @@ fn shotgun() -> Gun {
             left_at: [0.0, -0.0255, -0.056],
             pistol_hold: false,
             hold: [0.0; 3],
+            ..SPEC
         },
     }
 }
@@ -807,6 +853,368 @@ fn sniper() -> Gun {
             left_at: [0.0, -0.011, -0.105],
             pistol_hold: false,
             hold: [0.0; 3],
+            ..SPEC
+        },
+    }
+}
+
+// ---- AK-47 ------------------------------------------------------------------------------------
+
+/// A stamped steel receiver with a ribbed dust cover, red wood furniture, the gas tube over the barrel, a tangent
+/// rear sight, a hooded front post and a slant brake, and a deeply curved magazine.
+fn ak47() -> Gun {
+    let sight_y = 0.056;
+    let (mut recv, mut steel, mut dark, mut wood, mut grip, mut guard) =
+        (Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default());
+    const RED_WOOD: [f32; 3] = [0.30, 0.12, 0.05];
+
+    // receiver, and the dust cover over it with a rib down the middle and its rear catch
+    recv.bx([-0.0170, -0.048, -0.150], [0.0170, 0.012, 0.100], 0.0016);
+    recv.bx([-0.0160, 0.012, -0.135], [0.0160, 0.026, 0.098], 0.0055);
+    steel.bx([-0.0035, 0.025, -0.120], [0.0035, 0.029, 0.090], 0.0012);
+    steel.bx([-0.0045, 0.010, 0.096], [0.0045, 0.024, 0.108], 0.0015);
+    // the charging handle out on the right, and its slot
+    dark.bx([0.0168, 0.000, -0.090], [0.0174, 0.010, 0.050], 0.0003);
+    steel.bx([0.0170, 0.001, 0.034], [0.0270, 0.009, 0.046], 0.0018);
+    // the long selector lever on the right, stamped rivets, and the magwell
+    steel.bx([0.0170, -0.004, -0.030], [0.0188, 0.006, 0.080], 0.0006);
+    steel.bx([0.0170, -0.010, 0.064], [0.0188, 0.006, 0.084], 0.0008);
+    for (y, z) in [(-0.040f32, -0.120f32), (-0.040, 0.020), (-0.020, 0.070), (-0.040, 0.080)] {
+        dark.cyl([0.0168, y, z], [0.0176, y, z], 0.0018, 0.0018, 8);
+        dark.cyl([-0.0168, y, z], [-0.0176, y, z], 0.0018, 0.0018, 8);
+    }
+    recv.bx([-0.0155, -0.060, -0.098], [0.0155, -0.046, -0.042], 0.0012);
+    // the trigger housing under the back half, which the grip and the guard hang from
+    recv.bx([-0.0150, -0.062, -0.042], [0.0150, -0.046, 0.100], 0.0015);
+    // the paddle magazine release ahead of the guard
+    steel.bx([-0.004, -0.066, -0.040], [0.004, -0.052, -0.030], 0.0008);
+    trigger_guard(&mut guard);
+    pistol_grip(&mut grip, 0.0);
+
+    // the rear sight block and its leaf with the notch, just ahead of the receiver
+    steel.bx([-0.0130, 0.004, -0.205], [0.0130, 0.034, -0.150], 0.002);
+    steel.bx([-0.0080, 0.034, -0.198], [0.0080, 0.041, -0.158], 0.001);
+    for side in [-1.0f32, 1.0] {
+        dark.bx([side * 0.0042 - 0.0026, 0.041, -0.166], [side * 0.0042 + 0.0026, sight_y, -0.160], 0.0004);
+    }
+    dark.bx([-0.0016, 0.041, -0.166], [0.0016, sight_y - 0.0045, -0.160], 0.0003);
+
+    // the wooden handguard: a lower half round the barrel and an upper one over the gas tube, with a steel retainer
+    wood.bx([-0.0215, -0.034, -0.385], [0.0215, 0.006, -0.205], 0.008);
+    wood.bx([-0.0140, 0.004, -0.360], [0.0140, 0.026, -0.208], 0.006);
+    for k in 0..3 {
+        let z = -0.330 + k as f32 * 0.035;
+        dark.bx([-0.0145, 0.014, z], [0.0145, 0.020, z + 0.010], 0.002);
+    }
+    steel.bx([-0.0225, -0.036, -0.215], [0.0225, 0.010, -0.203], 0.002);
+    steel.bx([-0.0225, -0.036, -0.392], [0.0225, 0.008, -0.383], 0.002);
+
+    // barrel, gas tube and gas block, the front sight with its hood, and the slant brake
+    steel.cyl([0.0, 0.0, -0.610], [0.0, 0.0, -0.385], 0.0082, 0.0082, 18);
+    steel.cyl([0.0, 0.022, -0.440], [0.0, 0.022, -0.360], 0.0080, 0.0080, 16);
+    steel.bx([-0.0100, -0.010, -0.465], [0.0100, 0.030, -0.440], 0.002);
+    steel.bx([-0.0100, -0.012, -0.590], [0.0100, 0.012, -0.565], 0.002);
+    steel.bx([-0.0018, 0.012, -0.584], [0.0018, sight_y, -0.578], 0.0004);
+    dark.tube([0.0, sight_y - 0.003, -0.589], [0.0, sight_y - 0.003, -0.574], 0.0105, 0.0090, 18);
+    dark.bx([-0.0060, 0.012, -0.589], [0.0060, sight_y - 0.012, -0.574], 0.0008);
+    dark.cyl([0.0, 0.0, -0.645], [0.0, 0.0, -0.610], 0.0105, 0.0098, 18);
+    dark.bx([-0.0035, 0.0096, -0.640], [0.0035, 0.0110, -0.618], 0.0003);
+    dark.cyl([0.0, 0.0, -0.6455], [0.0, 0.0, -0.6450], 0.0052, 0.0052, 14);
+
+    // the wooden stock, dropping toward the butt so it sits under the eye, with a steel butt plate
+    taper(&mut wood, 0.100, 0.0150, [-0.044, 0.012], 0.345, 0.0185, [-0.112, -0.008], 0.005);
+    steel.bx([-0.0195, -0.115, 0.345], [0.0195, -0.004, 0.352], 0.002);
+    dark.bx([-0.0188, -0.070, 0.180], [0.0188, -0.058, 0.205], 0.001);
+
+    let body = vec![
+        piece(recv, STEEL, [0.13, 0.13, 0.14], 0.65),
+        piece(steel, STEEL, [0.16, 0.16, 0.17], 0.8),
+        piece(wood, WOOD, RED_WOOD, 0.4),
+        piece(grip, WOOD, RED_WOOD, 0.4),
+        piece(guard, STEEL, [0.13, 0.13, 0.14], 0.7),
+        piece(dark, RUBBER, BLACK, 0.3),
+    ];
+    Gun {
+        body,
+        mag: ak_magazine(),
+        trigger: rifle_trigger(),
+        action: Vec::new(),
+        spec: Spec {
+            muzzle_z: -0.645,
+            sight_y,
+            mag_out: [0.0, -0.22, -0.02],
+            mag_pivot: [0.0, -0.06, -0.07],
+            mag_tilt: 0.45,
+            left_at: [0.0, -0.007, -0.03],
+            flip: 0.09,
+            ..SPEC
+        },
+    }
+}
+
+/// The AK's steel-reinforced magazine, curving far forward, with ribs down its sides.
+fn ak_magazine() -> Vec<Piece> {
+    let (mut m, mut ribs, mut lips) = (Mesh::default(), Mesh::default(), Mesh::default());
+    let (seg_len, mut a, mut c) = (0.030f32, 0.0f32, [0.0f32, -0.058, -0.070]);
+    for k in 0..6 {
+        let (hw, hd) = (0.0135 - 0.0002 * k as f32, 0.0205);
+        let mut cs = corners([-hw, -seg_len, -hd], [hw, 0.0, hd]);
+        for p in &mut cs {
+            *p = add(xr(*p, a), c);
+        }
+        m.hex(cs, 0.0014);
+        let mut rib = corners([-hw - 0.001, -seg_len * 0.8, -0.004], [hw + 0.001, -seg_len * 0.2, 0.004]);
+        for p in &mut rib {
+            *p = add(xr(*p, a), c);
+        }
+        ribs.hex(rib, 0.0008);
+        c = add(c, xr([0.0, -seg_len * 0.97, 0.0], a));
+        a += 0.085;
+    }
+    lips.bx([-0.0120, -0.058, -0.086], [0.0120, -0.050, -0.054], 0.0008);
+    vec![piece(m, POLYMER, [0.36, 0.15, 0.06], 0.45), piece(ribs, POLYMER, [0.30, 0.12, 0.05], 0.4), piece(lips, STEEL, [0.18, 0.18, 0.19], 0.8)]
+}
+
+// ---- Uzi --------------------------------------------------------------------------------------
+
+/// A stubby boxy 9mm: a stamped receiver with a ribbed top cover and its cocking knob, sights in protective ears
+/// at both ends, a stub of barrel with its nut, and the magazine loaded up through the grip.
+fn uzi() -> Gun {
+    let sight_y = 0.052;
+    let (mut recv, mut cover, mut steel, mut dark, mut grip, mut guard) =
+        (Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default());
+
+    // the receiver box, pressed ribs down its sides, and the top cover with its grooves and the cocking knob
+    recv.bx([-0.0200, -0.045, -0.165], [0.0200, 0.024, 0.140], 0.003);
+    for side in [-1.0f32, 1.0] {
+        dark.bx([side * 0.0200 - 0.0006, -0.026, -0.150], [side * 0.0200 + 0.0006, -0.020, 0.120], 0.0003);
+        dark.bx([side * 0.0200 - 0.0006, 0.004, -0.150], [side * 0.0200 + 0.0006, 0.008, 0.120], 0.0003);
+    }
+    cover.bx([-0.0195, 0.022, -0.160], [0.0195, 0.032, 0.135], 0.004);
+    for k in 0..9 {
+        let z = -0.140 + k as f32 * 0.016;
+        dark.bx([-0.0170, 0.0315, z], [0.0170, 0.0325, z + 0.006], 0.0003);
+    }
+    steel.bx([-0.0035, 0.030, 0.010], [0.0035, 0.038, 0.034], 0.0015);
+    dark.cyl([0.0, 0.038, 0.022], [0.0, 0.044, 0.022], 0.0072, 0.0068, 14);
+    // the grip frame and trigger housing under it, and the selector on the left above the grip
+    recv.bx([-0.0170, -0.062, -0.080], [0.0170, -0.044, 0.135], 0.002);
+    steel.bx([-0.0215, -0.040, 0.050], [-0.0195, -0.030, 0.072], 0.0006);
+    trigger_guard(&mut guard);
+    pistol_grip(&mut grip, 0.0);
+    // the grip safety on the back of the grip
+    steel.bx_rot([-0.0080, -0.130, 0.105], [0.0080, -0.066, 0.114], 0.0015, [0.0, -0.1, 0.11], -0.29);
+
+    // sights: a post in ears up front, an aperture in ears at the back
+    steel.bx([-0.0120, 0.032, -0.160], [0.0120, 0.038, -0.140], 0.0012);
+    steel.bx([-0.0016, 0.038, -0.153], [0.0016, sight_y, -0.147], 0.0003);
+    for side in [-1.0f32, 1.0] {
+        steel.bx([side * 0.0090 - 0.0018, 0.038, -0.156], [side * 0.0090 + 0.0018, sight_y + 0.004, -0.144], 0.0006);
+    }
+    steel.bx([-0.0120, 0.032, 0.110], [0.0120, 0.038, 0.132], 0.0012);
+    steel.bx([-0.0040, 0.038, 0.116], [0.0040, sight_y - 0.0045, 0.124], 0.0005);
+    dark.tube([0.0, sight_y, 0.116], [0.0, sight_y, 0.124], 0.0060, 0.0028, 16);
+    for side in [-1.0f32, 1.0] {
+        steel.bx([side * 0.0095 - 0.0018, 0.038, 0.114], [side * 0.0095 + 0.0018, sight_y + 0.007, 0.126], 0.0006);
+    }
+
+    // the barrel nut and the stub of barrel past it
+    steel.cyl([0.0, 0.0, -0.182], [0.0, 0.0, -0.165], 0.0150, 0.0150, 20);
+    for k in 0..8 {
+        let a = k as f32 / 8.0 * TAU;
+        let (s, c) = a.sin_cos();
+        dark.bx([c * 0.0150 - 0.0012, s * 0.0150 - 0.0012, -0.181], [c * 0.0150 + 0.0012, s * 0.0150 + 0.0012, -0.166], 0.0003);
+    }
+    steel.cyl([0.0, 0.0, -0.228], [0.0, 0.0, -0.182], 0.0078, 0.0078, 16);
+    dark.cyl([0.0, 0.0, -0.2283], [0.0, 0.0, -0.2280], 0.0050, 0.0050, 14);
+    // the stock's folded hinge block at the back
+    steel.bx([-0.0160, -0.040, 0.140], [0.0160, 0.016, 0.152], 0.002);
+
+    let body = vec![
+        piece(recv, ANODISED, [0.13, 0.13, 0.14], 0.55),
+        piece(cover, ANODISED, [0.11, 0.11, 0.12], 0.55),
+        piece(steel, STEEL, [0.16, 0.16, 0.17], 0.8),
+        piece(grip, POLYMER, [0.08, 0.08, 0.09], 0.4),
+        piece(guard, ANODISED, [0.13, 0.13, 0.14], 0.6),
+        piece(dark, RUBBER, BLACK, 0.3),
+    ];
+    Gun {
+        body,
+        // straight up the grip, leaning back with it
+        mag: box_mag(0.0108, -0.060, -0.200, 0.066, 0.094, -0.29, [0.10, 0.10, 0.11]),
+        trigger: rifle_trigger(),
+        action: Vec::new(),
+        spec: Spec {
+            muzzle_z: -0.228,
+            sight_y,
+            mag_out: [0.0, -0.20, 0.05],
+            mag_pivot: [0.0, -0.13, 0.08],
+            mag_tilt: 0.0,
+            left_at: [0.0, -0.016, 0.165],
+            flip: 0.06,
+            ..SPEC
+        },
+    }
+}
+
+// ---- double barrel ----------------------------------------------------------------------------
+
+/// A side-by-side: two blued barrels with a rib and a bead between them, a case-hardened action with its top
+/// lever, two triggers, and walnut. The barrels and forend are the part that breaks open, the shells ride in them.
+fn double_barrel() -> Gun {
+    let sight_y = 0.020;
+    let pivot = [0.0, -0.030, -0.034];
+    let (mut action_body, mut steel, mut dark, mut wood, mut grip, mut guard) =
+        (Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default());
+    const WALNUT: [f32; 3] = [0.25, 0.13, 0.06];
+
+    // the action: a block behind the breech, rounded under, with the top lever, safety and the hinge pin
+    action_body.bx([-0.0225, -0.062, -0.034], [0.0225, 0.014, 0.080], 0.004);
+    action_body.cyl([-0.0225, pivot[1], pivot[2]], [0.0225, pivot[1], pivot[2]], 0.0075, 0.0075, 16);
+    steel.bx([-0.0040, 0.0135, 0.040], [0.0040, 0.0175, 0.082], 0.0012);
+    steel.bx_rot([0.0000, 0.0135, 0.074], [0.0200, 0.0185, 0.086], 0.0015, [0.0, 0.015, 0.08], 0.0);
+    steel.bx([-0.0050, 0.0135, 0.090], [0.0050, 0.0175, 0.104], 0.0012);
+    dark.cyl([-0.0228, pivot[1], pivot[2]], [-0.0232, pivot[1], pivot[2]], 0.0040, 0.0040, 12);
+    trigger_guard(&mut guard);
+    pistol_grip(&mut grip, 0.0);
+
+    // walnut stock, dropping well under the low rib so it stays out of the way of the bead, with a black pad
+    taper(&mut wood, 0.080, 0.0175, [-0.060, -0.012], 0.345, 0.0190, [-0.128, -0.046], 0.006);
+    dark.bx([-0.0200, -0.131, 0.345], [0.0200, -0.043, 0.360], 0.003);
+
+    // the barrels and everything fixed to them: breech face, rib and bead, the lump under the hinge, and the forend
+    let (mut barrels, mut rib, mut fore, mut bead) = (Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default());
+    let mut fore_dark = Mesh::default();
+    for x in [-0.0108f32, 0.0108] {
+        barrels.cyl([x, 0.0, -0.665], [x, 0.0, -0.036], 0.0108, 0.0112, 22);
+        fore_dark.cyl([x, 0.0, -0.6653], [x, 0.0, -0.6650], 0.0086, 0.0086, 18);
+    }
+    barrels.bx([-0.0215, -0.012, -0.090], [0.0215, 0.010, -0.036], 0.003);
+    barrels.bx([-0.0100, -0.040, -0.075], [0.0100, -0.010, -0.036], 0.002);
+    rib.bx([-0.0050, 0.0080, -0.660], [0.0050, 0.0150, -0.040], 0.0012);
+    rib.bx([-0.0060, -0.0150, -0.660], [0.0060, -0.0080, -0.110], 0.0012);
+    bead.cyl([0.0, 0.0150, -0.652], [0.0, sight_y - 0.0025, -0.652], 0.0016, 0.0016, 10);
+    bead.cyl([0.0, sight_y - 0.0025, -0.652], [0.0, sight_y, -0.652], 0.0024, 0.0006, 10);
+    fore.bx([-0.0215, -0.034, -0.330], [0.0215, -0.006, -0.110], 0.007);
+    fore_dark.bx([-0.0060, -0.0355, -0.140], [0.0060, -0.0325, -0.115], 0.0008);
+
+    // the two shells in the chambers: brass heads at the breech and red hulls inside
+    let (mut hulls, mut heads) = (Mesh::default(), Mesh::default());
+    for x in [-0.0108f32, 0.0108] {
+        hulls.cyl([x, 0.0, -0.110], [x, 0.0, -0.040], 0.0090, 0.0090, 16);
+        heads.cyl([x, 0.0, -0.040], [x, 0.0, -0.0345], 0.0100, 0.0100, 16);
+    }
+
+    let body = vec![
+        piece(action_body, STEEL, [0.30, 0.28, 0.25], 0.8),
+        piece(steel, STEEL, BLUED, 0.85),
+        piece(wood, WOOD, WALNUT, 0.45),
+        piece(grip, WOOD, WALNUT, 0.45),
+        piece(guard, STEEL, BLUED, 0.8),
+        piece(dark, RUBBER, BLACK, 0.3),
+    ];
+    let mut trig = Mesh::default();
+    trig.bx([-0.0022, -0.064, -0.0345], [0.0022, -0.040, -0.0275], 0.0006);
+    trig.bx([-0.0022, -0.066, -0.0115], [0.0022, -0.040, -0.0045], 0.0006);
+    Gun {
+        body,
+        mag: vec![piece(hulls, POLYMER, [0.55, 0.07, 0.05], 0.5), piece(heads, STEEL, BRASS, 0.9)],
+        trigger: vec![piece(trig, STEEL, [0.28, 0.28, 0.30], 0.8)],
+        action: vec![
+            piece(barrels, STEEL, BLUED, 0.9),
+            piece(rib, STEEL, BLUED, 0.85),
+            piece(fore, WOOD, WALNUT, 0.45),
+            piece(fore_dark, RUBBER, BLACK, 0.3),
+            glow(bead, [0.95, 0.9, 0.75]),
+        ],
+        spec: Spec {
+            muzzle_z: -0.665,
+            sight_y,
+            action: Action::Break,
+            // drawn back out of the chambers and away in the hand
+            mag_out: [0.0, 0.0, 0.10],
+            left_at: [0.0, -0.013, 0.04],
+            // held a little further out, so aiming along the low rib the stock's wrist isn't right under the eye
+            hold: [0.0, 0.0, -0.06],
+            flip: 0.16,
+            pivot,
+            ..SPEC
+        },
+    }
+}
+
+// ---- Mosin ------------------------------------------------------------------------------------
+
+/// A long wooden bolt gun: round receiver, a straight bolt handle with a ball knob, a hooded front post and a
+/// tangent rear sight, barrel bands, and a full-length stock with a handguard over the barrel.
+fn mosin() -> Gun {
+    let sight_y = 0.030;
+    let (mut recv, mut steel, mut dark, mut wood, mut grip, mut guard) =
+        (Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default());
+    const BIRCH: [f32; 3] = [0.33, 0.18, 0.08];
+
+    // the round receiver with its flat sides and the ejection port, and the box magazine ahead of the guard
+    recv.cyl([0.0, 0.0, -0.150], [0.0, 0.0, 0.040], 0.0150, 0.0150, 24);
+    recv.bx([-0.0130, -0.024, -0.150], [0.0130, -0.004, 0.040], 0.002);
+    dark.bx([0.0120, 0.002, -0.060], [0.0152, 0.011, 0.010], 0.0004);
+    steel.bx([-0.0135, -0.088, -0.120], [0.0135, -0.060, -0.050], 0.003);
+    trigger_guard(&mut guard);
+    pistol_grip(&mut grip, 0.0);
+
+    // the stock: a long forestock up to the nose cap, the body under the action, and the butt dropping away
+    wood.bx([-0.0190, -0.044, -0.640], [0.0190, -0.002, -0.150], 0.007);
+    wood.bx([-0.0190, -0.062, -0.155], [0.0190, -0.006, 0.065], 0.006);
+    taper(&mut wood, 0.060, 0.0170, [-0.064, -0.012], 0.360, 0.0190, [-0.130, -0.036], 0.006);
+    steel.bx([-0.0195, -0.133, 0.360], [0.0195, -0.033, 0.368], 0.002);
+    // the handguard over the barrel, and the steel bands holding it all together
+    wood.bx([-0.0130, -0.002, -0.470], [0.0130, 0.016, -0.275], 0.005);
+    for (z, w) in [(-0.485f32, 0.010f32), (-0.635, 0.012)] {
+        steel.bx([-0.0205, -0.046, z], [0.0205, 0.018, z + w], 0.003);
+    }
+    steel.bx([-0.0200, -0.046, -0.655], [0.0200, 0.010, -0.640], 0.003);
+
+    // the barrel, stepping down toward the muzzle, and the bore
+    steel.cyl([0.0, 0.0, -0.360], [0.0, 0.0, -0.150], 0.0110, 0.0110, 20);
+    steel.cyl([0.0, 0.0, -0.885], [0.0, 0.0, -0.360], 0.0082, 0.0094, 20);
+    dark.cyl([0.0, 0.0, -0.8853], [0.0, 0.0, -0.8850], 0.0045, 0.0045, 14);
+    // the front post in its hood, at the muzzle
+    steel.bx([-0.0060, 0.006, -0.880], [0.0060, 0.012, -0.858], 0.0012);
+    steel.bx([-0.0014, 0.012, -0.873], [0.0014, sight_y, -0.866], 0.0003);
+    dark.tube([0.0, sight_y - 0.002, -0.881], [0.0, sight_y - 0.002, -0.857], 0.0110, 0.0094, 18);
+    // the tangent rear sight: a base on the barrel, and the leaf with its notch
+    steel.bx([-0.0120, 0.008, -0.270], [0.0120, 0.018, -0.200], 0.002);
+    steel.bx([-0.0090, 0.018, -0.226], [0.0090, sight_y - 0.006, -0.208], 0.001);
+    for side in [-1.0f32, 1.0] {
+        dark.bx([side * 0.0050 - 0.0030, sight_y - 0.006, -0.216], [side * 0.0050 + 0.0030, sight_y + 0.001, -0.210], 0.0004);
+    }
+
+    // the bolt: its body in the receiver, the cocking piece behind, and the handle straight out with a ball
+    let (mut bolt, mut knob) = (Mesh::default(), Mesh::default());
+    bolt.cyl([0.0, 0.0, 0.034], [0.0, 0.0, 0.074], 0.0110, 0.0110, 18);
+    bolt.cyl([0.0, 0.0, 0.074], [0.0, 0.0, 0.094], 0.0080, 0.0070, 14);
+    bolt.cyl([0.010, 0.0, 0.050], [0.052, -0.006, 0.056], 0.0038, 0.0034, 12);
+    knob.cyl([0.050, -0.006, 0.0558], [0.0640, -0.008, 0.0578], 0.0085, 0.0070, 16);
+
+    let body = vec![
+        piece(recv, STEEL, BLUED, 0.85),
+        piece(steel, STEEL, [0.12, 0.12, 0.13], 0.85),
+        piece(wood, WOOD, BIRCH, 0.4),
+        piece(grip, WOOD, BIRCH, 0.4),
+        piece(guard, STEEL, BLUED, 0.8),
+        piece(dark, RUBBER, BLACK, 0.3),
+    ];
+    Gun {
+        body,
+        mag: Vec::new(),
+        trigger: rifle_trigger(),
+        action: vec![piece(bolt, STEEL, [0.30, 0.30, 0.32], 0.9), piece(knob, STEEL, [0.26, 0.26, 0.28], 0.9)],
+        spec: Spec {
+            muzzle_z: -0.885,
+            sight_y,
+            action: Action::Bolt,
+            left_at: [0.0, -0.020, -0.03],
+            flip: 0.11,
+            ..SPEC
         },
     }
 }
@@ -907,6 +1315,206 @@ fn pistol() -> Gun {
             left_at: [0.0; 3],
             pistol_hold: true,
             hold: [0.0, 0.03, -0.17],
+            ..SPEC
+        },
+    }
+}
+
+// ---- revolver ---------------------------------------------------------------------------------
+
+/// A six-inch magnum: a blued frame round a fluted six-shot cylinder, a barrel with a vented rib and a full
+/// underlug, a ramp front sight with a red insert, the hammer, and walnut grips. The cylinder is the part that turns.
+fn revolver() -> Gun {
+    let sight_y = 0.0195;
+    let up = PISTOL_GRIP_UP;
+    let axis = [0.0, -0.0125, 0.0];
+    let (mut frame, mut steel, mut dark, mut grip, mut red) =
+        (Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default());
+
+    // the frame: the front the barrel screws into, the top strap and the bottom of the window the cylinder sits in,
+    // the recoil shield behind it and the frame back to the grip, with a rounded trigger guard
+    frame.bx([-0.0105, -0.034, -0.066], [0.0105, 0.0135, -0.043], 0.002);
+    frame.bx([-0.0085, 0.006, -0.046], [0.0085, 0.0145, 0.024], 0.002);
+    frame.bx([-0.0105, -0.041, -0.050], [0.0105, -0.032, 0.022], 0.002);
+    frame.bx([-0.0120, -0.041, 0.012], [0.0120, 0.012, 0.034], 0.003);
+    frame.bx([-0.0110, -0.046, 0.030], [0.0110, 0.004, 0.094], 0.004);
+    frame.bx([-0.0055, -0.064, -0.048], [0.0055, -0.060, 0.052], 0.0015);
+    frame.bx([-0.0055, -0.064, -0.050], [0.0055, -0.040, -0.044], 0.0015);
+    // the cylinder latch on the left, the hammer and its spur, and the screws
+    steel.bx([-0.0128, -0.012, 0.022], [-0.0110, -0.003, 0.040], 0.0006);
+    steel.bx([-0.0035, -0.004, 0.034], [0.0035, 0.016, 0.047], 0.0012);
+    steel.bx_rot([-0.0035, 0.012, 0.042], [0.0035, 0.019, 0.064], 0.0015, [0.0, 0.015, 0.045], -0.25);
+    for (y, z) in [(-0.020f32, 0.060f32), (-0.030, -0.054)] {
+        dark.cyl([-0.0112, y, z], [0.0112, y, z], 0.0018, 0.0018, 10);
+    }
+    pistol_grip(&mut grip, up);
+    for side in [-1.0f32, 1.0] {
+        dark.cyl([side * 0.0164, -0.085 + up, 0.104], [side * 0.0170, -0.085 + up, 0.104], 0.0040, 0.0040, 12);
+    }
+
+    // the barrel with its rib on top, vents in the rib, the underlug, the bore and the front sight
+    steel.cyl([0.0, 0.0, -0.205], [0.0, 0.0, -0.066], 0.0085, 0.0085, 20);
+    steel.bx([-0.0045, 0.0045, -0.205], [0.0045, 0.0120, -0.066], 0.0012);
+    for k in 0..5 {
+        let z = -0.190 + k as f32 * 0.025;
+        dark.bx([-0.0047, 0.0070, z], [0.0047, 0.0110, z + 0.012], 0.0003);
+    }
+    steel.bx([-0.0072, -0.033, -0.205], [0.0072, -0.004, -0.066], 0.0025);
+    dark.cyl([0.0, 0.0, -0.2053], [0.0, 0.0, -0.2050], 0.0046, 0.0046, 14);
+    dark.cyl([0.0, -0.022, -0.2053], [0.0, -0.022, -0.2050], 0.0030, 0.0030, 10);
+    steel.bx([-0.0014, 0.012, -0.199], [0.0014, sight_y, -0.184], 0.0003);
+    red.bx([-0.0015, sight_y - 0.004, -0.1872], [0.0015, sight_y - 0.0005, -0.1840], 0.0002);
+    // the rear sight: a notch in a block on the top strap
+    for side in [-1.0f32, 1.0] {
+        steel.bx([side * 0.0035 - 0.0018, 0.0145, 0.010], [side * 0.0035 + 0.0018, sight_y, 0.020], 0.0004);
+    }
+    steel.bx([-0.0018, 0.0145, 0.010], [0.0018, sight_y - 0.0035, 0.020], 0.0003);
+
+    // the cylinder: six chambers round the axis, flutes between them, the chamber mouths, the rims of the rounds
+    // at the back and the crane out the front
+    let (mut cyl, mut cdark, mut rims) = (Mesh::default(), Mesh::default(), Mesh::default());
+    let c = |r: f32, a: f32, z: f32| [r * a.cos(), axis[1] + r * a.sin(), z];
+    cyl.cyl(c(0.0, 0.0, -0.043), c(0.0, 0.0, 0.012), 0.0195, 0.0195, 30);
+    for k in 0..6 {
+        let a = std::f32::consts::FRAC_PI_2 + k as f32 / 6.0 * TAU;
+        cdark.cyl(c(0.0125, a, -0.0433), c(0.0125, a, -0.0430), 0.0046, 0.0046, 12);
+        rims.cyl(c(0.0125, a, 0.0120), c(0.0125, a, 0.0124), 0.0058, 0.0058, 12);
+        cdark.cyl(c(0.0187, a + TAU / 12.0, -0.034), c(0.0187, a + TAU / 12.0, 0.004), 0.0030, 0.0030, 8);
+    }
+    cyl.cyl(c(0.0, 0.0, -0.050), c(0.0, 0.0, -0.043), 0.0045, 0.0045, 12);
+
+    let body = vec![
+        piece(frame, STEEL, BLUED, 0.9),
+        piece(steel, STEEL, [0.11, 0.11, 0.13], 0.9),
+        piece(grip, WOOD, [0.27, 0.13, 0.06], 0.5),
+        piece(dark, RUBBER, BLACK, 0.3),
+        glow(red, [1.0, 0.15, 0.08]),
+    ];
+    let mut trig = Mesh::default();
+    trig.bx([-0.0028, -0.056, -0.036], [0.0028, -0.040, -0.029], 0.0008);
+    Gun {
+        body,
+        mag: Vec::new(),
+        trigger: vec![piece(trig, STEEL, [0.22, 0.22, 0.24], 0.8)],
+        action: vec![piece(cyl, STEEL, BLUED, 0.9), piece(cdark, RUBBER, BLACK, 0.3), piece(rims, STEEL, BRASS, 0.9)],
+        spec: Spec {
+            muzzle_z: -0.2053,
+            sight_y,
+            action: Action::Cylinder,
+            trigger_pivot: [0.0, -0.040, -0.032],
+            right_at: [0.0, up, 0.0],
+            pistol_hold: true,
+            hold: [0.0, 0.03, -0.17],
+            flip: 0.32,
+            pivot: axis,
+            swing: [-0.0105, -0.032, 0.0],
+            ..SPEC
+        },
+    }
+}
+
+// ---- Desert Eagle -----------------------------------------------------------------------------
+
+/// A big gas-operated magnum: a long frame, a fixed barrel with its triangular top running into the slide's flat
+/// top line, a slide with an exposed hammer and safeties, and a magazine in the grip. The slide is the part that
+/// cycles, the barrel stays put.
+fn deagle() -> Gun {
+    let sight_y = 0.028;
+    let up = PISTOL_GRIP_UP;
+    let (mut frame, mut grip, mut dark, mut barrel, mut dots) =
+        (Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default());
+
+    // frame: a long dust cover, the beavertail, a squared trigger guard with a hooked front, the slide stop
+    frame.bx([-0.0145, -0.042, -0.122], [0.0145, -0.016, 0.098], 0.0025);
+    frame.bx([-0.0130, -0.042, 0.090], [0.0130, -0.030, 0.118], 0.002);
+    frame.bx([-0.0060, -0.066, -0.080], [0.0060, -0.061, 0.066], 0.0014);
+    frame.bx([-0.0060, -0.068, -0.082], [0.0060, -0.042, -0.072], 0.0016);
+    frame.bx([-0.0060, -0.072, -0.086], [0.0060, -0.066, -0.078], 0.0014);
+    dark.bx([-0.0165, -0.026, -0.030], [-0.0145, -0.019, 0.010], 0.0005);
+    dark.bx([-0.0180, -0.050, 0.052], [-0.0160, -0.041, 0.064], 0.0005);
+    pistol_grip(&mut grip, up);
+    for side in [-1.0f32, 1.0] {
+        let x = side * 0.0168;
+        grip.bx_rot([x - 0.0006, -0.130 + up, 0.090], [x + 0.0006, -0.060 + up, 0.112], 0.0003, [0.0, -0.095 + up, 0.1], -0.3);
+    }
+
+    // the fixed barrel: a block over the frame and a top that narrows to a flat with a groove down it, the bore,
+    // and the front post with its dot
+    let (z0, z1) = (-0.168f32, -0.020f32);
+    barrel.bx([-0.0145, -0.016, z0], [0.0145, 0.007, z1], 0.002);
+    barrel.hex(
+        [
+            [-0.0145, 0.006, z0], [0.0145, 0.006, z0], [-0.0070, 0.021, z0], [0.0070, 0.021, z0],
+            [-0.0145, 0.006, z1], [0.0145, 0.006, z1], [-0.0070, 0.021, z1], [0.0070, 0.021, z1],
+        ],
+        0.0015,
+    );
+    dark.bx([-0.0018, 0.0205, -0.150], [0.0018, 0.0213, -0.030], 0.0003);
+    dark.cyl([0.0, 0.0, z0 - 0.0003], [0.0, 0.0, z0], 0.0064, 0.0064, 16);
+    barrel.bx([-0.0017, 0.021, -0.162], [0.0017, sight_y, -0.150], 0.0004);
+    dots.bx([-0.0009, sight_y - 0.0035, -0.1500], [0.0009, sight_y - 0.0017, -0.1496], 0.0001);
+
+    // the slide: serrations at the back, an ejection port, ambidextrous safeties, the rear sight, the hammer
+    let (mut slide, mut sdark, mut sdots) = (Mesh::default(), Mesh::default(), Mesh::default());
+    slide.bx([-0.0145, -0.016, -0.020], [0.0145, 0.021, 0.106], 0.0022);
+    for k in 0..7 {
+        let z = 0.060 + k as f32 * 0.0062;
+        sdark.bx([-0.0147, -0.010, z], [0.0147, 0.012, z + 0.0026], 0.0003);
+    }
+    sdark.bx([0.0142, 0.002, -0.014], [0.0150, 0.017, 0.028], 0.0004);
+    for side in [-1.0f32, 1.0] {
+        slide.cyl([side * 0.0145, 0.004, 0.090], [side * 0.0185, 0.004, 0.090], 0.0042, 0.0042, 12);
+        slide.bx([side * 0.0160 - 0.0012, 0.004, 0.084], [side * 0.0160 + 0.0012, 0.013, 0.096], 0.0005);
+        slide.bx([side * 0.0050 - 0.0030, 0.021, 0.092], [side * 0.0050 + 0.0030, sight_y, 0.104], 0.0004);
+        sdots.bx([side * 0.0050 - 0.0009, sight_y - 0.0035, 0.1040], [side * 0.0050 + 0.0009, sight_y - 0.0017, 0.1044], 0.0001);
+    }
+    slide.bx([-0.0080, 0.021, 0.092], [0.0080, sight_y - 0.0045, 0.104], 0.0004);
+    sdark.bx([-0.0030, -0.008, 0.104], [0.0030, 0.012, 0.118], 0.0010);
+
+    // the magazine, hidden in the grip until it drops
+    let (mut mag, mut plate) = (Mesh::default(), Mesh::default());
+    let g = |x: f32, y: f32, z: f32| [x, y + up, z];
+    mag.hex(
+        [
+            g(-0.0118, -0.158, 0.093), g(0.0118, -0.158, 0.093), g(-0.0118, -0.055, 0.061), g(0.0118, -0.055, 0.061),
+            g(-0.0118, -0.158, 0.127), g(0.0118, -0.158, 0.127), g(-0.0118, -0.055, 0.093), g(0.0118, -0.055, 0.093),
+        ],
+        0.001,
+    );
+    plate.bx([-0.0170, -0.165 + up, 0.087], [0.0170, -0.158 + up, 0.134], 0.0015);
+
+    // brushed stainless all over, with a black grip
+    const SILVER: [f32; 3] = [0.62, 0.63, 0.66];
+    let body = vec![
+        piece(frame, STEEL, [0.56, 0.57, 0.60], 1.0),
+        piece(grip, POLYMER, [0.07, 0.07, 0.075], 0.4),
+        piece(barrel, STEEL, SILVER, 1.1),
+        piece(dark, RUBBER, BLACK, 0.3),
+        glow(dots, [0.85, 0.95, 0.85]),
+    ];
+    let mut trig = Mesh::default();
+    trig.bx([-0.0028, -0.058, -0.038], [0.0028, -0.040, -0.030], 0.0008);
+    Gun {
+        body,
+        mag: vec![piece(mag, STEEL, [0.16, 0.16, 0.17], 0.7), piece(plate, STEEL, [0.50, 0.51, 0.54], 0.9)],
+        trigger: vec![piece(trig, STEEL, [0.50, 0.51, 0.54], 0.9)],
+        action: vec![
+            piece(slide, STEEL, SILVER, 1.1),
+            piece(sdark, RUBBER, BLACK, 0.3),
+            glow(sdots, [0.85, 0.95, 0.85]),
+        ],
+        spec: Spec {
+            muzzle_z: z0 - 0.0003,
+            sight_y,
+            action: Action::Slide,
+            trigger_pivot: [0.0, -0.040, -0.032],
+            mag_out: [0.0, -0.15, 0.047],
+            mag_pivot: [0.0, -0.09, 0.1],
+            right_at: [0.0, up, 0.0],
+            pistol_hold: true,
+            hold: [0.0, 0.03, -0.17],
+            flip: 0.65,
+            ..SPEC
         },
     }
 }
@@ -1037,7 +1645,10 @@ mod tests {
         assert_eq!(guns.len(), WEAPONS.len());
         println!("hands: {} triangles", check(&hands.right) + check(&hands.left) + check(&hands.pistol_left));
         // overall length, front to back, for each gun in order
-        let lengths = [(0.9, 1.05), (0.7, 0.85), (0.9, 1.05), (1.1, 1.3), (0.18, 0.27)];
+        let lengths = [
+            (0.9, 1.05), (0.7, 0.85), (0.9, 1.05), (1.1, 1.3), (0.95, 1.05), (0.33, 0.42), (0.98, 1.08), (1.2, 1.3),
+            (0.18, 0.27), (0.3, 0.37), (0.26, 0.31),
+        ];
         for (i, g) in guns.iter().enumerate() {
             let tris = check(&g.body) + check(&g.mag) + check(&g.trigger) + check(&g.action);
             let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);

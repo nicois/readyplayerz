@@ -6,13 +6,28 @@ const SHOT = 1, HIT = 3, HEAD = 4, KILL = 5, HURT = 6, RELOAD = 7, EQUIP = 8, ST
 // the first three formants (Hz) of a man's vowels: oo, uh, aa, aw, and the a of "cat"
 const OO = [300, 870, 2240], UH = [640, 1190, 2390], AA = [730, 1090, 2440], AW = [570, 840, 2410], AE = [660, 1720, 2410];
 
-// per gun: crack (highpass noise: freq, gain, seconds), thump (sine: from, to, seconds, gain), tail (lowpass noise), reverb send
+// per gun, in the sim's order: crack (highpass noise: freq, gain, seconds), thump (sine: from, to, seconds, gain),
+// tail (lowpass noise), reverb send, and how it works: `action` is what cycles after a shot (pump, bolt), `load`
+// how it reloads (mag, shells, bolt, break, cylinder), `quick` scales the bolt's timing, `sonic` adds a supersonic
+// snap and an echo
 const GUNS = [
-  { crack: [2200, 0.50, 0.06], thump: [170, 45, 0.10, 0.9], tail: [900, 200, 0.22, 0.35], wet: 0.25 },
-  { crack: [3000, 0.40, 0.045], thump: [230, 70, 0.07, 0.6], tail: [1200, 300, 0.12, 0.2], wet: 0.2 },
-  { crack: [1400, 0.90, 0.14], thump: [120, 28, 0.28, 1.1], tail: [700, 100, 0.55, 0.5], wet: 0.35 },
-  { crack: [1100, 1.00, 0.16], thump: [90, 24, 0.40, 1.2], tail: [900, 90, 0.95, 0.6], wet: 0.5 },
-  { crack: [2600, 0.45, 0.04], thump: [210, 60, 0.07, 0.6], tail: [1100, 250, 0.15, 0.25], wet: 0.22 },
+  { crack: [2200, 0.50, 0.06], thump: [170, 45, 0.10, 0.9], tail: [900, 200, 0.22, 0.35], wet: 0.25, load: "mag" },
+  { crack: [3000, 0.40, 0.045], thump: [230, 70, 0.07, 0.6], tail: [1200, 300, 0.12, 0.2], wet: 0.2, load: "mag" },
+  { crack: [1400, 0.90, 0.14], thump: [120, 28, 0.28, 1.1], tail: [700, 100, 0.55, 0.5], wet: 0.35, action: "pump", load: "shells" },
+  { crack: [1100, 1.00, 0.16], thump: [90, 24, 0.40, 1.2], tail: [900, 90, 0.95, 0.6], wet: 0.5, action: "bolt", load: "bolt", sonic: true },
+  // AK-47: lower and heavier than the carbine
+  { crack: [1700, 0.60, 0.07], thump: [140, 38, 0.13, 1.0], tail: [800, 160, 0.30, 0.42], wet: 0.28, load: "mag" },
+  // Uzi: a dry, flat 9mm chatter
+  { crack: [3400, 0.36, 0.035], thump: [250, 85, 0.05, 0.55], tail: [1300, 350, 0.09, 0.18], wet: 0.18, load: "mag" },
+  // double barrel: the biggest boom of the lot
+  { crack: [1200, 1.00, 0.16], thump: [105, 24, 0.34, 1.25], tail: [650, 90, 0.65, 0.55], wet: 0.4, load: "break" },
+  // Mosin: a rifle crack with a long rolling tail
+  { crack: [1300, 0.95, 0.13], thump: [100, 26, 0.34, 1.15], tail: [850, 90, 0.85, 0.55], wet: 0.48, action: "bolt", quick: 0.77, load: "bolt", sonic: true },
+  { crack: [2600, 0.45, 0.04], thump: [210, 60, 0.07, 0.6], tail: [1100, 250, 0.15, 0.25], wet: 0.22, load: "mag" },
+  // revolver: a sharp heavy bark
+  { crack: [1900, 0.85, 0.08], thump: [150, 36, 0.18, 1.05], tail: [900, 130, 0.45, 0.45], wet: 0.38, load: "cylinder" },
+  // Desert Eagle: a deep blast
+  { crack: [1600, 0.90, 0.09], thump: [125, 30, 0.22, 1.15], tail: [800, 110, 0.5, 0.5], wet: 0.4, load: "mag" },
 ];
 
 export class Sound {
@@ -158,18 +173,21 @@ export class Sound {
     this.noise(d, t, c.crack[2], "highpass", c.crack[0] * r, c.crack[0] * 0.5, c.crack[1]);
     this.tone(d, t, "sine", c.thump[0] * r, c.thump[1], c.thump[2], c.thump[3]);
     this.noise(d, t, c.tail[2], "lowpass", c.tail[0], c.tail[1], c.tail[3]);
-    if (w === 3) {
+    if (c.sonic) {
       // supersonic crack and a slap-back echo
       this.noise(d, t, 0.05, "bandpass", 5000, 2500, 0.5, 3);
       this.noise(d, t + 0.16, 0.5, "lowpass", 600, 80, 0.2);
     }
-    // the action cycling after the shot
-    if (w === 2) {
+    // the action cycling after the shot, or a cylinder clicking round to the next chamber
+    if (c.action === "pump") {
       this.after(380, () => this.clack(0.6, 1.0));
       this.after(560, () => this.clack(0.6, 0.85));
-    } else if (w === 3) {
-      this.after(520, () => { this.click(0.5, 0.8); this.clack(0.6, 1.1); });
-      this.after(850, () => this.clack(0.7, 0.9));
+    } else if (c.action === "bolt") {
+      const k = c.quick || 1;
+      this.after(520 * k, () => { this.click(0.5, 0.8); this.clack(0.6, 1.1); });
+      this.after(850 * k, () => this.clack(0.7, 0.9));
+    } else if (c.load === "cylinder") {
+      this.after(150, () => this.click(0.25, 1.4));
     }
   }
 
@@ -321,13 +339,26 @@ export class Sound {
 
   reload(w) {
     this.cancel();
-    const total = this.reloads[w] * 1000;
-    if (w === 2) {
+    const total = this.reloads[w] * 1000, load = GUNS[w].load;
+    if (load === "shells") {
       // shells go in one at a time, then the pump
       for (let i = 0; i < 6; i++) this.after(200 + i * 330, () => { this.click(0.5, 0.9 + Math.random() * 0.2); this.clack(0.35, 1.3); });
       this.after(total - 420, () => this.clack(0.6, 1.0));
       this.after(total - 250, () => this.clack(0.6, 0.85));
-    } else if (w === 3) {
+    } else if (load === "break") {
+      // the lever and the barrels dropping, the empties pulled, two shells in, and the action snapped shut
+      this.after(total * 0.05, () => { this.click(0.6, 0.9); this.clack(0.6, 0.8); });
+      this.after(total * 0.32, () => this.clack(0.4, 1.2));
+      this.after(total * 0.55, () => { this.click(0.4, 1.0); this.clack(0.35, 1.3); });
+      this.after(total * 0.66, () => { this.click(0.4, 1.1); this.clack(0.35, 1.25); });
+      this.after(total * 0.85, () => { this.clack(0.9, 0.75); this.click(0.6, 0.8); });
+    } else if (load === "cylinder") {
+      // the cylinder swings out, the empties rattle out, the speedloader goes in, and it clicks shut
+      this.after(total * 0.06, () => { this.click(0.5, 1.0); this.clack(0.4, 1.1); });
+      this.after(total * 0.28, () => { for (let i = 0; i < 6; i++) this.after(i * 25, () => this.click(0.2, 1.6 + Math.random() * 0.4)); });
+      this.after(total * 0.58, () => this.clack(0.5, 1.2));
+      this.after(total * 0.86, () => { this.clack(0.7, 1.0); this.click(0.5, 1.2); });
+    } else if (load === "bolt") {
       this.after(total * 0.1, () => { this.click(0.5, 0.8); this.clack(0.6, 1.1); });
       this.after(total * 0.4, () => this.clack(0.7, 0.8));
       this.after(total * 0.65, () => { this.clack(0.7, 1.0); this.click(0.5, 1.0); });
