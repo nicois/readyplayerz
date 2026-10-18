@@ -1,6 +1,7 @@
 //! Game simulation. No browser dependencies, so a server can run the same code.
 
 use crate::grid::Grid;
+use crate::nav::Nav;
 use std::rc::Rc;
 
 pub type V3 = [f32; 3];
@@ -17,10 +18,13 @@ const RANGE: f32 = 120.0;
 const EPS: f32 = 0.001;
 const SENS: f32 = 0.0022;
 /// Half the side of the square arena.
-pub const HALF: f32 = 40.0;
+pub const HALF: f32 = 100.0;
 /// The hand-built layout fills the middle of the arena out to this; generated cover goes around it.
 const CORE: f32 = 22.0;
 const BOT_COUNT: usize = 10;
+const BOT_SPEED: f32 = 3.2;
+/// Bots further than this from the player just glide along their route instead of simulating a body.
+const LOD_RADIUS: f32 = 40.0;
 /// Side of one cell of the wall grid.
 const CELL: f32 = 4.0;
 pub const EQUIP_TIME: f32 = 0.35;
@@ -254,6 +258,7 @@ const MAX_DEBRIS: usize = 300;
 
 pub struct Game {
     pub world: Rc<Grid>,
+    nav: Nav,
     pub debris: Vec<Debris>,
     pub events: Vec<[f32; 3]>,
     pub player: Player,
@@ -412,8 +417,14 @@ fn along(o: V3, d: V3, t: f32) -> V3 {
 
 impl Game {
     pub fn new(seed: u32) -> Game {
+        Game::with_walls(seed, build_walls(seed))
+    }
+
+    fn with_walls(seed: u32, walls: Vec<Aabb>) -> Game {
+        let world = Rc::new(Grid::new(walls, CELL));
         let mut g = Game {
-            world: Rc::new(Grid::new(build_walls(seed), CELL)),
+            nav: Nav::new(&world, HALF),
+            world,
             debris: Vec::new(),
             events: Vec::new(),
             player: Player {
@@ -697,6 +708,7 @@ impl Game {
     pub fn tick(&mut self, dt: f32) {
         self.time += dt;
         let world = self.world.clone();
+        self.nav.set_goal(self.player.body.pos);
         self.tick_player(dt, &world);
         self.tick_bots(dt, &world);
         self.tick_debris(dt, &world);
@@ -805,8 +817,35 @@ impl Game {
             let dist = (dx * dx + dz * dz).sqrt().max(0.001);
             let (nx, nz) = (dx / dist, dz / dist);
             let strafe = (time * 1.3 + b.phase).sin() * 2.0;
-            let go = if player_alive && dist > 6.0 { 3.2 } else { 0.0 };
-            let tv = [nx * go - nz * strafe, nz * go + nx * strafe];
+            let go = if player_alive && dist > 6.0 { BOT_SPEED } else { 0.0 };
+
+            if dist > LOD_RADIUS && player_alive {
+                // out of sight and out of reach: no physics, no shooting, just follow the route
+                if let Some(to) = self.nav.next(b.body.pos) {
+                    let (rx, rz) = (to[0] - b.body.pos[0], to[1] - b.body.pos[2]);
+                    let l = (rx * rx + rz * rz).sqrt().max(1e-4);
+                    let moved = (BOT_SPEED * dt).min(l);
+                    b.body.pos = [b.body.pos[0] + rx / l * moved, 0.0, b.body.pos[2] + rz / l * moved];
+                    b.body.vel = [rx / l * BOT_SPEED, 0.0, rz / l * BOT_SPEED];
+                    b.body.on_ground = true;
+                    continue;
+                }
+            }
+
+            // walk straight at the player when nothing at knee height is in the way (low cover gets
+            // jumped), otherwise follow the route around it
+            let knee = [b.body.pos[0], b.body.pos[1] + 0.6, b.body.pos[2]];
+            let to_player = [dx, target[1] + 0.6 - knee[1], dz];
+            let reach = len(to_player).max(0.001);
+            let straight = world.raycast(knee, [to_player[0] / reach, to_player[1] / reach, to_player[2] / reach], reach) >= reach;
+            let tv = match self.nav.next(b.body.pos) {
+                Some(to) if !straight => {
+                    let (rx, rz) = (to[0] - b.body.pos[0], to[1] - b.body.pos[2]);
+                    let l = (rx * rx + rz * rz).sqrt().max(1e-4);
+                    [rx / l * go, rz / l * go]
+                }
+                _ => [nx * go - nz * strafe, nz * go + nx * strafe],
+            };
             let blocked = step_body(&mut b.body, tv, false, dt, world);
             if blocked && b.body.on_ground {
                 b.body.vel[1] = JUMP;
@@ -897,6 +936,47 @@ mod tests {
             assert!(!g.world.find(&probe, |w| overlaps(&probe, w)), "spawned in a wall: {p:?}");
             let d = ((p[0] - g.player.body.pos[0]).powi(2) + (p[2] - g.player.body.pos[2]).powi(2)).sqrt();
             assert!(d > 29.0, "spawned {d} from the player");
+        }
+    }
+
+    fn long_wall_arena() -> Game {
+        let mut walls = build_walls(1)[..4].to_vec();
+        // a wall across the middle, open only at the -x end
+        walls.push(block(10.0, 0.0, 60.0, 4.0, 1.0));
+        Game::with_walls(1, walls)
+    }
+
+    #[test]
+    fn bots_find_their_way_around_a_wall() {
+        let mut g = long_wall_arena();
+        g.bots.truncate(1);
+        g.player.body.pos = [20.0, 0.0, 15.0];
+        g.bots[0].body.pos = [20.0, 0.0, -15.0];
+        let mut closest = f32::MAX;
+        for _ in 0..(40.0 / STEP) as usize {
+            g.tick(STEP);
+            let (b, p) = (g.bots[0].body.pos, g.player.body.pos);
+            closest = closest.min(((b[0] - p[0]).powi(2) + (b[2] - p[2]).powi(2)).sqrt());
+        }
+        assert!(closest < 8.0, "never got round the wall, closest {closest}");
+    }
+
+    #[test]
+    fn far_bots_glide_without_ever_entering_a_wall() {
+        for seed in 1..4 {
+            let mut g = Game::new(seed);
+            g.player.body.pos = [0.0, 0.0, 0.0];
+            for _ in 0..(30.0 / STEP) as usize {
+                g.tick(STEP);
+                for b in g.bots.iter().filter(|b| b.alive) {
+                    let (bb, hb) = (b.body_box(), b.head_box());
+                    assert!(
+                        !g.world.find(&bb, |w| overlaps(&bb, w)) && !g.world.find(&hb, |w| overlaps(&hb, w)),
+                        "seed {seed}: bot inside a wall at {:?}",
+                        b.body.pos
+                    );
+                }
+            }
         }
     }
 

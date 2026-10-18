@@ -1,4 +1,5 @@
 pub mod grid;
+pub mod nav;
 pub mod sim;
 
 #[cfg(target_arch = "wasm32")]

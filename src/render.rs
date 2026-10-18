@@ -330,10 +330,19 @@ impl Renderer {
         gl.uniform3f(self.u_eye.as_ref(), eye[0], eye[1], eye[2]);
 
         self.draw_box([-HALF, -0.3, -HALF], [HALF, 0.0, HALF], [0.11, 0.13, 0.20], 0.0);
+        // floor lines only out to the fog, so their number doesn't grow with the arena
+        let (x0, x1) = ((eye[0] - FOG_END).max(-HALF), (eye[0] + FOG_END).min(HALF));
+        let (z0, z1) = ((eye[2] - FOG_END).max(-HALF), (eye[2] + FOG_END).min(HALF));
         let mut grid = Vec::new();
-        for i in -(HALF as i32 / 2)..=(HALF as i32 / 2) {
-            let c = i as f32 * 2.0;
-            grid.extend_from_slice(&[c, 0.01, -HALF, c, 0.01, HALF, -HALF, 0.01, c, HALF, 0.01, c]);
+        let mut c = (x0 / 2.0).ceil() * 2.0;
+        while c <= x1 {
+            grid.extend_from_slice(&[c, 0.01, z0, c, 0.01, z1]);
+            c += 2.0;
+        }
+        let mut c = (z0 / 2.0).ceil() * 2.0;
+        while c <= z1 {
+            grid.extend_from_slice(&[x0, 0.01, c, x1, 0.01, c]);
+            c += 2.0;
         }
         self.draw_lines(&grid, [0.20, 0.24, 0.36], 1.0);
 
