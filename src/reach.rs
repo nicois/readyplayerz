@@ -128,6 +128,10 @@ impl Places {
                     return true;
                 }
                 let sides = [(s.x + dx, s.z), (s.x, s.z + dz)];
+                // up a hillside more than a step, along x and z each no steeper than a body walks
+                if s.ground && t.ground && t.h - s.h > 0.65 {
+                    return sides.iter().any(|&(x, z)| cell(x, z).any(|m| m.ground && walk(s, m) && walk(m, t)));
+                }
                 if sides.iter().all(|&c| clear(c, s.h.max(t.h))) {
                     return true;
                 }
@@ -267,6 +271,9 @@ fn zombies_get_up_to_the_player_everywhere_up_high() {
     let mut tried = 0;
     for map in 0..map::MAPS {
         let gaps = Gaps::new(map::make(map, 1), [0.0, 0.0, 14.0]);
+        let m = map::make(map, 1);
+        let world = Grid::new(m.walls, 4.0).with_ground(m.ground);
+        let mut nav = Nav::new(&world, m.half);
         let p = &gaps.places;
         let ground = |i: usize| p.index[&(p.spots[i].x, p.spots[i].z)].iter().map(|&k| p.spots[k]).find(|k| k.ground).map_or(0.0, |k| k.h);
         // in order, so the same zombies start in the same places every run
@@ -280,8 +287,12 @@ fn zombies_get_up_to_the_player_everywhere_up_high() {
             // the highest place in it a body stays put on
             let Some(top) = patch.iter().copied().filter(|&i| p.spots[i].middle).max_by(|a, b| p.spots[*a].h.total_cmp(&p.spots[*b].h)) else { continue };
             let at = p.at(top);
-            let mut near: Vec<V3> = starts.iter().copied().filter(|s| (8.0..20.0).contains(&(s[0] - at[0]).hypot(s[2] - at[2]))).collect();
-            near.sort_by(|a, b| (a[0] - at[0]).hypot(a[2] - at[2]).total_cmp(&(b[0] - at[0]).hypot(b[2] - at[2])));
+            // a short walk off, as the waves send them: near as the crow flies may be the foot of a bank too steep
+            // to climb, a long way round
+            nav.set_goal(at);
+            let walk = |s: &V3| nav.route_len(*s).unwrap_or(f32::INFINITY);
+            let mut near: Vec<V3> = starts.iter().copied().filter(|s| (8.0..20.0).contains(&(s[0] - at[0]).hypot(s[2] - at[2])) && walk(s) < 100.0).collect();
+            near.sort_by(|a, b| walk(a).total_cmp(&walk(b)));
             if near.is_empty() {
                 continue;
             }
@@ -338,6 +349,15 @@ fn the_way_to() {
     }
     for &i in way.iter().rev() {
         println!("{}{}{}", show(p.at(i)), if p.spots[i].ground { " ground" } else { "" }, if gaps.zombie_on(i) { "" } else { "   <- no zombie" });
+    }
+    // how far a zombie at FROM=x,height,z has to walk to get there
+    if let Ok(f) = std::env::var("FROM") {
+        let f: Vec<f32> = f.split(',').map(|s| s.parse().unwrap()).collect();
+        let m = map::make(map, seed);
+        let world = Grid::new(m.walls, 4.0).with_ground(m.ground);
+        let mut nav = Nav::new(&world, p.half);
+        nav.set_goal([to[0], to[1], to[2]]);
+        println!("a zombie at {f:?} walks {:?} m", nav.route_len([f[0], f[1], f[2]]));
     }
     // and how the nav sees the step where the zombies are left behind
     if let Some(k) = way.iter().rev().position(|&i| !gaps.zombie_on(i)).filter(|&k| k > 0) {

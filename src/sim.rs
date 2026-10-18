@@ -698,8 +698,30 @@ fn step_body(b: &mut Body, target: [f32; 2], jump: bool, dt: f32, world: &Grid) 
         b.vel[1] = 0.0;
         b.on_ground = true;
     }
+    // a hillside too steep to walk up is too steep to stand on, or to jump from: the feet slide off it downhill. So
+    // a mountainside isn't hopped up a jump at a time, while a short steep bank with a flat top still is. Walking is
+    // stopped along x and z each on its own (see `move_axis`), so a slope is walked up on the diagonal as long as
+    // it is no steeper than that along either; so it is stood on too
+    if b.on_ground && world.ground.is_some() && b.pos[1] <= ground + 0.01 {
+        let s = 0.3;
+        let gx = (world.ground_at(b.pos[0] + s, b.pos[2]) - world.ground_at(b.pos[0] - s, b.pos[2])) / (2.0 * s);
+        let gz = (world.ground_at(b.pos[0], b.pos[2] + s) - world.ground_at(b.pos[0], b.pos[2] - s)) / (2.0 * s);
+        let g = gx.hypot(gz);
+        if gx.abs().max(gz.abs()) > MAX_FOOTHOLD {
+            b.on_ground = false;
+            b.vel[0] -= gx / g * SLIDE * dt;
+            b.vel[2] -= gz / g * SLIDE * dt;
+        }
+    }
     hx || hz
 }
+
+/// Steepest ground, rise per metre along x or z, a body can stand on and jump from: a little more than it walks up,
+/// so a bump on a hill is still hopped over.
+const MAX_FOOTHOLD: f32 = MAX_SLOPE * 1.1;
+/// How hard the feet slide down a hillside too steep to stand on, in m/s²: more than the 15 a body can push
+/// against it with in the air, so it can't hold its place on one either.
+const SLIDE: f32 = 25.0;
 
 fn len(a: V3) -> f32 {
     (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt()
@@ -1815,6 +1837,47 @@ mod tests {
         // and a shot along the slope hits the cliff, while one back down over it doesn't
         assert!(g.world.raycast([10.0, 5.0, 0.0], [1.0, 0.0, 0.0], 50.0) < 11.0);
         assert_eq!(g.world.raycast([10.0, 5.0, 0.0], [-1.0, 0.0, 0.0], 50.0), 50.0);
+    }
+
+    /// A game on bare ground shaped by `f`, the player at the middle facing +x and walking with jump held down.
+    fn hopping_on(f: impl Fn(f32, f32) -> f32) -> Game {
+        let t = crate::terrain::Terrain::new(HALF, f);
+        let walls = map::perimeter();
+        let n = walls.len();
+        let mut g = Game::with_map(1, Map { half: HALF, walls, colors: vec![[0.5; 3]; n], mats: vec![0; n], decals: Vec::new(), spawns: Vec::new(), ground: Some(t) });
+        g.bots.clear();
+        g.wave_t = f32::INFINITY;
+        g.player.hp = 1e6;
+        g.player.body.pos = [0.0, 0.0, 0.0];
+        g.player.yaw = std::f32::consts::FRAC_PI_2;
+        g.input.w = true;
+        g.input.jump = true;
+        g
+    }
+
+    #[test]
+    fn a_mountainside_too_steep_to_walk_is_not_hopped_up_either() {
+        // flat to x = 4, then rising 1.2 a metre: steeper than a body walks (from a point of the terrain's grid,
+        // so the first square of it is as steep as the rest)
+        let mut g = hopping_on(|x, _| (x - 4.0).max(0.0) * 1.2);
+        let mut top = 0.0f32;
+        for _ in 0..(10.0 / STEP) as usize {
+            g.tick(STEP);
+            top = top.max(g.player.body.pos[1]);
+        }
+        assert!(top < 1.5, "hopped {top} m up the mountainside, to {:?}", g.player.body.pos);
+    }
+
+    #[test]
+    fn a_short_steep_rise_can_still_be_jumped_up() {
+        // a bank a metre high, rising over 0.8 m, flat on top
+        let mut g = hopping_on(|x, _| ((x - 5.0) / 0.8).clamp(0.0, 1.0));
+        for i in 0..(3.0 / STEP) as usize {
+            g.input.jump = i < (2.0 / STEP) as usize;
+            g.tick(STEP);
+        }
+        let p = g.player.body.pos;
+        assert!(p[0] > 7.0 && (p[1] - 1.0).abs() < 0.1, "didn't get up the bank: at {p:?}");
     }
 
     fn zombie_game() -> Game {

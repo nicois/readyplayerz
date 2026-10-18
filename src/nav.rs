@@ -146,8 +146,9 @@ impl Nav {
         [-self.half + (c.0 as f32 + 0.5) * CELL, -self.half + (c.1 as f32 + 0.5) * CELL]
     }
 
-    /// Whether a bot can step or hop from height `from` to `to` in the next cell, `run` away. Up a hillside it can
-    /// walk as steep as a body walks anywhere (`sim::MAX_SLOPE`), which on a diagonal is more than a step.
+    /// Whether a bot can step or hop from height `from` to `to` in the next cell, `run` away. Up onto a hillside it
+    /// can go as steep as a body walks anywhere (`sim::MAX_SLOPE`), which on a diagonal is more than a step: walking
+    /// up it, or hopping onto it off a rock on it.
     fn can_step(&self, from: f32, to: f32, hill: bool, run: f32) -> bool {
         let up = if hill { CLIMB.max(MAX_SLOPE * run) } else { CLIMB };
         to - from <= up && from - to <= DROP
@@ -208,7 +209,7 @@ impl Nav {
         // never from one narrow top along to another: see `WALKWAY`
         let to = self.in_cell(c2)
             .filter(|&s| !(self.narrow[from] && self.narrow[s]))
-            .filter(|&s| self.can_step(h, self.spots[s], ground && self.on_ground(c2, s), run))
+            .filter(|&s| self.can_step(h, self.spots[s], self.on_ground(c2, s), run))
             .min_by(|a, b| (self.spots[*a] - h).abs().partial_cmp(&(self.spots[*b] - h).abs()).unwrap())?;
         if d.0 != 0 && d.1 != 0 {
             let t = self.spots[to];
@@ -220,7 +221,13 @@ impl Nav {
                 let hill = |s: usize| hill && self.on_ground(side, s);
                 self.in_cell(side).any(|s| self.can_step(h, self.spots[s], hill(s), 1.0) && self.can_step(self.spots[s], t, hill(s), 1.0))
             };
-            let ok = sides.iter().all(|&s| self.clear(s, h.max(t))) || bare && sides.iter().any(|&s| passable(s));
+            // up a hillside more than a step, it walks it along x and z, each no steeper than a body walks: so by
+            // way of a cell beside it, whatever else is or isn't there
+            let ok = if hill && t - h > CLIMB {
+                sides.iter().any(|&s| passable(s))
+            } else {
+                sides.iter().all(|&s| self.clear(s, h.max(t))) || bare && sides.iter().any(|&s| passable(s))
+            };
             if !ok {
                 return None;
             }
