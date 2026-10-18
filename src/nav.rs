@@ -2,8 +2,6 @@
 
 use crate::grid::Grid;
 use crate::sim::{overlaps, Aabb, V3};
-use std::cmp::Reverse;
-use std::collections::BinaryHeap;
 
 /// Side of one nav cell. A body is 0.8 wide, so standing in the middle of an open cell it clears every blocked neighbour.
 const CELL: f32 = 1.0;
@@ -19,10 +17,14 @@ const DROP: f32 = 1.3;
 const REACH_UP: f32 = 1.0;
 /// Body height a standing spot needs clear above it.
 const HEADROOM: f32 = 1.8;
+/// Narrowest top a bot can stand on.
+const FOOTING: f32 = 0.5;
 /// Tallest ledge a bot pulls itself up onto (see `sim::BOT_REACH`), straight on only, with room above it to rise;
 /// a climb costs as much as walking this many steps further, so stairs win where there are any.
 pub const LEDGE: f32 = 2.9;
 const LEDGE_COST: u32 = 40;
+/// More than the dearest single step: a diagonal and a climb.
+const BUCKETS: usize = 64;
 
 /// One standable spot: the middle of a cell at some height.
 pub struct Nav {
@@ -36,6 +38,12 @@ pub struct Nav {
     /// path cost to the goal, 10 per straight step and 14 per diagonal
     cost: Vec<u32>,
     goal: Option<usize>,
+    /// the spots that can step onto each spot: `into[into_start[i]..into_start[i + 1]]`, with what the step costs
+    into_start: Vec<u32>,
+    into: Vec<u32>,
+    into_cost: Vec<u8>,
+    /// the route search's queue, kept between searches so it isn't allocated each time
+    buckets: Vec<Vec<u32>>,
 }
 
 impl Nav {
@@ -46,7 +54,8 @@ impl Nav {
         let mut start = Vec::with_capacity(n * n + 1);
         let mut spots = Vec::new();
         let mut ceil = Vec::new();
-        let mut spans: Vec<(f32, f32)> = Vec::new();
+        // each wall's bottom and top, and whether its top is wide enough to stand on
+        let mut spans: Vec<(f32, f32, bool)> = Vec::new();
         for z in 0..n {
             for x in 0..n {
                 start.push(spots.len() as u32);
@@ -55,16 +64,18 @@ impl Nav {
                 spans.clear();
                 world.find(&cell, |w| {
                     if overlaps(&cell, w) {
-                        spans.push((w.min[1], w.max[1]));
+                        spans.push((w.min[1], w.max[1], (w.max[0] - w.min[0]).min(w.max[2] - w.min[2]) >= FOOTING));
                     }
                     false
                 });
-                let mut tops: Vec<f32> = spans.iter().map(|s| s.1).filter(|t| *t > 0.0).collect();
+                // the top of a post, a rail or a fence is no place to stand, and a route up onto it would be
+                // climbed at for ever
+                let mut tops: Vec<f32> = spans.iter().filter(|s| s.2).map(|s| s.1).filter(|t| *t > 0.0).collect();
                 tops.push(0.0);
                 tops.sort_by(|a, b| a.partial_cmp(b).unwrap());
                 tops.dedup_by(|a, b| (*a - *b).abs() < 0.01);
                 for h in tops {
-                    if !spans.iter().any(|(lo, hi)| *lo < h + HEADROOM && *hi > h + 0.02) {
+                    if !spans.iter().any(|(lo, hi, _)| *lo < h + HEADROOM && *hi > h + 0.02) {
                         spots.push(h);
                         ceil.push(spans.iter().filter(|s| s.1 > h + 0.02).map(|s| s.0).fold(f32::INFINITY, f32::min));
                     }
@@ -73,7 +84,9 @@ impl Nav {
         }
         start.push(spots.len() as u32);
         let total = spots.len();
-        Nav { half, n, start, spots, ceil, cost: vec![UNREACHED; total], goal: None }
+        let mut nav = Nav { half, n, start, spots, ceil, cost: vec![UNREACHED; total], goal: None, into_start: Vec::new(), into: Vec::new(), into_cost: Vec::new(), buckets: Vec::new() };
+        nav.link();
+        nav
     }
 
     fn cell_of(&self, x: f32, z: f32) -> Option<(i32, i32)> {
@@ -195,30 +208,65 @@ impl Nav {
         let Some(g) = goal else {
             return;
         };
-        let mut heap = BinaryHeap::new();
+        // Dijkstra with a bucket per cost instead of a heap: no step costs more than BUCKETS - 1, so the spots
+        // waiting to be done only ever span that many costs, and a ring of buckets holds them in order
         self.cost[g] = 0;
-        heap.push(Reverse((0u32, g)));
-        while let Some(Reverse((d, i))) = heap.pop() {
-            if d > self.cost[i] {
-                continue;
-            }
-            let (c, h) = (self.cell_at(i), self.spots[i]);
-            for (dx, dz) in NEIGHBOURS {
-                // walk the field backwards: find the spots that can step onto this one
-                let from = (c.0 + dx, c.1 + dz);
-                for j in self.in_cell(from) {
-                    if self.move_to(from, j, (-dx, -dz)) != Some(i) {
-                        continue;
-                    }
-                    let climb = if h - self.spots[j] > CLIMB { LEDGE_COST } else { 0 };
-                    let nd = d + climb + if dx != 0 && dz != 0 { 14 } else { 10 };
+        let mut buckets = std::mem::take(&mut self.buckets);
+        buckets.resize_with(BUCKETS, Vec::new);
+        buckets[0].push(g as u32);
+        let (mut d, mut waiting) = (0u32, 1usize);
+        while waiting > 0 {
+            let b = d as usize % BUCKETS;
+            while let Some(i) = buckets[b].pop() {
+                waiting -= 1;
+                let i = i as usize;
+                if self.cost[i] != d {
+                    continue;
+                }
+                // walk the field backwards, through the spots that can step onto this one
+                for k in self.into_start[i] as usize..self.into_start[i + 1] as usize {
+                    let (j, nd) = (self.into[k] as usize, d + self.into_cost[k] as u32);
                     if nd < self.cost[j] {
                         self.cost[j] = nd;
-                        heap.push(Reverse((nd, j)));
+                        buckets[nd as usize % BUCKETS].push(j as u32);
+                        waiting += 1;
+                    }
+                }
+            }
+            d += 1;
+        }
+        self.buckets = buckets;
+    }
+
+    /// Works out every step a bot can take, once, and files each under the spot it lands on, so a route search
+    /// only has to read them off.
+    fn link(&mut self) {
+        let n = self.n as i32;
+        let mut steps: Vec<(u32, u32, u8)> = Vec::new();
+        for z in 0..n {
+            for x in 0..n {
+                for j in self.in_cell((x, z)) {
+                    for d in NEIGHBOURS {
+                        if let Some(i) = self.move_to((x, z), j, d) {
+                            let climb = if self.spots[i] - self.spots[j] > CLIMB { LEDGE_COST } else { 0 };
+                            let cost = climb + if d.0 != 0 && d.1 != 0 { 14 } else { 10 };
+                            steps.push((i as u32, j as u32, cost as u8));
+                        }
                     }
                 }
             }
         }
+        steps.sort_unstable_by_key(|s| s.0);
+        let mut start = vec![0u32; self.spots.len() + 1];
+        for s in &steps {
+            start[s.0 as usize + 1] += 1;
+        }
+        for i in 0..self.spots.len() {
+            start[i + 1] += start[i];
+        }
+        self.into_start = start;
+        self.into = steps.iter().map(|s| s.1).collect();
+        self.into_cost = steps.iter().map(|s| s.2).collect();
     }
 
     /// Middle of the cell `p` is in, if there is somewhere to stand in it.

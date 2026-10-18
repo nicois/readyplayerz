@@ -586,8 +586,6 @@ struct Chunk {
     count: i32,
     min: V3,
     max: V3,
-    centre: V3,
-    radius: f32,
 }
 
 /// Every wall, road and patch of ground baked into one vertex buffer.
@@ -761,7 +759,9 @@ struct Quality {
 const QUALITY: [Quality; 3] = [
     Quality { samples: 0, ao: false, soft_shadows: false },
     Quality { samples: 2, ao: false, soft_shadows: true },
-    Quality { samples: 4, ao: true, soft_shadows: true },
+    // occlusion off: the depth it read was cleared for the gun, so it only ever shaded the gun, at the cost of
+    // two full-screen passes
+    Quality { samples: 4, ao: false, soft_shadows: true },
 ];
 
 fn compile(gl: &GL, kind: u32, src: &str) -> Result<WebGlShader, String> {
@@ -1389,14 +1389,17 @@ impl Renderer {
                     lo[a] = lo[a].min(w.min[a]);
                     hi[a] = hi[a].max(w.max[a]);
                 }
+                // the underside of anything standing on the ground can never be seen
+                let grounded = w.min[1] <= 0.001;
                 for v in cube.chunks(6) {
+                    if grounded && v[4] < -0.5 {
+                        continue;
+                    }
                     let p = [w.min[0] + v[0] * (w.max[0] - w.min[0]), w.min[1] + v[1] * (w.max[1] - w.min[1]), w.min[2] + v[2] * (w.max[2] - w.min[2])];
                     vertex(&mut verts, p, [v[3], v[4], v[5]], g.colors[i], g.mats[i] as f32);
                 }
             }
-            let centre = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0];
-            let radius = 0.5 * ((hi[0] - lo[0]).powi(2) + (hi[1] - lo[1]).powi(2) + (hi[2] - lo[2]).powi(2)).sqrt();
-            chunks.push(Chunk { first, count: (verts.len() / 10) as i32 - first, min: lo, max: hi, centre, radius });
+            chunks.push(Chunk { first, count: (verts.len() / 10) as i32 - first, min: lo, max: hi });
         }
 
         let vao = gl.create_vertex_array().ok_or("vao")?;
@@ -1415,10 +1418,17 @@ impl Renderer {
         Ok(())
     }
 
-    fn draw_world(&self, eye: V3, fwd: V3) {
+    fn draw_world(&self, eye: V3, vp: &M4) {
         let (gl, Some(w)) = (&self.gl, &self.world) else {
             return;
         };
+        // the four sides of the view, as planes facing in (from the rows of the view-projection matrix)
+        let row = |i: usize| [vp[i], vp[4 + i], vp[8 + i], vp[12 + i]];
+        let (r0, r1, r3) = (row(0), row(1), row(3));
+        let sides = [0, 1, 2, 3].map(|k| {
+            let (r, s) = if k < 2 { (r0, if k == 0 { 1.0 } else { -1.0 }) } else { (r1, if k == 2 { 1.0 } else { -1.0 }) };
+            [r3[0] + s * r[0], r3[1] + s * r[1], r3[2] + s * r[2], r3[3] + s * r[3]]
+        });
         gl.bind_vertex_array(Some(&w.vao));
         gl.uniform1f(self.u_batch.as_ref(), 1.0);
         gl.uniform_matrix4fv_with_f32_array(self.u_model.as_ref(), false, &IDENTITY);
@@ -1429,13 +1439,17 @@ impl Renderer {
         gl.draw_arrays(GL::TRIANGLES, w.ground.0, w.ground.1);
         gl.depth_mask(true);
         for c in &w.chunks {
-            // past FOG_END everything is haze already, and a cell wholly behind the camera is not seen
+            // past FOG_END everything is haze already, and a cell wholly outside any side of the view is not seen:
+            // its corner furthest into the view is still outside
             let gap = |a: usize| (c.min[a] - eye[a]).max(eye[a] - c.max[a]).max(0.0);
             if (gap(0).powi(2) + gap(1).powi(2) + gap(2).powi(2)).sqrt() > self.fog_end {
                 continue;
             }
-            let to = [c.centre[0] - eye[0], c.centre[1] - eye[1], c.centre[2] - eye[2]];
-            if dot(to, fwd) < -c.radius {
+            let outside = sides.iter().any(|p| {
+                let far = [0, 1, 2].map(|a| if p[a] >= 0.0 { c.max[a] } else { c.min[a] });
+                p[0] * far[0] + p[1] * far[1] + p[2] * far[2] + p[3] < 0.0
+            });
+            if outside {
                 continue;
             }
             gl.draw_arrays(GL::TRIANGLES, c.first, c.count);
@@ -1728,7 +1742,7 @@ impl Renderer {
         gl.uniform_matrix4fv_with_f32_array(self.u_vp.as_ref(), false, &vp);
         gl.uniform3f(self.u_eye.as_ref(), eye[0], eye[1], eye[2]);
 
-        self.draw_world(eye, fwd);
+        self.draw_world(eye, &vp);
         self.flush();
         for d in &g.debris {
             // drops shrink away at the end of their life
@@ -1742,8 +1756,11 @@ impl Renderer {
             self.draw_lines(&[t.a[0], t.a[1], t.a[2], t.b[0], t.b[1], t.b[2]], [1.0, 0.95, 0.6], 1.0);
         }
 
-        // the world's depth is kept for the occlusion pass before the gun gets a depth buffer of its own
-        self.resolve(t, true);
+        // the world's depth is kept for the occlusion pass before the gun gets a depth buffer of its own; without
+        // occlusion nothing reads it, and the one copy at the end does
+        if q.ao {
+            self.resolve(t, true);
+        }
         // viewmodel: drawn in view space on a cleared depth buffer so it never clips into walls
         gl.clear(GL::DEPTH_BUFFER_BIT);
         // the gun keeps its own field of view so zooming the world doesn't magnify it
@@ -1760,7 +1777,7 @@ impl Renderer {
         gl.uniform1f(self.u_view.as_ref(), 0.0);
         // the gun's depth goes in too, so the occlusion pass treats it as a solid object instead of shading it
         // with whatever is behind it
-        self.resolve(t, true);
+        self.resolve(t, q.ao);
         self.post(t, fov, g.time, q.ao);
     }
 

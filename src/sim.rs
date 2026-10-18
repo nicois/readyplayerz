@@ -1356,15 +1356,23 @@ impl Game {
                 }
             }
 
-            // walk straight at the player when nothing at knee height is in the way (low cover gets
-            // jumped), otherwise follow the route around it. Someone higher up than a hop is followed by the
-            // route too: seen over the edge of a flight or a roof, they would only be clawed at from below
-            let knee = [b.body.pos[0], b.body.pos[1] + 0.6, b.body.pos[2]];
-            let to_player = [dx, target[1] + 0.6 - knee[1], dz];
-            let reach = len(to_player).max(0.001);
+            // walk straight at the player when nothing from knee height to the top of the head is in the way
+            // across the body's width (lower cover gets jumped), otherwise follow the route around it: a post or
+            // a tree trunk the middle of the body would miss still snags a shoulder. Someone higher up than a hop is
+            // followed by the route too: seen over the edge of a flight or a roof, they would only be clawed at
+            // from below
             if b.body.on_ground {
+                let to_player = [dx, target[1] - b.body.pos[1], dz];
+                let reach = len(to_player).max(0.001);
+                let d = [to_player[0] / reach, to_player[1] / reach, to_player[2] / reach];
+                let side = [-d[2] / d[0].hypot(d[2]).max(1e-4) * HW * 0.9, d[0] / d[0].hypot(d[2]).max(1e-4) * HW * 0.9];
                 b.direct = target[1] - b.body.pos[1] < 1.1
-                    && world.raycast(knee, [to_player[0] / reach, to_player[1] / reach, to_player[2] / reach], reach) >= reach;
+                    && [0.6, 1.2, 1.7].iter().all(|&y| {
+                        [-1.0, 0.0, 1.0].iter().all(|&s| {
+                            let o = [b.body.pos[0] + side[0] * s, b.body.pos[1] + y, b.body.pos[2] + side[1] * s];
+                            world.raycast(o, d, reach) >= reach
+                        })
+                    });
             }
             if let Some(c) = &mut b.climb {
                 c.t += dt;
