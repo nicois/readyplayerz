@@ -348,6 +348,8 @@ pub struct Bot {
     /// walking straight at the player rather than along the route; only decided on the ground, since mid-hop
     /// it can see over a wall it can't get over
     direct: bool,
+    /// how long it has stood at the foot of a climb without finding an edge to get over: see `BALK`
+    balk_t: f32,
 }
 
 /// How long a fallen zombie lies there before it fades away.
@@ -356,7 +358,7 @@ pub const CORPSE_T: f32 = 6.0;
 impl Bot {
     /// A walker; `spawn_zombie` makes the others from it.
     pub(crate) fn zombie(pos: V3, phase: f32) -> Bot {
-        Bot { body: Body { pos, ..Body::default() }, hp: 100.0, alive: true, fire_t: 0.5, phase, kind: 0, speed: 3.0, scale: 1.0, swing_t: 0.0, growl_t: 0.0, hit_t: 0.0, corpse: false, dead_t: 0.0, face: 0.0, head: [0.0; 3], twitch: [0.0; 3], twitch_t: 0.5, stagger: 0.0, climb: None, anchor: pos, stuck_t: 0.0, direct: false }
+        Bot { body: Body { pos, ..Body::default() }, hp: 100.0, alive: true, fire_t: 0.5, phase, kind: 0, speed: 3.0, scale: 1.0, swing_t: 0.0, growl_t: 0.0, hit_t: 0.0, corpse: false, dead_t: 0.0, face: 0.0, head: [0.0; 3], twitch: [0.0; 3], twitch_t: 0.5, stagger: 0.0, climb: None, anchor: pos, stuck_t: 0.0, direct: false, balk_t: 0.0 }
     }
     pub fn body_box(&self) -> Aabb {
         let (p, s) = (self.body.pos, self.scale);
@@ -406,6 +408,8 @@ pub struct Debris {
 const MAX_DEBRIS: usize = 300;
 
 pub struct Game {
+    /// half the side of the map, see `Map::half`
+    pub half: f32,
     pub world: Rc<Grid>,
     /// one colour per wall of `world`
     pub colors: Vec<[f32; 3]>,
@@ -468,8 +472,25 @@ fn move_axis(pos: &mut V3, axis: usize, delta: f32, world: &Grid, lift: f32) -> 
             }
         }
     }
+    // a hillside too steep to walk up stops the body like a wall
+    if axis != 1 && world.ground.is_some() {
+        let (was, now) = (world.ground_at(before[0], before[2]), world.ground_at(pos[0], pos[2]));
+        let rise = now - before[1].max(was);
+        if rise > 0.0 && rise > (pos[axis] - before[axis]).abs() * MAX_SLOPE + 0.01 {
+            pos[axis] = before[axis];
+            return true;
+        }
+    }
     hit
 }
+
+/// Steepest rise a body can walk up, per metre along.
+pub const MAX_SLOPE: f32 = 0.75;
+
+/// How far above a zombie's feet someone's can be and still be clawed at, by the legs: higher than a garden fence
+/// or a car roof, so neither is somewhere to stand out of reach. And how far below for it to strike down at them.
+pub const STRIKE_UP: f32 = 2.0;
+pub const STRIKE_DOWN: f32 = 1.6;
 
 /// How high above the feet a ledge can be and still be caught: with a jump's 1.28 m, up to about 2.9 m from the
 /// ground, onto a container but not a storey (3.3 m).
@@ -560,7 +581,8 @@ fn find_ledge(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), heave: bool, worl
     };
     for d in [0.5, 0.7, 0.9, 1.1] {
         let o = [pos[0] + f[0] * d, pos[1] + reach + 0.05, pos[2] + f[2] * d];
-        let t = world.raycast(o, [0.0, -1.0, 0.0], reach);
+        // walls only: a hillside too steep to walk up is not something to pull yourself up either
+        let t = world.raycast_walls(o, [0.0, -1.0, 0.0], reach);
         // starting inside something is a wall too tall to reach the top of; no hit is nothing to climb
         if t < 0.02 || t > reach + 0.05 - LEDGE_LOW {
             continue;
@@ -589,7 +611,7 @@ fn find_ledge(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), heave: bool, worl
                 let edge = (d - 0.1).max(HW);
                 // a zombie hops in to the foot of the wall first, so it goes up against it with its hands on the edge
                 // instead of rising straight up from a metre out; just under the top, the face is found exactly
-                let face = world.raycast([pos[0], top - 0.15, pos[2]], f, d + 0.1);
+                let face = world.raycast_walls([pos[0], top - 0.15, pos[2]], f, d + 0.1);
                 let face = if face <= d + 0.05 { face } else { edge };
                 let step = if heave { (face - HW - 0.03).max(0.0) } else { 0.0 };
                 let from = [pos[0] + f[0] * step, pos[1], pos[2] + f[2] * step];
@@ -600,6 +622,29 @@ fn find_ledge(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), heave: bool, worl
     }
     None
 }
+
+/// A zombie's last resort at the foot of a climb its route goes up, when no edge in front of it can be got over
+/// cleanly from where it stands (a garage roof beside the corner of a house, reached from a hedge): it scrambles up
+/// anyway, onto the nearest place by the route's next step at that height where a body fits standing on something.
+/// The nav has already seen there is room above where it starts, so it only cuts the corner of whatever is in the
+/// way on its way over.
+fn scramble(pos: V3, to: V3, world: &Grid) -> Option<Climb> {
+    let fits = |p: V3| {
+        let b = aabb_at(p, HW, H);
+        !world.find(&b, |w| overlaps(&b, w))
+    };
+    // finely: where a garage roof runs out a hand's breadth past the house beside it, that is all there is to stand on
+    let mut around: Vec<V3> = (-5..=5).flat_map(|i| (-5..=5).map(move |k| [to[0] + i as f32 * 0.1, to[1] + EPS, to[2] + k as f32 * 0.1])).collect();
+    around.sort_by(|a, b| (a[0] - pos[0]).hypot(a[2] - pos[2]).total_cmp(&(b[0] - pos[0]).hypot(b[2] - pos[2])));
+    let at = around.into_iter().find(|&p| fits(p) && !fits([p[0], p[1] - 0.05, p[2]]))?;
+    let (dx, dz) = (at[0] - pos[0], at[2] - pos[2]);
+    let time = BOT_CLIMB_PACE.0 + BOT_CLIMB_PACE.1 * (at[1] - pos[1]);
+    Some(Climb { start: pos, from: pos, to: at, t: 0.0, time, yaw: dx.atan2(-dz), edge: dx.hypot(dz).max(HW), heave: true })
+}
+
+/// How long a zombie stands at the foot of a climb its route goes up, finding no edge to get over, before it
+/// scrambles up anyway (see `scramble`): not long, as on top of a fence it is soon jostled off again.
+const BALK: f32 = 0.5;
 
 /// Shared movement for the player and bots. Returns true if blocked horizontally.
 fn step_body(b: &mut Body, target: [f32; 2], jump: bool, dt: f32, world: &Grid) -> bool {
@@ -638,16 +683,18 @@ fn step_body(b: &mut Body, target: [f32; 2], jump: bool, dt: f32, world: &Grid) 
         b.vel[1] = 0.0;
     }
     // walking down a step keeps the feet on it instead of sailing off the edge of each one
+    // (and down a hill)
+    let ground = world.ground_at(b.pos[0], b.pos[2]);
     if grounded && !b.on_ground && b.vel[1] <= 0.0 {
         let mut down = b.pos;
-        if move_axis(&mut down, 1, -STEP_UP, world, 0.0) || down[1] <= 0.0 {
-            b.pos = [down[0], down[1].max(0.0), down[2]];
+        if move_axis(&mut down, 1, -STEP_UP, world, 0.0) || down[1] <= ground {
+            b.pos = [down[0], down[1].max(ground), down[2]];
             b.vel[1] = 0.0;
             b.on_ground = true;
         }
     }
-    if b.pos[1] <= 0.0 {
-        b.pos[1] = 0.0;
+    if b.pos[1] <= ground {
+        b.pos[1] = ground;
         b.vel[1] = 0.0;
         b.on_ground = true;
     }
@@ -671,6 +718,24 @@ fn along(o: V3, d: V3, t: f32) -> V3 {
 impl Game {
     pub fn new(seed: u32) -> Game {
         Game::with_map(seed, map::build(seed))
+    }
+
+    /// A game on map number `map` (see `map::MAPS`).
+    pub fn on(map: u8, seed: u32) -> Game {
+        Game::with_map(seed, map::make(map, seed))
+    }
+
+    /// Bot `i`'s state for a test to print: where it stands, where its route goes next, and the ledge, if any,
+    /// it would find to pull itself up onto towards there.
+    #[cfg(test)]
+    pub fn describe_bot(&self, i: usize) -> String {
+        let b = &self.bots[i];
+        let next = self.nav.next(b.body.pos);
+        let ledge = next.and_then(|to| {
+            let yaw = (to[0] - b.body.pos[0]).atan2(-(to[2] - b.body.pos[2]));
+            find_ledge(b.body.pos, yaw, BOT_REACH, BOT_CLIMB_PACE, true, &self.world).map(|c| c.to)
+        });
+        format!("pos {:.2?} ground {} climbing {} direct {} next {next:.2?} ledge {ledge:.2?}", b.body.pos, b.body.on_ground, b.climb.is_some(), b.direct)
     }
 
     /// Zombies still to kill this wave: those alive plus those yet to arrive.
@@ -767,18 +832,20 @@ impl Game {
     fn with_walls(seed: u32, walls: Vec<Aabb>) -> Game {
         let colors = vec![[0.5; 3]; walls.len()];
         let mats = vec![0; walls.len()];
-        let mut g = Game::with_map(seed, Map { walls, colors, mats, decals: Vec::new(), spawns: Vec::new() });
+        let mut g = Game::with_map(seed, Map { half: HALF, walls, colors, mats, decals: Vec::new(), spawns: Vec::new(), ground: None });
         g.wave_t = f32::INFINITY;
         g
     }
 
     pub fn with_map(seed: u32, map: Map) -> Game {
-        let world = Rc::new(Grid::new(map.walls, CELL));
-        let mut nav = Nav::new(&world, HALF);
+        let half = map.half;
+        let world = Rc::new(Grid::new(map.walls, CELL).with_ground(map.ground));
+        let mut nav = Nav::new(&world, half);
         // only spawn where a body can actually walk to the middle of the map
         nav.set_goal([0.0, 0.0, 14.0]);
         let spawns = map.spawns.into_iter().filter(|p| nav.reachable(*p)).collect();
         let mut g = Game {
+            half,
             nav,
             world,
             colors: map.colors,
@@ -889,7 +956,7 @@ impl Game {
 
     /// A spawn point at least `far` from everything in `from`, or failing that the best of a few.
     fn pick_spawn(&mut self, from: &[V3], far: f32) -> V3 {
-        let reach = HALF - 2.0;
+        let reach = self.half - 2.0;
         let mut best = ([0.0, 0.0, -16.0], -1.0f32);
         for _ in 0..30 {
             let p = if self.spawns.is_empty() {
@@ -992,11 +1059,12 @@ impl Game {
             for axis in 0..3 {
                 let old = d.pos[axis];
                 d.pos[axis] += d.vel[axis] * dt;
-                let floor = axis == 1 && d.pos[1] < r;
+                let ground = world.ground_at(d.pos[0], d.pos[2]);
+                let floor = axis == 1 && d.pos[1] < ground + r;
                 let probe = Aabb { min: [d.pos[0] - r, d.pos[1] - r, d.pos[2] - r], max: [d.pos[0] + r, d.pos[1] + r, d.pos[2] + r] };
                 if floor || world.find(&probe, |w| overlaps(&probe, w)) {
                     if floor {
-                        d.pos[1] = r.max(old);
+                        d.pos[1] = (ground + r).max(old);
                     } else {
                         d.pos[axis] = old;
                     }
@@ -1103,7 +1171,7 @@ impl Game {
     pub fn tick(&mut self, dt: f32) {
         self.time += dt;
         let world = self.world.clone();
-        self.nav.set_goal(self.player.body.pos);
+        self.nav.follow(self.player.body.pos);
         self.tick_player(dt, &world);
         self.tick_waves(dt);
         self.tick_bots(dt, &world);
@@ -1321,7 +1389,8 @@ impl Game {
                 }
             }
             // it walks at the player until it is close enough to strike, flinching when hit
-            let go = if player_alive && (dist > 1.2 || (target[1] - b.body.pos[1]).abs() > 1.6) { b.speed } else { 0.0 };
+            let in_reach = (-STRIKE_DOWN..STRIKE_UP).contains(&(target[1] - b.body.pos[1]));
+            let go = if player_alive && (dist > 1.2 || !in_reach) { b.speed } else { 0.0 };
             let go = go * (1.0 - 0.8 * b.hit_t);
 
             if dist > LOD_RADIUS && player_alive {
@@ -1360,13 +1429,17 @@ impl Game {
             // across the body's width (lower cover gets jumped), otherwise follow the route around it: a post or
             // a tree trunk the middle of the body would miss still snags a shoulder. Someone higher up than a hop is
             // followed by the route too: seen over the edge of a flight or a roof, they would only be clawed at
-            // from below
+            // from below. So is someone the route leads away from: seen over a parapet from the top of a stair,
+            // a straight line would step back down it, out of sight again, and up and down it would go for ever
+            let next = if b.climb.is_none() { self.nav.next(b.body.pos) } else { None };
             if b.body.on_ground {
                 let to_player = [dx, target[1] - b.body.pos[1], dz];
                 let reach = len(to_player).max(0.001);
                 let d = [to_player[0] / reach, to_player[1] / reach, to_player[2] / reach];
                 let side = [-d[2] / d[0].hypot(d[2]).max(1e-4) * HW * 0.9, d[0] / d[0].hypot(d[2]).max(1e-4) * HW * 0.9];
+                let along = next.map_or(true, |to| (to[0] - b.body.pos[0]) * dx + (to[2] - b.body.pos[2]) * dz > 0.0);
                 b.direct = target[1] - b.body.pos[1] < 1.1
+                    && (along || dist < 2.0)
                     && [0.6, 1.2, 1.7].iter().all(|&y| {
                         [-1.0, 0.0, 1.0].iter().all(|&s| {
                             let o = [b.body.pos[0] + side[0] * s, b.body.pos[1] + y, b.body.pos[2] + side[1] * s];
@@ -1384,7 +1457,6 @@ impl Game {
                     b.climb = None;
                 }
             } else {
-                let next = self.nav.next(b.body.pos);
                 let mut tv = match next {
                     Some(to) if !b.direct => {
                         let (rx, rz) = (to[0] - b.body.pos[0], to[2] - b.body.pos[2]);
@@ -1407,12 +1479,33 @@ impl Game {
                         tv[1] += oz / d * (0.9 - d) * 4.0;
                     }
                 }
+                // up on something (a fence, a hedge) with the climb from it not yet found, it keeps still while it
+                // looks: walking on at the edge would take it off what it is on and back to the ground
+                let foot = next.filter(|to| !b.direct && to[1] - b.body.pos[1] > 0.65 && (to[0] - b.body.pos[0]).hypot(to[2] - b.body.pos[2]) < 1.5);
+                if foot.is_some() && b.balk_t > 0.0 && b.body.pos[1] > world.ground_at(b.body.pos[0], b.body.pos[2]) + 0.3 {
+                    tv = [0.0; 2];
+                }
                 let blocked = step_body(&mut b.body, tv, false, dt, world);
-                // a route up a ledge too tall to step or hop: once at its foot, it pulls itself up
+                // a route up a ledge too tall to step or hop: once at its foot, it pulls itself up. The route only
+                // knows metre cells, so where the edge can't be got over facing the way it goes (a narrow eave seen
+                // end on from a hedge under it), it tries the other ways round for an edge up to the same height. Or
+                // up onto what the route takes it to be on already: it may be beside the hedge the climb starts from
                 let ledge = next.filter(|to| !b.direct && to[1] - b.body.pos[1] > 0.65);
                 if let Some(to) = ledge.filter(|to| (to[0] - b.body.pos[0]).hypot(to[2] - b.body.pos[2]) < 1.5) {
                     let yaw = (to[0] - b.body.pos[0]).atan2(-(to[2] - b.body.pos[2]));
-                    b.climb = find_ledge(b.body.pos, yaw, BOT_REACH, BOT_CLIMB_PACE, true, world);
+                    let on = self.nav.standing(b.body.pos).filter(|h| h - b.body.pos[1] > LEDGE_LOW);
+                    let wanted = |c: &Climb| (c.to[1] - to[1]).abs() < 0.15 || on.is_some_and(|h| (c.to[1] - h).abs() < 0.15);
+                    b.climb = find_ledge(b.body.pos, yaw, BOT_REACH, BOT_CLIMB_PACE, true, world).or_else(|| {
+                        (1..8).find_map(|k| find_ledge(b.body.pos, yaw + k as f32 * PI / 4.0, BOT_REACH, BOT_CLIMB_PACE, true, world).filter(wanted))
+                    });
+                    b.balk_t = if b.climb.is_some() { 0.0 } else { b.balk_t + dt };
+                    if b.balk_t > BALK && b.body.on_ground && to[1] - b.body.pos[1] <= BOT_REACH {
+                        b.climb = scramble(b.body.pos, to, world);
+                        b.balk_t = 0.0;
+                    }
+                } else {
+                    // only slowly forgotten: a route can flicker between the climb and a step along the foot of it
+                    b.balk_t = (b.balk_t - dt * 0.25).max(0.0);
                 }
                 if b.climb.is_none() && blocked && b.body.on_ground {
                     b.body.vel[1] = JUMP;
@@ -1421,7 +1514,7 @@ impl Game {
 
             b.swing_t = (b.swing_t - dt * 2.5).max(0.0);
             b.fire_t -= dt;
-            if player_alive && b.climb.is_none() && dist < 1.7 && (target[1] - b.body.pos[1]).abs() < 1.6 && b.fire_t <= 0.0 {
+            if player_alive && b.climb.is_none() && dist < 1.7 && in_reach && b.fire_t <= 0.0 {
                 b.fire_t = 0.9;
                 b.swing_t = 1.0;
                 dmg += if b.kind == 2 { 30.0 } else { 12.0 };
@@ -1687,14 +1780,41 @@ mod tests {
 
     #[test]
     fn the_player_spawns_on_open_ground_facing_the_middle() {
-        for seed in 1..6 {
-            let g = Game::new(seed);
+        for (map, seed) in (0..map::MAPS).flat_map(|m| (1..6).map(move |s| (m, s))) {
+            let g = Game::on(map, seed);
             let b = aabb_at(g.player.body.pos, HW, H);
-            assert!(!g.world.find(&b, |w| overlaps(&b, w)), "seed {seed}: spawned in a wall");
+            assert!(!g.world.find(&b, |w| overlaps(&b, w)), "map {map} seed {seed}: spawned in a wall");
             let f = g.player.forward();
             let to_mid = [-g.player.body.pos[0], -g.player.body.pos[2]];
-            assert!(f[0] * to_mid[0] + f[2] * to_mid[1] > 0.0, "seed {seed}: facing away from the middle");
+            assert!(f[0] * to_mid[0] + f[2] * to_mid[1] > 0.0, "map {map} seed {seed}: facing away from the middle");
         }
+    }
+
+    #[test]
+    fn a_hill_is_walked_up_with_the_feet_on_it_and_a_cliff_stops_the_walk() {
+        // flat to x = 5, a slope rising 0.4 a metre to x = 20, then a cliff rising 3 a metre
+        let t = crate::terrain::Terrain::new(HALF, |x, _| if x < 5.0 { 0.0 } else if x < 20.0 { (x - 5.0) * 0.4 } else { 6.0 + (x - 20.0) * 3.0 });
+        let walls = map::perimeter();
+        let n = walls.len();
+        let mut g = Game::with_map(1, Map { half: HALF, walls, colors: vec![[0.5; 3]; n], mats: vec![0; n], decals: Vec::new(), spawns: Vec::new(), ground: Some(t) });
+        g.bots.clear();
+        g.wave_t = f32::INFINITY;
+        g.player.body.pos = [0.0, 0.0, 0.0];
+        g.player.yaw = std::f32::consts::FRAC_PI_2;
+        g.input.w = true;
+        let mut lowest = 0.0f32;
+        for _ in 0..(8.0 / STEP) as usize {
+            g.tick(STEP);
+            let p = g.player.body.pos;
+            lowest = lowest.min(p[1] - g.world.ground_at(p[0], p[2]));
+        }
+        let p = g.player.body.pos;
+        assert!((17.5..20.5).contains(&p[0]), "walked to {p:?}, not up the slope to the foot of the cliff");
+        assert!((p[1] - g.world.ground_at(p[0], p[2])).abs() < 0.05, "the feet are off the ground at {p:?}");
+        assert!(lowest > -0.01, "the feet sank {lowest} into the slope");
+        // and a shot along the slope hits the cliff, while one back down over it doesn't
+        assert!(g.world.raycast([10.0, 5.0, 0.0], [1.0, 0.0, 0.0], 50.0) < 11.0);
+        assert_eq!(g.world.raycast([10.0, 5.0, 0.0], [-1.0, 0.0, 0.0], 50.0), 50.0);
     }
 
     fn zombie_game() -> Game {
@@ -1707,8 +1827,8 @@ mod tests {
     /// finishes: no zombie is caught on the map, or spawns so far off that it takes a minute to turn up.
     #[test]
     fn every_zombie_of_a_wave_turns_up() {
-        for seed in [1, 7, 42] {
-            let mut g = Game::new(seed);
+        for (map, seed) in (0..map::MAPS).flat_map(|m| [1, 7, 42].map(move |s| (m, s))) {
+            let mut g = Game::on(map, seed);
             g.wave_t = 0.0;
             let at = g.player.body.pos;
             let mut born: Vec<Option<f32>> = Vec::new();
@@ -1723,14 +1843,14 @@ mod tests {
                         continue;
                     }
                     let t0 = *born[i].get_or_insert(g.time);
-                    assert!(g.time - t0 < 45.0, "seed {seed}: a zombie still hasn't come after 45s, at {:?}", b.body.pos);
+                    assert!(g.time - t0 < 45.0, "map {map} seed {seed}: a zombie still hasn't come after 45s, at {:?} (the player is at {at:?})", b.body.pos);
                     let (dx, dz) = (b.body.pos[0] - at[0], b.body.pos[2] - at[2]);
                     if dx * dx + dz * dz < 2.5 * 2.5 {
                         b.alive = false;
                     }
                 }
             }
-            assert!(g.wave >= 3, "seed {seed}: only got to wave {} in 150s", g.wave);
+            assert!(g.wave >= 3, "map {map} seed {seed}: only got to wave {} in 150s", g.wave);
         }
     }
 

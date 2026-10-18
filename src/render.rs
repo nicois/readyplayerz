@@ -1,6 +1,7 @@
 //! WebGL2 renderer: flat-shaded boxes and lines, one shader.
 
-use crate::sim::{Bot, Game, HALF, V3};
+use crate::sim::{Bot, Game, V3};
+use crate::terrain::{Terrain, STEP as HILL_STEP};
 use js_sys::Float32Array;
 use std::cell::{Cell, RefCell};
 use web_sys::{
@@ -529,7 +530,7 @@ const HAZE: [f32; 3] = [0.52, 0.56, 0.62];
 /// Shadow map: its side in texels, and half the width of the area it covers around the player, in metres.
 const SHADOW_SIZE: i32 = 2048;
 const NEAR: f32 = 0.05;
-const FAR: f32 = 260.0;
+const FAR: f32 = 460.0;
 /// Bytes of per-instance data: a matrix, a colour and material, and a finish.
 const INSTANCE_BYTES: i32 = 96;
 const SHADOW_HALF: f32 = 48.0;
@@ -772,6 +773,26 @@ fn sphere_verts(seg: usize, rings: usize) -> Vec<f32> {
         }
     }
     v
+}
+
+/// Point (i, j) of the hills: where it is, its normal smoothed over the points round it, and its colour: grass
+/// going dry higher up, bare rock where it is steep, and snow on the peaks.
+fn hill_point(t: &Terrain, i: usize, j: usize) -> (V3, V3, [f32; 3]) {
+    let h = t.at(i, j);
+    let (il, ir, jl, jr) = (i.saturating_sub(1), (i + 1).min(t.n - 1), j.saturating_sub(1), (j + 1).min(t.n - 1));
+    let dx = (t.at(ir, j) - t.at(il, j)) / ((ir - il) as f32 * HILL_STEP);
+    let dz = (t.at(i, jr) - t.at(i, jl)) / ((jr - jl) as f32 * HILL_STEP);
+    let l = (dx * dx + 1.0 + dz * dz).sqrt();
+    let n = [-dx / l, 1.0 / l, -dz / l];
+    let s = |a: f32, b: f32, x: f32| {
+        let u = ((x - a) / (b - a)).clamp(0.0, 1.0);
+        u * u * (3.0 - 2.0 * u)
+    };
+    let mix = |a: [f32; 3], b: [f32; 3], k: f32| [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+    let c = mix([0.20, 0.27, 0.15], [0.33, 0.31, 0.19], s(4.0, 30.0, h) * 0.7);
+    let c = mix(c, [0.40, 0.38, 0.35], 1.0 - s(0.62, 0.8, n[1]));
+    let c = mix(c, [0.86, 0.87, 0.90], s(58.0, 68.0, h) * s(0.45, 0.65, n[1]));
+    ([-t.half + i as f32 * HILL_STEP, h, -t.half + j as f32 * HILL_STEP], n, c)
 }
 
 fn cube_verts() -> Vec<f32> {
@@ -1321,6 +1342,8 @@ impl Renderer {
 
     /// Bakes the ground and every wall into one buffer. Call once the game exists; the map never changes.
     pub fn upload_world(&mut self, g: &Game) -> Result<(), String> {
+        // with hills round it, the haze starts further off so the mountains stand out across the map
+        (self.fog_start, self.fog_end) = if g.world.ground.is_some() { (110.0, 440.0) } else { (FOG_START, FOG_END) };
         let gl = &self.gl;
         let cube = cube_verts();
         let mut verts: Vec<f32> = Vec::new();
@@ -1329,7 +1352,8 @@ impl Renderer {
         };
 
         // the ground and its markings, flat tops only, drawn in order without writing depth
-        let mut flat: Vec<(V3, V3, [f32; 3])> = vec![([-HALF, 0.0, -HALF], [HALF, 0.0, HALF], crate::map::GROUND)];
+        let half = g.half;
+        let mut flat: Vec<(V3, V3, [f32; 3])> = vec![([-half, 0.0, -half], [half, 0.0, half], crate::map::GROUND)];
         flat.extend(g.decals.iter().map(|(d, c)| (d.min, d.max, *c)));
         for (min, max, c) in &flat {
             let m = crate::map::material(*c) as f32;
@@ -1341,24 +1365,57 @@ impl Renderer {
         let ground = (0, (verts.len() / 10) as i32);
 
         // walls, grouped by which cell of the map they are in
-        let cells = (2.0 * HALF / CHUNK).ceil() as usize;
+        let cells = (2.0 * half / CHUNK).ceil() as usize;
+        let cell = |lo: f32, hi: f32| ((((lo + hi) / 2.0 + half) / CHUNK).floor().max(0.0) as usize).min(cells - 1);
         let mut buckets: Vec<Vec<usize>> = vec![Vec::new(); cells * cells];
         for (i, w) in g.world.walls.iter().enumerate() {
-            let cell = |lo: f32, hi: f32| ((((lo + hi) / 2.0 + HALF) / CHUNK).floor().max(0.0) as usize).min(cells - 1);
             buckets[cell(w.min[2], w.max[2]) * cells + cell(w.min[0], w.max[0])].push(i);
         }
+        // the squares of the hills, by the corner of each on the terrain's grid, grouped the same way; where the
+        // ground is flat the plane under everything covers it
+        let mut hills: Vec<Vec<(usize, usize)>> = vec![Vec::new(); cells * cells];
+        if let Some(t) = &g.world.ground {
+            for j in 0..t.n - 1 {
+                for i in 0..t.n - 1 {
+                    if [t.at(i, j), t.at(i + 1, j), t.at(i, j + 1), t.at(i + 1, j + 1)].iter().all(|h| h.abs() < 0.001) {
+                        continue;
+                    }
+                    let (x, z) = (-t.half + (i as f32 + 0.5) * HILL_STEP, -t.half + (j as f32 + 0.5) * HILL_STEP);
+                    hills[cell(z, z) * cells + cell(x, x)].push((i, j));
+                }
+            }
+        }
         let mut chunks = Vec::new();
-        for bucket in buckets.iter().filter(|b| !b.is_empty()) {
+        for (bucket, hill) in buckets.iter().zip(&hills).filter(|(b, h)| !b.is_empty() || !h.is_empty()) {
             let first = (verts.len() / 10) as i32;
             let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+            if let Some(t) = &g.world.ground {
+                for &(i, j) in hill {
+                    let c = [(i, j), (i + 1, j), (i, j + 1), (i + 1, j + 1)].map(|(i, j)| hill_point(t, i, j));
+                    // split the way `Terrain::height` splits it, so what is drawn is what is stood on
+                    for tri in [[0, 3, 1], [0, 2, 3]] {
+                        let up = tri.iter().map(|&k| c[k].1[1]).sum::<f32>() / 3.0;
+                        let m = if up < 0.72 { 1.0 } else { 8.0 };
+                        for k in tri {
+                            let (p, n, col) = c[k];
+                            vertex(&mut verts, p, n, col, m);
+                            for a in 0..3 {
+                                lo[a] = lo[a].min(p[a]);
+                                hi[a] = hi[a].max(p[a]);
+                            }
+                        }
+                    }
+                }
+            }
             for &i in bucket {
                 let w = &g.world.walls[i];
                 for a in 0..3 {
                     lo[a] = lo[a].min(w.min[a]);
                     hi[a] = hi[a].max(w.max[a]);
                 }
-                // the underside of anything standing on the ground can never be seen
-                let grounded = w.min[1] <= 0.001;
+                // the underside of anything standing on the ground, all the way round, can never be seen
+                let ground = [(w.min[0], w.min[2]), (w.max[0], w.min[2]), (w.min[0], w.max[2]), (w.max[0], w.max[2])].map(|(x, z)| g.world.ground_at(x, z));
+                let grounded = w.min[1] <= ground.iter().fold(f32::INFINITY, |a, &b| a.min(b)) + 0.001;
                 for v in cube.chunks(6) {
                     if grounded && v[4] < -0.5 {
                         continue;

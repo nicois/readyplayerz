@@ -1,9 +1,12 @@
 //! Walls bucketed into a uniform grid over the ground plane, so collision and shots only look at nearby boxes.
 
 use crate::sim::{ray_aabb, Aabb, V3};
+use crate::terrain::Terrain;
 
 pub struct Grid {
     pub walls: Vec<Aabb>,
+    /// hills, if the ground isn't flat at height 0
+    pub ground: Option<Terrain>,
     cell: f32,
     origin: [f32; 2],
     dims: [usize; 2],
@@ -25,7 +28,7 @@ impl Grid {
             hi = [0.0; 2];
         }
         let dims = [0, 1].map(|i| (((hi[i] - lo[i]) / cell).ceil() as usize).max(1));
-        let mut g = Grid { walls, cell, origin: lo, dims, cells: vec![Vec::new(); dims[0] * dims[1]] };
+        let mut g = Grid { walls, ground: None, cell, origin: lo, dims, cells: vec![Vec::new(); dims[0] * dims[1]] };
         for i in 0..g.walls.len() {
             let ([x0, z0], [x1, z1]) = g.span(&g.walls[i]);
             for z in z0..=z1 {
@@ -35,6 +38,22 @@ impl Grid {
             }
         }
         g
+    }
+
+    pub fn with_ground(mut self, ground: Option<Terrain>) -> Grid {
+        self.ground = ground;
+        self
+    }
+
+    /// Height of the ground at (x, z).
+    pub fn ground_at(&self, x: f32, z: f32) -> f32 {
+        self.ground.as_ref().map_or(0.0, |t| t.height(x, z))
+    }
+
+    /// Distance to the first wall or hillside along the ray, or `max` if there is none that close.
+    pub fn raycast(&self, o: V3, d: V3, max: f32) -> f32 {
+        let t = self.raycast_walls(o, d, max);
+        self.ground.as_ref().map_or(t, |g| g.raycast(o, d, t))
     }
 
     fn index(&self, v: f32, axis: usize) -> usize {
@@ -84,7 +103,7 @@ impl Grid {
     }
 
     /// Distance to the first wall along the ray, or `max` if there is none that close.
-    pub fn raycast(&self, o: V3, d: V3, max: f32) -> f32 {
+    pub fn raycast_walls(&self, o: V3, d: V3, max: f32) -> f32 {
         // clip the ray to the grid's footprint; nothing outside it can be hit
         let (mut t0, mut t1) = (0.0f32, max);
         for (i, axis) in [0, 2].into_iter().enumerate() {

@@ -13,7 +13,8 @@ pub struct Client {
     acc: f32,
     last: f64,
     paused: bool,
-    /// what the map was made from, so ending the game can start a fresh one on the same map
+    /// which map, and what it was made from, so ending the game can start a fresh one on the same map
+    map: u8,
     seed: u32,
 }
 
@@ -36,23 +37,30 @@ impl Client {
         let seed = (js_sys::Math::random() * 4_000_000_000.0) as u32;
         let game = Game::new(seed);
         renderer.upload_world(&game)?;
-        Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true, seed })
+        Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true, map: 0, seed })
     }
 
     /// Ends the game: a fresh one on the same map, with the score cleared and the loadout picked so far.
     pub fn end_game(&mut self) {
         let picked = self.game.player.picked;
-        self.game = Game::new(self.seed);
+        self.game = Game::on(self.map, self.seed);
         for i in picked {
             self.game.pick(i);
         }
         self.acc = 0.0;
     }
 
+    /// A fresh game on map number `map` (see `map::MAPS`), keeping the loadout picked so far.
+    pub fn set_map(&mut self, map: u8) -> Result<(), JsValue> {
+        self.map = map.min(crate::map::MAPS - 1);
+        self.end_game();
+        Ok(self.renderer.upload_world(&self.game)?)
+    }
+
     /// Dev view: a fresh game on the map made from `seed`, so a picture can be taken in the same place again.
     pub fn set_seed(&mut self, seed: u32) -> Result<(), JsValue> {
         self.seed = seed;
-        self.game = Game::new(seed);
+        self.game = Game::on(self.map, seed);
         Ok(self.renderer.upload_world(&self.game)?)
     }
 

@@ -5,8 +5,14 @@
 //! The layout is authored; the seed only varies colours, which houses are ruined, and the rubble.
 
 use crate::sim::{overlaps, Aabb, Rng, V3, HALF};
+use crate::terrain::Terrain;
+
+/// The maps there are, by number: 0 the ruined town.
+pub const MAPS: u8 = 1;
 
 pub struct Map {
+    /// half the side of the square arena, which runs from -half to half on x and z
+    pub half: f32,
     pub walls: Vec<Aabb>,
     /// one per wall, same order
     pub colors: Vec<[f32; 3]>,
@@ -16,6 +22,8 @@ pub struct Map {
     pub decals: Vec<(Aabb, [f32; 3])>,
     /// open ground to spawn on
     pub spawns: Vec<V3>,
+    /// hills, where the ground isn't flat
+    pub ground: Option<Terrain>,
 }
 
 type Col = [f32; 3];
@@ -92,7 +100,12 @@ struct Op {
 
 /// The four boundary walls, which tests use for an empty arena.
 pub fn perimeter() -> Vec<Aabb> {
-    let (edge, len) = (HALF + 0.5, 2.0 * HALF + 2.0);
+    perimeter_of(HALF)
+}
+
+/// The four boundary walls round an arena reaching `half` from the middle.
+fn perimeter_of(half: f32) -> Vec<Aabb> {
+    let (edge, len) = (half + 0.5, 2.0 * half + 2.0);
     vec![
         block(0.0, -edge, len, 8.0, 1.0),
         block(0.0, edge, len, 8.0, 1.0),
@@ -115,9 +128,29 @@ struct B {
     rng: Rng,
     /// how battered the building being built is, 0 to 1
     ruin: f32,
+    /// half the side of the arena
+    half: f32,
+    /// hills, if the ground isn't flat
+    ground: Option<Terrain>,
+    /// how far up everything being built is raised, to put a building on a level spot in the hills
+    lift: f32,
 }
 
 impl B {
+    fn new(seed: u32, half: f32) -> B {
+        B { w: Vec::new(), c: Vec::new(), m: Vec::new(), decals: Vec::new(), keep_out: Vec::new(), rng: Rng(seed.wrapping_mul(2_654_435_761).max(1)), ruin: 0.0, half, ground: None, lift: 0.0 }
+    }
+
+    fn finish(mut self) -> Map {
+        let spawns = self.spawns();
+        Map { half: self.half, walls: self.w, colors: self.c, mats: self.m, decals: self.decals, spawns, ground: self.ground }
+    }
+
+    /// Height of the ground at (x, z).
+    fn ground_at(&self, x: f32, z: f32) -> f32 {
+        self.ground.as_ref().map_or(0.0, |t| t.height(x, z))
+    }
+
     fn tint(&mut self, c: Col) -> Col {
         let k = self.rng.range(0.9, 1.1);
         [c[0] * k, c[1] * k, c[2] * k]
@@ -129,6 +162,7 @@ impl B {
         }
         let mat = material(col);
         let col = self.tint(col);
+        let (min, max) = ([min[0], min[1] + self.lift, min[2]], [max[0], max[1] + self.lift, max[2]]);
         self.w.push(Aabb { min, max });
         self.c.push(col);
         self.m.push(mat);
@@ -372,13 +406,14 @@ impl B {
     // ---- zones ---------------------------------------------------------------------------------
 
     fn perimeter(&mut self) {
-        for a in perimeter() {
+        for a in perimeter_of(self.half) {
             self.put(a.min, a.max, DARK_CONCRETE);
         }
         // buttresses so the boundary reads as a wall and not a horizon
-        for i in -4..=4 {
+        let n = ((self.half - 12.0) / 22.0).floor() as i32;
+        for i in -n..=n {
             let p = i as f32 * 22.0;
-            let e = HALF - 1.0;
+            let e = self.half - 1.0;
             self.bx(p - 1.0, 0.0, -e - 1.0, p + 1.0, 9.0, -e, CONCRETE);
             self.bx(p - 1.0, 0.0, e, p + 1.0, 9.0, e + 1.0, CONCRETE);
             self.bx(-e - 1.0, 0.0, p - 1.0, -e, 9.0, p + 1.0, CONCRETE);
@@ -727,14 +762,19 @@ impl B {
     /// Open ground on a loose grid, to spawn on.
     fn spawns(&mut self) -> Vec<V3> {
         let mut out = Vec::new();
-        let mut x = -90.0;
-        while x <= 90.0 {
-            let mut z = -90.0;
-            while z <= 90.0 {
+        let reach = self.half - 10.0;
+        let mut x = -reach;
+        while x <= reach {
+            let mut z = -reach;
+            while z <= reach {
                 let (px, pz) = (x + self.rng.range(-4.0, 4.0), z + self.rng.range(-4.0, 4.0));
-                let probe = Aabb { min: [px - 1.2, 0.0, pz - 1.2], max: [px + 1.2, 1.8, pz + 1.2] };
-                if !self.w.iter().any(|w| overlaps(&probe, w)) {
-                    out.push([px, 0.0, pz]);
+                let y = self.ground_at(px, pz);
+                let probe = Aabb { min: [px - 1.2, y, pz - 1.2], max: [px + 1.2, y + 1.8, pz + 1.2] };
+                // in the hills, only on gentle ground: somewhere a body can walk down from may still be too steep
+                // to walk back up to
+                let level = [(2.0, 0.0), (-2.0, 0.0), (0.0, 2.0), (0.0, -2.0)].iter().all(|(dx, dz)| (self.ground_at(px + dx, pz + dz) - y).abs() < 0.7);
+                if level && y < 12.0 && !self.w.iter().any(|w| overlaps(&probe, w)) {
+                    out.push([px, y, pz]);
                 }
                 z += 15.0;
             }
@@ -744,8 +784,15 @@ impl B {
     }
 }
 
+/// Map number `map` (see `MAPS`) made from `seed`; anything out of range is the town.
+pub fn make(map: u8, seed: u32) -> Map {
+    match map {
+        _ => build(seed),
+    }
+}
+
 pub fn build(seed: u32) -> Map {
-    let mut b = B { w: Vec::new(), c: Vec::new(), m: Vec::new(), decals: Vec::new(), keep_out: Vec::new(), rng: Rng(seed.wrapping_mul(2_654_435_761).max(1)), ruin: 0.0 };
+    let mut b = B::new(seed, HALF);
     b.perimeter();
     b.roads();
     b.town_square();
@@ -755,8 +802,7 @@ pub fn build(seed: u32) -> Map {
     b.west_trench();
     b.corners();
     b.rubble();
-    let spawns = b.spawns();
-    Map { walls: b.w, colors: b.c, mats: b.m, decals: b.decals, spawns }
+    b.finish()
 }
 
 #[cfg(test)]
@@ -802,7 +848,7 @@ mod tests {
     }
 
     fn lone_building(stories: usize) -> (crate::sim::Game, Aabb) {
-        let mut b = B { w: Vec::new(), c: Vec::new(), m: Vec::new(), decals: Vec::new(), keep_out: Vec::new(), rng: Rng(7), ruin: 0.0 };
+        let mut b = B { w: Vec::new(), c: Vec::new(), m: Vec::new(), decals: Vec::new(), keep_out: Vec::new(), rng: Rng(7), ruin: 0.0, half: HALF, ground: None, lift: 0.0 };
         for a in perimeter() {
             b.put(a.min, a.max, CONCRETE);
         }
@@ -811,7 +857,7 @@ mod tests {
         let walls = b.w;
         let c = vec![[0.5; 3]; walls.len()];
         let mats = vec![0; walls.len()];
-        let mut g = crate::sim::Game::with_map(1, Map { walls, colors: c, mats, decals: Vec::new(), spawns: Vec::new() });
+        let mut g = crate::sim::Game::with_map(1, Map { half: HALF, walls, colors: c, mats, decals: Vec::new(), spawns: Vec::new(), ground: None });
         g.bots.clear();
         (g, Aabb { min: [x0, 0.0, z0], max: [x1, 0.0, z1] })
     }
@@ -941,7 +987,7 @@ mod debug {
     #[test]
     #[ignore]
     fn stairs_trace() {
-        let mut b = B { w: Vec::new(), c: Vec::new(), m: Vec::new(), decals: Vec::new(), keep_out: Vec::new(), rng: Rng(7), ruin: 0.0 };
+        let mut b = B { w: Vec::new(), c: Vec::new(), m: Vec::new(), decals: Vec::new(), keep_out: Vec::new(), rng: Rng(7), ruin: 0.0, half: HALF, ground: None, lift: 0.0 };
         for a in perimeter() {
             b.put(a.min, a.max, CONCRETE);
         }
@@ -949,7 +995,7 @@ mod debug {
         let walls = b.w;
         let c = vec![[0.5; 3]; walls.len()];
         let mats = vec![0; walls.len()];
-        let mut g = crate::sim::Game::with_map(1, Map { walls, colors: c, mats, decals: Vec::new(), spawns: Vec::new() });
+        let mut g = crate::sim::Game::with_map(1, Map { half: HALF, walls, colors: c, mats, decals: Vec::new(), spawns: Vec::new(), ground: None });
         g.bots.clear();
         g.player.body.pos = [-7.2, 0.0, -3.6];
         g.player.yaw = std::f32::consts::FRAC_PI_2;
