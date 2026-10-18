@@ -22,6 +22,14 @@ const STAMINA_REFILL: f32 = 6.0;
 const STAMINA_REST: f32 = 0.8;
 /// Running dry leaves you winded: no sprinting until the bar is back to this.
 const WINDED_UNTIL: f32 = 0.35;
+/// Hip-fire bloom: each shot adds this much of the full bloom...
+const BLOOM_SHOT: f32 = 0.2;
+/// ...which spreads shots this many times wider again than the gun's hip spread...
+const BLOOM_MAX: f32 = 1.0;
+/// ...and settles at this much a second once the trigger has rested this long. Only an automatic held down
+/// fires quicker than the rest, so a sniper or a shotgun settles between every shot.
+const BLOOM_SETTLE: f32 = 2.5;
+const BLOOM_REST: f32 = 0.12;
 const RANGE: f32 = 120.0;
 const EPS: f32 = 0.001;
 const SENS: f32 = 0.0022;
@@ -29,6 +37,14 @@ const SENS: f32 = 0.0022;
 pub const HALF: f32 = 100.0;
 /// Most zombies alive at once; the rest of a wave trickles in as they die.
 const MAX_ZOMBIES: u32 = 24;
+/// Zombies come in at least this far from the player, as the crow flies...
+const SPAWN_NEAR: f32 = 30.0;
+/// ...and, where the map allows, no further than this to walk.
+const SPAWN_WALK: f32 = 70.0;
+/// A zombie this far off that hasn't got a metre further in `STUCK_T` seconds is caught on something:
+/// it comes in again at a spawn point.
+const STUCK_FAR: f32 = 20.0;
+const STUCK_T: f32 = 5.0;
 /// The tallest ledge a walking body climbs without jumping, so stairs and terraces work.
 const STEP_UP: f32 = 0.4;
 /// Bots further than this from the player just glide along their route instead of simulating a body.
@@ -220,6 +236,10 @@ pub struct Player {
     pub winded: bool,
     /// seconds since the last sprint, for the refill
     since_sprint: f32,
+    /// 0 settled, 1 fully bloomed: shots from the hip spread wider the longer the trigger is held
+    pub bloom: f32,
+    /// seconds since the last shot, for the bloom to settle
+    since_shot: f32,
 }
 
 impl Player {
@@ -241,10 +261,12 @@ impl Player {
     pub fn fov(&self) -> f32 {
         1.2 * (1.0 + (self.gun().zoom - 1.0) * self.ads)
     }
-    /// How far from the aim a shot can stray, as a sideways offset per metre: from the hip's to the aimed.
+    /// How far from the aim a shot can stray, as a sideways offset per metre: from the hip's, opened up by
+    /// the bloom, to the aimed, which doesn't bloom.
     pub fn spread(&self) -> f32 {
         let w = self.gun();
-        w.spread + (w.ads_spread - w.spread) * self.ads
+        let hip = w.spread * (1.0 + BLOOM_MAX * self.bloom);
+        hip + (w.ads_spread - hip) * self.ads
     }
 }
 
@@ -274,6 +296,12 @@ pub struct Bot {
     pub dead_t: f32,
     /// the way it was facing when it fell
     pub face: f32,
+    /// where it last stood a metre away from, and how long ago that was: see `STUCK_T`
+    anchor: V3,
+    stuck_t: f32,
+    /// walking straight at the player rather than along the route; only decided on the ground, since mid-hop
+    /// it can see over a wall it can't get over
+    direct: bool,
 }
 
 /// How long a fallen zombie lies there before it fades away.
@@ -282,7 +310,7 @@ pub const CORPSE_T: f32 = 6.0;
 impl Bot {
     /// A walker; `spawn_zombie` makes the others from it.
     pub(crate) fn zombie(pos: V3, phase: f32) -> Bot {
-        Bot { body: Body { pos, ..Body::default() }, hp: 100.0, alive: true, fire_t: 0.5, phase, kind: 0, speed: 3.0, scale: 1.0, swing_t: 0.0, growl_t: 0.0, hit_t: 0.0, corpse: false, dead_t: 0.0, face: 0.0 }
+        Bot { body: Body { pos, ..Body::default() }, hp: 100.0, alive: true, fire_t: 0.5, phase, kind: 0, speed: 3.0, scale: 1.0, swing_t: 0.0, growl_t: 0.0, hit_t: 0.0, corpse: false, dead_t: 0.0, face: 0.0, anchor: pos, stuck_t: 0.0, direct: false }
     }
     pub fn body_box(&self) -> Aabb {
         let (p, s) = (self.body.pos, self.scale);
@@ -453,9 +481,37 @@ impl Game {
         self.wave_t = 3.0;
     }
 
+    /// Where a zombie comes in: a spawn point out of sight range but a short walk away, so the last of a wave
+    /// is never a minute's walk off. Failing that the nearest walk of a few.
+    fn zombie_spawn(&mut self) -> V3 {
+        if self.spawns.is_empty() {
+            let from = [self.player.body.pos];
+            return self.pick_spawn(&from, SPAWN_NEAR);
+        }
+        let p = self.player.body.pos;
+        let mut best = (f32::INFINITY, None);
+        for _ in 0..40 {
+            let s = self.spawns[(self.rng.next() as usize) % self.spawns.len()];
+            let d = ((s[0] - p[0]).powi(2) + (s[2] - p[2]).powi(2)).sqrt();
+            let Some(walk) = self.nav.route_len(s) else { continue };
+            if d < SPAWN_NEAR {
+                continue;
+            }
+            if walk <= SPAWN_WALK {
+                return s;
+            }
+            if walk < best.0 {
+                best = (walk, Some(s));
+            }
+        }
+        best.1.unwrap_or_else(|| {
+            let from = [p];
+            self.pick_spawn(&from, SPAWN_NEAR)
+        })
+    }
+
     fn spawn_zombie(&mut self) {
-        let from = [self.player.body.pos];
-        let pos = self.pick_spawn(&from, 40.0);
+        let pos = self.zombie_spawn();
         let (r, w) = (self.rng.f(), self.wave as f32);
         let p_brute = if self.wave >= 3 { (0.03 * w).min(0.15) } else { 0.0 };
         let p_run = (0.1 + 0.04 * w).min(0.4);
@@ -553,6 +609,8 @@ impl Game {
                 stamina: 1.0,
                 winded: false,
                 since_sprint: 99.0,
+                bloom: 0.0,
+                since_shot: 99.0,
             },
             bots: Vec::new(),
             wave: 0,
@@ -580,6 +638,7 @@ impl Game {
         p.hp = 100.0;
         p.stamina = 1.0;
         p.winded = false;
+        p.bloom = 0.0;
         p.ammo = full_ammo();
         p.loadout[0] = p.picked;
         p.weapon = p.picked;
@@ -765,6 +824,8 @@ impl Game {
         let right = [cy, 0.0, sy];
         let up = cross(right, fwd);
         let spread = self.player.spread();
+        self.player.bloom = (self.player.bloom + BLOOM_SHOT).min(1.0);
+        self.player.since_shot = 0.0;
         // the shot is drawn from the muzzle, which sits right/down from the eye until the gun is raised
         let (side, drop) = (0.2 * (1.0 - ads), 0.18 * (1.0 - 0.7 * ads));
         let muzzle = [
@@ -846,6 +907,10 @@ impl Game {
         p.damage_flash = (p.damage_flash - dt * 2.0).max(0.0);
         p.kill_t = (p.kill_t - dt * 2.5).max(0.0);
         p.cooldown = (p.cooldown - dt).max(0.0);
+        p.since_shot += dt;
+        if p.since_shot > BLOOM_REST {
+            p.bloom = (p.bloom - dt * BLOOM_SETTLE).max(0.0);
+        }
 
         if !p.alive() {
             p.respawn_t -= dt;
@@ -933,6 +998,7 @@ impl Game {
         let player_alive = self.player.alive();
         let mut dmg = 0.0;
         let mut heard = Vec::new();
+        let mut stuck = Vec::new();
         let (psy, pcy) = self.player.yaw.sin_cos();
         let snap: Vec<(V3, bool)> = self.bots.iter().map(|b| (b.body.pos, b.alive)).collect();
 
@@ -947,6 +1013,16 @@ impl Game {
             let dist = (dx * dx + dz * dz).sqrt().max(0.001);
             let (nx, nz) = (dx / dist, dz / dist);
             b.hit_t = (b.hit_t - dt * 3.0).max(0.0);
+            let (ax, az) = (b.body.pos[0] - b.anchor[0], b.body.pos[2] - b.anchor[2]);
+            if ax * ax + az * az > 1.0 || dist < STUCK_FAR || !player_alive {
+                b.anchor = b.body.pos;
+                b.stuck_t = 0.0;
+            } else {
+                b.stuck_t += dt;
+                if b.stuck_t > STUCK_T {
+                    stuck.push(i);
+                }
+            }
             // it walks at the player until it is close enough to strike, flinching when hit
             let go = if player_alive && (dist > 1.2 || (target[1] - b.body.pos[1]).abs() > 1.6) { b.speed } else { 0.0 };
             let go = go * (1.0 - 0.8 * b.hit_t);
@@ -960,8 +1036,14 @@ impl Game {
                     // it hops up as soon as it starts a rise and comes down only once it arrives, so it is never inside the step
                     let y = if to[1] > b.body.pos[1] || l - moved < 0.3 { to[1] } else { b.body.pos[1] };
                     let at = [b.body.pos[0] + rx / l * moved, y, b.body.pos[2] + rz / l * moved];
-                    let probe = aabb_at(at, HW, H);
-                    if !world.find(&probe, |w| overlaps(&probe, w)) {
+                    // a step that grazes a corner slides along one axis instead, and one under an overhang on the
+                    // way down off a ledge drops at once: pushed back to the middle, it would try the same step forever
+                    let clear = |at: V3| {
+                        let probe = aabb_at(at, HW, H);
+                        !world.find(&probe, |w| overlaps(&probe, w))
+                    };
+                    let tries = [at, [at[0], to[1], at[2]], [at[0], y, b.body.pos[2]], [b.body.pos[0], y, at[2]]];
+                    if let Some(at) = tries.into_iter().find(|&t| clear(t)) {
                         b.body.pos = at;
                     } else if let Some(c) = self.nav.snap(b.body.pos) {
                         // squeezed against a wall: drift back to the middle of the cell
@@ -981,9 +1063,11 @@ impl Game {
             let knee = [b.body.pos[0], b.body.pos[1] + 0.6, b.body.pos[2]];
             let to_player = [dx, target[1] + 0.6 - knee[1], dz];
             let reach = len(to_player).max(0.001);
-            let straight = world.raycast(knee, [to_player[0] / reach, to_player[1] / reach, to_player[2] / reach], reach) >= reach;
+            if b.body.on_ground {
+                b.direct = world.raycast(knee, [to_player[0] / reach, to_player[1] / reach, to_player[2] / reach], reach) >= reach;
+            }
             let mut tv = match self.nav.next(b.body.pos) {
-                Some(to) if !straight => {
+                Some(to) if !b.direct => {
                     let (rx, rz) = (to[0] - b.body.pos[0], to[2] - b.body.pos[2]);
                     let l = (rx * rx + rz * rz).sqrt().max(1e-4);
                     [rx / l * go, rz / l * go]
@@ -1020,6 +1104,13 @@ impl Game {
             }
         }
         self.events.extend(heard);
+        for i in stuck {
+            let at = self.zombie_spawn();
+            let b = &mut self.bots[i];
+            b.body = Body { pos: at, ..Body::default() };
+            b.anchor = at;
+            b.stuck_t = 0.0;
+        }
         if dmg > 0.0 {
             self.hurt_player(dmg);
         }
@@ -1257,6 +1348,37 @@ mod tests {
         g
     }
 
+    /// On real maps, with the player standing still and each zombie dropped as it gets to them, every wave
+    /// finishes: no zombie is caught on the map, or spawns so far off that it takes a minute to turn up.
+    #[test]
+    fn every_zombie_of_a_wave_turns_up() {
+        for seed in [1, 7, 42] {
+            let mut g = Game::new(seed);
+            g.wave_t = 0.0;
+            let at = g.player.body.pos;
+            let mut born: Vec<Option<f32>> = Vec::new();
+            while g.time < 150.0 {
+                g.player.hp = 100.0;
+                g.player.body.pos = at;
+                g.tick(STEP);
+                born.resize(g.bots.len(), None);
+                for (i, b) in g.bots.iter_mut().enumerate() {
+                    if !b.alive {
+                        born[i] = None;
+                        continue;
+                    }
+                    let t0 = *born[i].get_or_insert(g.time);
+                    assert!(g.time - t0 < 45.0, "seed {seed}: a zombie still hasn't come after 45s, at {:?}", b.body.pos);
+                    let (dx, dz) = (b.body.pos[0] - at[0], b.body.pos[2] - at[2]);
+                    if dx * dx + dz * dz < 2.5 * 2.5 {
+                        b.alive = false;
+                    }
+                }
+            }
+            assert!(g.wave >= 3, "seed {seed}: only got to wave {} in 150s", g.wave);
+        }
+    }
+
     #[test]
     fn zombies_arrive_in_waves_and_claw() {
         let mut g = zombie_game();
@@ -1353,6 +1475,36 @@ mod tests {
         assert!(!g.player.winded, "still winded on {}", g.player.stamina);
         idle(&mut g, STAMINA_REFILL);
         assert_eq!(g.player.stamina, 1.0);
+    }
+
+    #[test]
+    fn hip_fire_blooms_while_held_and_settles_after() {
+        let mut g = arena();
+        g.wave_t = f32::INFINITY;
+        let hip = g.player.gun().spread;
+        g.input.fire = true;
+        idle(&mut g, 0.7);
+        assert!(g.player.spread() > hip * (1.0 + BLOOM_MAX * 0.95), "held carbine only spread {}", g.player.spread());
+        g.input.fire = false;
+        idle(&mut g, BLOOM_REST + 1.0 / BLOOM_SETTLE);
+        assert_eq!(g.player.spread(), hip, "never settled");
+
+        // aimed, a held trigger stays tight
+        g.input.ads = true;
+        idle(&mut g, 0.5);
+        g.input.fire = true;
+        idle(&mut g, 0.7);
+        assert!((g.player.spread() - g.player.gun().ads_spread).abs() < 1e-5, "aimed spread {}", g.player.spread());
+
+        // a sniper has settled again by the time it can fire
+        let mut g = arena();
+        g.wave_t = f32::INFINITY;
+        g.pick_primary(3);
+        g.input.fire = true;
+        idle(&mut g, 0.05);
+        g.input.fire = false;
+        idle(&mut g, WEAPONS[3].delay);
+        assert_eq!(g.player.spread(), WEAPONS[3].spread);
     }
 
     fn bot_ahead_zombie(g: &mut Game, kind: u8) {

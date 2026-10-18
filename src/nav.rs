@@ -15,6 +15,8 @@ const GOAL_SEARCH: i32 = 6;
 const CLIMB: f32 = 0.65;
 /// Furthest it will step down on its own.
 const DROP: f32 = 1.3;
+/// Highest a spot can be above someone's feet and still be what they stand on (they may be mid-hop onto it).
+const REACH_UP: f32 = 1.0;
 /// Body height a standing spot needs clear above it.
 const HEADROOM: f32 = 1.8;
 
@@ -134,10 +136,32 @@ impl Nav {
         best.1
     }
 
-    /// The spot a body at `p` is standing on: the one in its cell closest to its feet.
+    /// The spot a body at `p` is standing on: the one in its cell closest to its feet. A body at the edge of a
+    /// cell that something tall half fills is beside it, not on it: its spot is then the nearest one around
+    /// with a route, as it is when its own has none.
     fn spot_of(&self, p: V3) -> Option<usize> {
         let c = self.cell_of(p[0], p[2])?;
-        self.in_cell(c).min_by(|a, b| (self.spots[*a] - p[1]).abs().partial_cmp(&(self.spots[*b] - p[1]).abs()).unwrap())
+        let own = self.in_cell(c).min_by(|a, b| (self.spots[*a] - p[1]).abs().partial_cmp(&(self.spots[*b] - p[1]).abs()).unwrap());
+        if let Some(s) = own.filter(|&s| self.spots[s] < p[1] + REACH_UP && self.cost[s] != UNREACHED) {
+            return Some(s);
+        }
+        let mut best = (f32::INFINITY, None);
+        for dz in -1..=1 {
+            for dx in -1..=1 {
+                for s in self.in_cell((c.0 + dx, c.1 + dz)) {
+                    let dy = self.spots[s] - p[1];
+                    if self.cost[s] == UNREACHED || dy >= REACH_UP {
+                        continue;
+                    }
+                    let m = self.center((c.0 + dx, c.1 + dz));
+                    let score = (m[0] - p[0]).powi(2) + (m[1] - p[2]).powi(2) + 4.0 * dy * dy;
+                    if score < best.0 {
+                        best = (score, Some(s));
+                    }
+                }
+            }
+        }
+        best.1.or(own)
     }
 
     /// Points the field at `p`, at whatever height it is standing. Does nothing if they are still on the same spot.
@@ -197,6 +221,12 @@ impl Nav {
     /// True if `p` stands on a spot that has a route to the goal.
     pub fn reachable(&self, p: V3) -> bool {
         self.spot_of(p).is_some_and(|s| self.cost[s] != UNREACHED)
+    }
+
+    /// How far `p` has to walk to the goal, in metres, if it has a route.
+    pub fn route_len(&self, p: V3) -> Option<f32> {
+        let s = self.spot_of(p)?;
+        (self.cost[s] != UNREACHED).then(|| self.cost[s] as f32 * CELL / 10.0)
     }
 
     /// Where to step next from `p` on the way to the goal, as a point (x, height, z), or None if `p` is not
