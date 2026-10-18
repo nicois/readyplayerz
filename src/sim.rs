@@ -3,6 +3,7 @@
 use crate::grid::Grid;
 use crate::map::{self, Map};
 use crate::nav::Nav;
+use std::f32::consts::PI;
 use std::rc::Rc;
 
 pub type V3 = [f32; 3];
@@ -328,8 +329,15 @@ pub struct Bot {
     /// a zombie that was shot down stays as a corpse for `CORPSE_T`; this is how long it has lain there
     pub corpse: bool,
     pub dead_t: f32,
-    /// the way it was facing when it fell
+    /// the way it is facing (the way it fell, once dead)
     pub face: f32,
+    /// how far its head has jerked from where it would be, as right, up and forward of the way it faces, scaled
+    /// with the body; the head's hit box goes with it
+    pub head: V3,
+    /// where the head is jerking to, how long until it jerks again, and a sideways stagger in metres a second
+    twitch: V3,
+    twitch_t: f32,
+    stagger: f32,
     /// where it last stood a metre away from, and how long ago that was: see `STUCK_T`
     anchor: V3,
     stuck_t: f32,
@@ -344,7 +352,7 @@ pub const CORPSE_T: f32 = 6.0;
 impl Bot {
     /// A walker; `spawn_zombie` makes the others from it.
     pub(crate) fn zombie(pos: V3, phase: f32) -> Bot {
-        Bot { body: Body { pos, ..Body::default() }, hp: 100.0, alive: true, fire_t: 0.5, phase, kind: 0, speed: 3.0, scale: 1.0, swing_t: 0.0, growl_t: 0.0, hit_t: 0.0, corpse: false, dead_t: 0.0, face: 0.0, anchor: pos, stuck_t: 0.0, direct: false }
+        Bot { body: Body { pos, ..Body::default() }, hp: 100.0, alive: true, fire_t: 0.5, phase, kind: 0, speed: 3.0, scale: 1.0, swing_t: 0.0, growl_t: 0.0, hit_t: 0.0, corpse: false, dead_t: 0.0, face: 0.0, head: [0.0; 3], twitch: [0.0; 3], twitch_t: 0.5, stagger: 0.0, anchor: pos, stuck_t: 0.0, direct: false }
     }
     pub fn body_box(&self) -> Aabb {
         let (p, s) = (self.body.pos, self.scale);
@@ -352,7 +360,10 @@ impl Bot {
     }
     pub fn head_box(&self) -> Aabb {
         let (p, s) = (self.body.pos, self.scale);
-        Aabb { min: [p[0] - 0.17 * s, p[1] + 1.4 * s, p[2] - 0.17 * s], max: [p[0] + 0.17 * s, p[1] + H * s, p[2] + 0.17 * s] }
+        let (sy, cy) = self.face.sin_cos();
+        let [right, up, fwd] = self.head.map(|v| v * s);
+        let c = [p[0] + cy * right + sy * fwd, p[1] + up, p[2] + sy * right - cy * fwd];
+        Aabb { min: [c[0] - 0.17 * s, c[1] + 1.4 * s, c[2] - 0.17 * s], max: [c[0] + 0.17 * s, c[1] + H * s, c[2] + 0.17 * s] }
     }
 }
 
@@ -1092,6 +1103,35 @@ impl Game {
                     heard.push([ev::GROWL, dist, b.kind as f32 * 4.0 + pan]);
                 }
             }
+            // it faces where it is going, and swings round to the player once it is close enough to strike
+            let to_player = dx.atan2(-dz);
+            b.face = if b.body.vel[0].hypot(b.body.vel[2]) > 0.4 {
+                let going = b.body.vel[0].atan2(-b.body.vel[2]);
+                let turn = (to_player - going + 3.0 * PI).rem_euclid(2.0 * PI) - PI;
+                going + turn * ((4.0 - dist) / 2.0).clamp(0.0, 1.0)
+            } else {
+                to_player
+            };
+            // the head jerks about at random, so it is hard to hold a bead on, and now and then the whole body
+            // staggers aside
+            b.twitch_t -= dt;
+            if b.twitch_t <= 0.0 {
+                let ((lo, hi), side) = [((0.3, 1.4), 0.12), ((0.2, 0.8), 0.1), ((0.6, 2.0), 0.07)][b.kind as usize];
+                b.twitch_t = self.rng.range(lo, hi);
+                b.twitch = if self.rng.f() < 0.3 {
+                    [0.0; 3]
+                } else {
+                    [self.rng.range(-side, side), -self.rng.range(0.0, 0.08), self.rng.range(-0.03, 0.07)]
+                };
+                if self.rng.f() < 0.35 {
+                    b.stagger = self.rng.range(-1.4, 1.4);
+                }
+            }
+            let jerk = 1.0 - (-22.0 * dt).exp();
+            for a in 0..3 {
+                b.head[a] += (b.twitch[a] - b.head[a]) * jerk;
+            }
+            b.stagger *= (-2.5 * dt).exp();
             let (ax, az) = (b.body.pos[0] - b.anchor[0], b.body.pos[2] - b.anchor[2]);
             if ax * ax + az * az > 1.0 || dist < STUCK_FAR || !player_alive {
                 b.anchor = b.body.pos;
@@ -1153,7 +1193,12 @@ impl Game {
                     let l = (rx * rx + rz * rz).sqrt().max(1e-4);
                     [rx / l * go, rz / l * go]
                 }
-                _ => [nx * go, nz * go],
+                // out in the open it lurches from side to side; on a route it keeps to the route, which may be a
+                // narrow stair
+                _ => {
+                    let st = if dist > 2.5 && go > 0.0 { b.stagger } else { 0.0 };
+                    [nx * go - nz * st, nz * go + nx * st]
+                }
             };
             // push apart from neighbours so a horde doesn't stack into one body
             for (j, (pj, aj)) in snap.iter().enumerate() {
@@ -1623,6 +1668,39 @@ mod tests {
         g.input.fire = false;
         idle(&mut g, WEAPONS[3].delay);
         assert_eq!(g.player.spread(), WEAPONS[3].spread);
+    }
+
+    #[test]
+    fn the_head_hit_box_goes_where_the_head_jerks() {
+        let mut z = Bot::zombie([0.0, 0.0, 0.0], 0.0);
+        let mid = |b: Aabb| [(b.min[0] + b.max[0]) / 2.0, b.min[1], (b.min[2] + b.max[2]) / 2.0];
+        z.head = [0.1, -0.05, 0.04];
+        // facing -z its right is +x and forward -z; facing +x its right is +z
+        let c = mid(z.head_box());
+        assert!((c[0] - 0.1).abs() < 1e-4 && (c[1] - 1.35).abs() < 1e-4 && (c[2] + 0.04).abs() < 1e-4, "{c:?}");
+        z.face = std::f32::consts::FRAC_PI_2;
+        let c = mid(z.head_box());
+        assert!((c[0] - 0.04).abs() < 1e-4 && (c[2] - 0.1).abs() < 1e-4, "{c:?}");
+    }
+
+    #[test]
+    fn zombies_jerk_their_heads_about() {
+        let mut g = arena();
+        g.bots.clear();
+        g.player.hp = 1e6;
+        bot_ahead_zombie(&mut g, 0);
+        g.bots[0].body.pos = [0.0, 0.0, -10.0];
+        let (mut far, mut moves) = (0.0f32, 0);
+        let mut last = [0.0; 3];
+        for _ in 0..(8.0 / STEP) as usize {
+            g.tick(STEP);
+            let h = g.bots[0].head;
+            far = far.max(h[0].abs());
+            moves += (len([h[0] - last[0], h[1] - last[1], h[2] - last[2]]) > 0.01) as usize;
+            last = h;
+        }
+        assert!(far > 0.06, "the head only ever moved {far} aside");
+        assert!(moves > 10, "the head jerked only {moves} times");
     }
 
     fn bot_ahead_zombie(g: &mut Game, kind: u8) {

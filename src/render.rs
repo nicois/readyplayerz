@@ -1771,22 +1771,11 @@ impl Renderer {
         use crate::body as body;
         use std::f32::consts::PI;
         let (p, pp) = (b.body.pos, g.player.body.pos);
-        let to_player = (pp[0] - p[0]).atan2(-(pp[2] - p[2]));
         let d2 = (pp[0] - p[0]).powi(2) + (pp[2] - p[2]).powi(2);
-        // faces where it is going, and swings round to the player once it is close enough to strike
         let speed = (b.body.vel[0].powi(2) + b.body.vel[2].powi(2)).sqrt();
         let dead = !b.alive;
         let speed = if dead { 0.0 } else { speed };
-        let yaw = if dead {
-            b.face
-        } else if speed > 0.4 {
-            let going = b.body.vel[0].atan2(-b.body.vel[2]);
-            let diff = (to_player - going + 3.0 * PI).rem_euclid(2.0 * PI) - PI;
-            let t = ((4.0 - d2.sqrt()) / 2.0).clamp(0.0, 1.0);
-            going + diff * t
-        } else {
-            to_player
-        };
+        let yaw = b.face;
         let (runner, brute) = (b.kind == 1, b.kind == 2);
         let id = (b.phase * 1000.0) as usize + i;
         // every zombie has its own height and build
@@ -1811,10 +1800,18 @@ impl Renderer {
         let lurch = if runner { 0.0 } else { (ph * 0.5 + seed).sin().max(0.0).powi(2) * 0.16 * amp };
         let lean = if runner { 0.35 } else { 0.2 } + lurch;
         let pelvis = mul(&mul(&base, &translate(ph.sin() * 0.04 * amp, -bob, 0.0)), &around([0.0, 0.94, 0.0], &mul(&rot_y(ph.sin() * 0.14 * amp), &mul(&rot_z(ph.sin() * 0.05 * amp), &rot_x(-0.08)))));
+        // never quite the same twice: a few sines at odd rates, for the arms and spine to wander by
+        let wander = |rate: f32, k: f32| {
+            let t = g.time * rate + seed * k;
+            (t.sin() * 0.5 + (t * 1.73 + 1.3).sin() * 0.3 + (t * 2.71 + 4.1).sin() * 0.2) * (1.0 - dying)
+        };
+        // the head's jerks (see `Bot::head`, which its hit box follows): the back bends most of the way there and
+        // the neck the rest, half a metre and a hand's width below the head respectively
+        let [jr, ju, jf] = b.head.map(|v| v * (1.0 - dying));
         let spine = mul(&pelvis, &around([0.0, 0.98, 0.0], &rot_x(-(lean * 0.6 + 0.12 * strike) + 0.55 * flinch)));
-        let chest = mul(&spine, &around([0.0, 1.16, 0.0], &mul(&rot_y(-ph.sin() * 0.3 * amp), &mul(&rot_z((ph * 0.5).sin() * 0.04 * amp), &rot_x(-(lean * 0.8 + 0.2 * strike))))));
-        let roll = (ph * 0.35 + seed).sin() * 0.28;
-        let head = mul(&chest, &around([0.0, 1.54, 0.0], &mul(&rot_y((ph * 0.3 + seed).sin() * 0.3 * (1.0 - strike) + (g.time * 6.0 + seed).sin().powi(15) * 0.18), &mul(&rot_z(roll), &rot_x((if runner { 0.3 } else { 0.15 }) + 0.7 * flinch)))));
+        let chest = mul(&spine, &around([0.0, 1.16, 0.0], &mul(&rot_y(-ph.sin() * 0.3 * amp + 0.12 * wander(0.9, 1.0)), &mul(&rot_z((ph * 0.5).sin() * 0.04 * amp + 0.05 * wander(1.1, 2.0) - 0.6 * jr / 0.5), &rot_x(-(lean * 0.8 + 0.2 * strike) - 0.7 * jf / 0.5)))));
+        let roll = (ph * 0.35 + seed).sin() * 0.28 - 0.4 * jr / 0.15;
+        let head = mul(&chest, &around([0.0, 1.54, 0.0], &mul(&rot_y((ph * 0.3 + seed).sin() * 0.3 * (1.0 - strike) + (g.time * 6.0 + seed).sin().powi(15) * 0.18), &mul(&rot_z(roll), &rot_x((if runner { 0.3 } else { 0.15 }) + 0.7 * flinch + 4.0 * ju)))));
         let mouth = 0.2 + 0.5 * strike + 0.1 * (ph * 0.8).sin().abs();
         let jaw = mul(&head, &around(body::head_to_rest([0.0, 1.60, 0.03]), &rot_x(-mouth)));
         // the eyes and teeth are placed on the face as modelled, which the body shrinks onto its neck
@@ -1850,8 +1847,11 @@ impl Renderer {
             } else {
                 (1.15 + 0.35 * side * seed.sin() + 0.14 * (ph * 0.7 + side * 1.3).sin() + 1.0 * strike, 0.45 + 0.2 * (ph * 0.9 + side).sin() - 0.5 * strike)
             };
-            let sh_a = sh_a * (1.0 - 0.75 * dying) + 0.9 * flinch;
-            let sh = mul(&chest, &around([0.0, 1.41, 0.0], &rot_x(sh_a)));
+            // the arms wander up and down and out from the body on their own, never in step
+            let sh_a = (sh_a + 0.22 * wander(1.3, 5.0 + side)) * (1.0 - 0.75 * dying) + 0.9 * flinch;
+            let el_a = el_a + 0.25 * wander(1.7, 9.0 + side);
+            let splay = 0.12 + 0.1 * wander(0.8, 13.0 + side);
+            let sh = mul(&chest, &around([side * body::ARM_X, 1.41, 0.0], &mul(&rot_z(side * splay), &rot_x(sh_a))));
             let el = mul(&sh, &around([0.0, 1.13, 0.0], &rot_x(el_a)));
             let wr = mul(&el, &around([0.0, 0.87, 0.0], &rot_x(0.35)));
             let down = around([side * body::ARM_X, body::SHOULDER_Y, 0.0], &rot_z(-side * body::ARM_ANGLE));
