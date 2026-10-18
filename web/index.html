@@ -505,6 +505,7 @@ if (params.has("primary")) client.pick_primary(Number(params.get("primary")) - 1
 if (params.has("slot")) client.key("Digit" + params.get("slot"), true);
 if (params.has("clean")) menu.style.visibility = "hidden";
 if (params.has("ads")) client.mouse_button(2, true); // holds aim, to look at the sights
+if (params.has("run")) { client.key("KeyW", true); client.key("ShiftLeft", true); } // holds sprint, to look at the run
 
 if (params.has("at")) {
   const [x, z, yaw = 0, y = 0] = params.get("at").split(",").map(Number);

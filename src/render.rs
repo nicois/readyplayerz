@@ -853,13 +853,40 @@ fn dot(a: V3, b: V3) -> f32 {
 }
 
 fn look_dir(eye: V3, fwd: V3) -> M4 {
-    let f = norm(fwd);
+    look_rolled(eye, fwd, 0.0)
+}
+
+/// The camera's right and up, tipped `roll` radians around the way it looks.
+fn view_axes(f: V3, roll: f32) -> (V3, V3) {
     let s = norm(cross(f, [0.0, 1.0, 0.0]));
     let u = cross(s, f);
+    let (sr, cr) = roll.sin_cos();
+    let s = [s[0] * cr + u[0] * sr, s[1] * cr + u[1] * sr, s[2] * cr + u[2] * sr];
+    (s, cross(s, f))
+}
+
+fn look_rolled(eye: V3, fwd: V3, roll: f32) -> M4 {
+    let f = norm(fwd);
+    let (s, u) = view_axes(f, roll);
     [
         s[0], u[0], -f[0], 0.0, s[1], u[1], -f[1], 0.0, s[2], u[2], -f[2], 0.0, -dot(s, eye), -dot(u, eye), dot(f, eye),
         1.0,
     ]
+}
+
+/// How the head moves with the feet, as right, up and roll: a dip onto each footstep, a sway over to the
+/// planted foot and a lean into it. Sprinting makes it several times bigger, aiming steadies it.
+fn head_bob(p: &crate::sim::Player) -> (f32, f32, f32) {
+    let speed = p.body.vel[0].hypot(p.body.vel[2]);
+    let amp = if p.body.on_ground { (speed / 6.0).min(1.5) } else { 0.0 } * (1.0 - 0.85 * p.ads);
+    let big = 1.0 + 2.2 * p.sprint_t;
+    // one turn per left-right pair, so each footstep sits at the bottom of a dip
+    let th = p.gait / crate::sim::STRIDE * std::f32::consts::PI;
+    let dip = (1.0 - (2.0 * th).cos()) * 0.5; // 0 on a footstep, 1 between them
+    let up = (dip - 0.5) * 0.022 * amp * big - 0.09 * p.land_t * p.land_t;
+    let side = th.sin() * 0.012 * amp * big;
+    let roll = th.sin() * 0.006 * amp * big + (2.0 * th).sin() * 0.002 * amp * p.sprint_t;
+    (side, up, roll)
 }
 
 fn box_model(min: V3, max: V3) -> M4 {
@@ -1620,7 +1647,12 @@ impl Renderer {
         gl.uniform1f(self.u_dark.as_ref(), self.dark);
         gl.uniform1f(self.u_flash.as_ref(), if self.dark > 0.0 { 1.0 } else { 0.0 });
         gl.uniform3f(self.u_fdir.as_ref(), fwd[0], fwd[1], fwd[2]);
-        let vp = mul(&perspective(fov, aspect, NEAR, FAR), &look_dir(eye, fwd));
+        // the head bobs with the stride; shots still go from the true eye, and rolling around the line of sight
+        // leaves the crosshair on it
+        let (side, up, roll) = head_bob(p);
+        let (s, u) = view_axes(norm(fwd), roll);
+        let eye = [eye[0] + s[0] * side + u[0] * up, eye[1] + s[1] * side + u[1] * up, eye[2] + s[2] * side + u[2] * up];
+        let vp = mul(&perspective(fov, aspect, NEAR, FAR), &look_rolled(eye, fwd, roll));
         gl.uniform_matrix4fv_with_f32_array(self.u_vp.as_ref(), false, &vp);
         gl.uniform3f(self.u_eye.as_ref(), eye[0], eye[1], eye[2]);
 
@@ -1647,8 +1679,6 @@ impl Renderer {
         gl.uniform3f(self.u_eye.as_ref(), 0.0, 0.0, 0.0);
         gl.uniform1f(self.u_flash.as_ref(), 0.0);
         // the gun is lit and shadowed as if it were out in the world, so it needs the camera's orientation
-        let s = norm(cross(fwd, [0.0, 1.0, 0.0]));
-        let u = cross(s, fwd);
         gl.uniform1f(self.u_view.as_ref(), 1.0);
         gl.uniform_matrix3fv_with_f32_array(self.u_envrot.as_ref(), false, &[s[0], s[1], s[2], u[0], u[1], u[2], -fwd[0], -fwd[1], -fwd[2]]);
         gl.uniform3f(self.u_eyew.as_ref(), eye[0], eye[1], eye[2]);
@@ -1906,17 +1936,25 @@ impl Renderer {
 
         let ads = p.ads;
         let lerp = |a: f32, b: f32| a + (b - a) * ads;
-        let bob_x = (t * 6.0).cos() * 0.010 * walk;
-        let bob_y = (t * 12.0).sin() * 0.006 * walk + (t * 1.5).sin() * 0.002 * (1.0 - ads);
+        // the gun swings in time with the feet, lagging the head a little, and much harder at a sprint
+        let th = p.gait / crate::sim::STRIDE * std::f32::consts::PI - 0.4;
+        let big = 1.0 + 1.6 * p.sprint_t;
+        let bob_x = th.sin() * 0.012 * walk * big;
+        let bob_y = -(2.0 * th).cos() * 0.007 * walk * big + (t * 1.5).sin() * 0.002 * (1.0 - ads);
+        // sprinting carries the gun low and canted across the body; firing brings it straight back up
+        let carry = p.sprint_t * (1.0 - ads) * (1.0 - recoil).max(0.0) * (1.0 - dip);
         let gun = mul(
             &translate(
-                lerp(self.gun_offset.get().map_or(0.15, |o| o[0]) + bob_x, 0.0),
-                lerp(self.gun_offset.get().map_or(-0.17, |o| o[1]) + bob_y - 0.10 * dip - 0.35 * raise, -sight_y),
-                lerp(self.gun_offset.get().map_or(-0.38, |o| o[2]), -0.30) + kick * recoil,
+                lerp(self.gun_offset.get().map_or(0.15, |o| o[0]) + bob_x - 0.04 * carry, 0.0),
+                lerp(self.gun_offset.get().map_or(-0.17, |o| o[1]) + bob_y - 0.10 * dip - 0.35 * raise - 0.05 * carry, -sight_y),
+                lerp(self.gun_offset.get().map_or(-0.38, |o| o[2]), -0.30) + kick * recoil + 0.03 * carry,
             ),
             &mul(
-                &rot_y(self.gun_yaw.get() * (1.0 - ads)),
-                &mul(&rot_x((0.07 * recoil - 0.25 * dip) * (1.0 - 0.5 * ads) + 0.8 * raise), &rot_z(0.5 * dip)),
+                &rot_y(self.gun_yaw.get() * (1.0 - ads) + 0.55 * carry + th.sin() * 0.03 * walk * p.sprint_t),
+                &mul(
+                    &rot_x((0.07 * recoil - 0.25 * dip) * (1.0 - 0.5 * ads) + 0.8 * raise - 0.22 * carry),
+                    &rot_z(0.5 * dip + 0.45 * carry + th.sin() * 0.05 * walk * p.sprint_t),
+                ),
             ),
         );
         let gun = mul(&gun, &translate(hold[0], hold[1], hold[2]));

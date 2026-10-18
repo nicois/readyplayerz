@@ -15,6 +15,8 @@ const GRAVITY: f32 = 22.0;
 const JUMP: f32 = 7.5;
 const WALK: f32 = 6.0;
 const SPRINT: f32 = 9.0;
+/// Metres between footsteps.
+pub const STRIDE: f32 = 2.1;
 /// Seconds of sprinting on a full bar of stamina, and seconds for an empty bar to fill again once rested.
 const SPRINT_TIME: f32 = 2.5;
 const STAMINA_REFILL: f32 = 6.0;
@@ -232,6 +234,12 @@ pub struct Player {
     pub kill_t: f32,
     /// distance walked since the last footstep
     stride: f32,
+    /// metres walked over a left-right pair of steps (0 to 2 × STRIDE), for the view to bob in time with the feet
+    pub gait: f32,
+    /// 0 walking, 1 sprinting, eased between the two for the view
+    pub sprint_t: f32,
+    /// 1 right after a hard landing, fading out
+    pub land_t: f32,
     /// seconds since last damage, for regeneration
     since_hurt: f32,
     /// 1 full, 0 empty: sprinting spends it
@@ -609,6 +617,9 @@ impl Game {
                 damage_flash: 0.0,
                 kill_t: 0.0,
                 stride: 0.0,
+                gait: 0.0,
+                sprint_t: 0.0,
+                land_t: 0.0,
                 since_hurt: 99.0,
                 stamina: 1.0,
                 winded: false,
@@ -963,6 +974,8 @@ impl Game {
             }
             p.winded &= p.stamina < WINDED_UNTIL;
         }
+        p.sprint_t += (if sprinting { 1.0 } else { 0.0 } - p.sprint_t) * (dt * 6.0).min(1.0);
+        p.land_t = (p.land_t - dt * 3.0).max(0.0);
         let speed = if sprinting { SPRINT } else { WALK } * w.speed * (1.0 - 0.4 * p.ads);
         let (was_ground, fall) = (p.body.on_ground, -p.body.vel[1]);
         step_body(&mut p.body, [wx * speed, wz * speed], inp.jump, dt, world);
@@ -971,11 +984,13 @@ impl Game {
             self.events.push([ev::JUMP, 0.0, 0.0]);
         } else if !was_ground && p.body.on_ground && fall > 5.0 {
             self.events.push([ev::LAND, fall, 0.0]);
+            p.land_t = p.land_t.max((fall / 12.0).min(1.0));
         }
         if p.body.on_ground && run > 1.5 {
             p.stride += run * dt;
-            if p.stride > 2.1 {
-                p.stride -= 2.1;
+            p.gait = (p.gait + run * dt) % (2.0 * STRIDE);
+            if p.stride > STRIDE {
+                p.stride -= STRIDE;
                 self.events.push([ev::STEP, run, 0.0]);
             }
         }
