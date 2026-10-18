@@ -8,13 +8,24 @@
   html, body { margin: 0; height: 100%; background: #12182a; overflow: hidden; font: 14px/1.4 ui-monospace, Menlo, monospace; color: #e8ecff; }
   canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   #hud { position: fixed; inset: 0; pointer-events: none; }
-  #cross { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; }
-  #cross::before, #cross::after { content: ""; position: absolute; background: #fff; opacity: .85; }
-  #cross::before { left: 10px; top: 0; width: 2px; height: 22px; }
-  #cross::after { top: 10px; left: 0; height: 2px; width: 22px; }
-  #cross { transition: transform .05s; }
-  #cross.kill { transform: rotate(45deg) scale(2); filter: drop-shadow(0 0 6px #ff3030); }
-  #cross.hit { transform: rotate(45deg) scale(1.3); filter: drop-shadow(0 0 4px #ff5a5a); }
+  /* the crosshair is the circle shots land in (JS sizes it to the gun's spread) with a dot at the aim */
+  #cross { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+  #cross::before { content: ""; position: absolute; left: -2px; top: -2px; width: 4px; height: 4px; border-radius: 50%; background: rgba(255,255,255,.4); box-shadow: 0 0 2px rgba(0,0,0,.3); }
+  #ring { position: absolute; left: 50%; top: 50%; width: var(--d, 16px); height: var(--d, 16px); transform: translate(-50%, -50%); box-sizing: border-box; border: 1.5px solid rgba(255,255,255,.4); border-radius: 50%; box-shadow: 0 0 2px rgba(0,0,0,.3), inset 0 0 2px rgba(0,0,0,.3); transition: width .08s, height .08s; }
+  /* the hitmarker: an X of four ticks around the aim, over the sights and the scope too. White for a hit,
+     gold for a headshot, bigger and red for a kill; the class is set again on every hit to replay it */
+  #hitmark { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; }
+  #hitmark i { position: absolute; left: -1px; top: -4px; width: 2px; height: 8px; background: #fff; box-shadow: 0 0 2px #000; }
+  #hitmark i:nth-child(1) { transform: rotate(45deg) translateY(-9px); }
+  #hitmark i:nth-child(2) { transform: rotate(135deg) translateY(-9px); }
+  #hitmark i:nth-child(3) { transform: rotate(225deg) translateY(-9px); }
+  #hitmark i:nth-child(4) { transform: rotate(315deg) translateY(-9px); }
+  #hitmark.hit, #hitmark.head { animation: hitmark .2s ease-out; }
+  #hitmark.head i { background: #ffd36a; }
+  #hitmark.kill { animation: killmark .35s ease-out; filter: drop-shadow(0 0 5px #ff3030); }
+  #hitmark.kill i { width: 3px; margin-left: -.5px; background: #ff3a3a; }
+  @keyframes hitmark { from { opacity: 1; transform: scale(1.35); } 35% { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(1); } }
+  @keyframes killmark { from { opacity: 1; transform: scale(1.8); } 40% { opacity: 1; transform: scale(1.3); } to { opacity: 0; transform: scale(1.3); } }
   #flash { position: absolute; inset: 0; background: radial-gradient(transparent 45%, rgba(255,40,40,.6)); opacity: 0; }
   #stats { position: absolute; left: 20px; bottom: 18px; font-size: 22px; letter-spacing: .04em; text-shadow: 0 1px 3px #000; }
   #stats small { display: block; font-size: 13px; opacity: .7; }
@@ -77,6 +88,11 @@
   #keys dd { margin: 0; }
   @media (max-width: 640px) { .pick { grid-template-columns: 1fr; } #menu h1 { font-size: 40px; } }
   #err { color: #ff8a8a; }
+  /* stamina, above the weapon slots: only shown while it isn't full, red while winded */
+  #stamina { position: absolute; left: 50%; bottom: 70px; width: 160px; height: 4px; margin-left: -80px; background: rgba(0,0,0,.35); border-radius: 2px; overflow: hidden; opacity: 0; transition: opacity .4s; }
+  #stamina.show { opacity: 1; transition: opacity .1s; }
+  #stamina div { width: 100%; height: 100%; background: rgba(255,255,255,.75); }
+  #stamina.winded div { background: #ff6a5a; }
   #bar { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; gap: 6px; }
   .slot { min-width: 74px; padding: 5px 8px; text-align: center; background: rgba(10,14,28,.45); border: 1px solid rgba(255,255,255,.18); border-radius: 4px; opacity: .6; text-shadow: 0 1px 3px #000; }
   .slot b { display: block; font-size: 11px; font-weight: normal; opacity: .6; }
@@ -103,12 +119,14 @@
 <canvas id="c"></canvas>
 <div id="hud">
   <div id="flash"></div>
-  <div id="cross"></div>
+  <div id="cross"><div id="ring"></div></div>
   <div id="scope"><i></i></div>
+  <div id="hitmark"><i></i><i></i><i></i><i></i></div>
   <div id="score"></div>
   <div id="dead"></div>
   <div id="stats"><span id="hp">100</span> HP<small id="kd"></small></div>
   <div id="ammo"><span id="am">30</span> / <span id="mg">30</span><small id="rl"></small></div>
+  <div id="stamina"><div id="sfill"></div></div>
   <div id="bar"></div>
 </div>
 <div id="map"><canvas id="mapcv" width="720" height="720"></canvas><small>Tab to close</small></div>
@@ -470,8 +488,19 @@ addEventListener("wheel", e => { if (locked() && e.deltaY) client.cycle_weapon(e
 
 function loop(t) {
   client.frame(t);
-  sound.play(client.take_events());
-  const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped, killt, px, pz, pyaw, wave, left, carried, picked, inPlay] = client.hud();
+  const events = client.take_events();
+  sound.play(events);
+  // a shot's result comes as one event (see sim::ev): 3 hit, 4 headshot, 5 kill
+  for (let i = 0; i < events.length; i += 3) {
+    const kind = HITMARKS[events[i]];
+    if (kind) {
+      const m = $("hitmark");
+      m.className = "";
+      void m.offsetWidth;
+      m.className = kind;
+    }
+  }
+  const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped, killt, px, pz, pyaw, wave, left, carried, picked, inPlay, spread, stamina, winded] = client.hud();
   lastPos = [px, pz, pyaw];
   if (showMap) drawMap();
   $("hp").textContent = Math.ceil(hp);
@@ -489,12 +518,15 @@ function loop(t) {
   const scopeOn = scoped && ads > 0.85;
   $("scope").style.display = scopeOn ? "block" : "none";
   $("cross").style.display = scopeOn || ads > 0.5 ? "none" : "block";
+  // the spread is a fraction of half the screen's height, so the ring's diameter is that times the height
+  $("sfill").style.width = `${stamina * 100}%`;
+  $("stamina").classList.toggle("show", stamina < 1 && respawn <= 0);
+  $("stamina").classList.toggle("winded", winded > 0);
+  $("ring").style.setProperty("--d", `${Math.max(14, spread * innerHeight)}px`);
   $("rl").textContent = reloading ? "reloading..." : "";
   $("kd").textContent = `${kills} kills / ${deaths} deaths`;
   $("score").textContent = left > 0 ? `Wave ${wave} \u00b7 ${left} left` : wave === 0 ? "Get ready..." : `Wave ${wave} cleared`;
   $("flash").style.opacity = flash;
-  $("cross").classList.toggle("hit", hit > 0.5);
-  $("cross").classList.toggle("kill", killt > 0.4);
   const dead = $("dead");
   dead.style.display = respawn > 0 ? "block" : "none";
   if (respawn > 0) {
@@ -510,6 +542,7 @@ function loop(t) {
   }
   requestAnimationFrame(loop);
 }
+const HITMARKS = { 3: "hit", 4: "head", 5: "kill" };
 let loaded = false;
 requestAnimationFrame(loop);
 </script>

@@ -201,7 +201,8 @@ impl Client {
 
     /// health, ammo, magazine size, reloading, kills, deaths, hit marker, damage flash, respawn countdown,
     /// weapon index, aim amount, scoped, kill marker, x, z, yaw, wave, zombies left, carried primary,
-    /// picked primary, game under way
+    /// picked primary, game under way, the circle shots land in as a fraction of half the screen's height,
+    /// stamina, winded
     pub fn hud(&self) -> Vec<f32> {
         let p = &self.game.player;
         vec![
@@ -226,6 +227,9 @@ impl Client {
             p.loadout[0] as f32,
             p.picked as f32,
             if p.in_play { 1.0 } else { 0.0 },
+            p.spread() / (p.fov() / 2.0).tan(),
+            p.stamina,
+            if p.winded { 1.0 } else { 0.0 },
         ]
     }
 }

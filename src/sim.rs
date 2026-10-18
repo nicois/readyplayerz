@@ -15,6 +15,13 @@ const GRAVITY: f32 = 22.0;
 const JUMP: f32 = 7.5;
 const WALK: f32 = 6.0;
 const SPRINT: f32 = 9.0;
+/// Seconds of sprinting on a full bar of stamina, and seconds for an empty bar to fill again once rested.
+const SPRINT_TIME: f32 = 2.5;
+const STAMINA_REFILL: f32 = 6.0;
+/// Stamina only starts coming back after this long without sprinting.
+const STAMINA_REST: f32 = 0.8;
+/// Running dry leaves you winded: no sprinting until the bar is back to this.
+const WINDED_UNTIL: f32 = 0.35;
 const RANGE: f32 = 120.0;
 const EPS: f32 = 0.001;
 const SENS: f32 = 0.0022;
@@ -86,11 +93,11 @@ pub struct Weapon {
 }
 
 pub static WEAPONS: [Weapon; WEAPON_COUNT] = [
-    Weapon { name: "Carbine", class: "Assault rifle", mag: 30, delay: 0.11, reload: 1.4, pellets: 1, body_dmg: 34.0, head_dmg: 75.0, spread: 0.010, ads_spread: 0.002, kick: 0.006, auto: true, zoom: 0.8, scope: false, speed: 1.0 },
-    Weapon { name: "SMG", class: "SMG", mag: 35, delay: 0.065, reload: 1.2, pellets: 1, body_dmg: 20.0, head_dmg: 40.0, spread: 0.022, ads_spread: 0.007, kick: 0.004, auto: true, zoom: 0.85, scope: false, speed: 1.08 },
-    Weapon { name: "Shotgun", class: "Shotgun", mag: 6, delay: 0.85, reload: 2.4, pellets: 8, body_dmg: 14.0, head_dmg: 28.0, spread: 0.055, ads_spread: 0.038, kick: 0.045, auto: false, zoom: 0.9, scope: false, speed: 1.0 },
-    Weapon { name: "Sniper", class: "Sniper", mag: 5, delay: 1.3, reload: 2.6, pellets: 1, body_dmg: 100.0, head_dmg: 150.0, spread: 0.04, ads_spread: 0.0, kick: 0.03, auto: false, zoom: 0.3, scope: true, speed: 0.92 },
-    Weapon { name: "Pistol", class: "Pistol", mag: 12, delay: 0.16, reload: 1.1, pellets: 1, body_dmg: 26.0, head_dmg: 60.0, spread: 0.014, ads_spread: 0.004, kick: 0.012, auto: false, zoom: 0.85, scope: false, speed: 1.05 },
+    Weapon { name: "Carbine", class: "Assault rifle", mag: 30, delay: 0.11, reload: 1.4, pellets: 1, body_dmg: 34.0, head_dmg: 75.0, spread: 0.06, ads_spread: 0.002, kick: 0.006, auto: true, zoom: 0.8, scope: false, speed: 1.0 },
+    Weapon { name: "SMG", class: "SMG", mag: 35, delay: 0.065, reload: 1.2, pellets: 1, body_dmg: 20.0, head_dmg: 40.0, spread: 0.045, ads_spread: 0.007, kick: 0.004, auto: true, zoom: 0.85, scope: false, speed: 1.08 },
+    Weapon { name: "Shotgun", class: "Shotgun", mag: 6, delay: 0.85, reload: 2.4, pellets: 8, body_dmg: 14.0, head_dmg: 28.0, spread: 0.07, ads_spread: 0.038, kick: 0.045, auto: false, zoom: 0.9, scope: false, speed: 1.0 },
+    Weapon { name: "Sniper", class: "Sniper", mag: 5, delay: 1.3, reload: 2.6, pellets: 1, body_dmg: 100.0, head_dmg: 150.0, spread: 0.12, ads_spread: 0.0, kick: 0.03, auto: false, zoom: 0.3, scope: true, speed: 0.92 },
+    Weapon { name: "Pistol", class: "Pistol", mag: 12, delay: 0.16, reload: 1.1, pellets: 1, body_dmg: 26.0, head_dmg: 60.0, spread: 0.04, ads_spread: 0.004, kick: 0.012, auto: false, zoom: 0.85, scope: false, speed: 1.05 },
 ];
 
 #[derive(Clone, Copy, Debug)]
@@ -207,6 +214,12 @@ pub struct Player {
     stride: f32,
     /// seconds since last damage, for regeneration
     since_hurt: f32,
+    /// 1 full, 0 empty: sprinting spends it
+    pub stamina: f32,
+    /// ran out of stamina and can't sprint until it is back to WINDED_UNTIL
+    pub winded: bool,
+    /// seconds since the last sprint, for the refill
+    since_sprint: f32,
 }
 
 impl Player {
@@ -223,6 +236,15 @@ impl Player {
     }
     pub fn gun(&self) -> &'static Weapon {
         &WEAPONS[self.weapon]
+    }
+    /// Vertical field of view, narrowing while aiming down sights.
+    pub fn fov(&self) -> f32 {
+        1.2 * (1.0 + (self.gun().zoom - 1.0) * self.ads)
+    }
+    /// How far from the aim a shot can stray, as a sideways offset per metre: from the hip's to the aimed.
+    pub fn spread(&self) -> f32 {
+        let w = self.gun();
+        w.spread + (w.ads_spread - w.spread) * self.ads
     }
 }
 
@@ -528,6 +550,9 @@ impl Game {
                 kill_t: 0.0,
                 stride: 0.0,
                 since_hurt: 99.0,
+                stamina: 1.0,
+                winded: false,
+                since_sprint: 99.0,
             },
             bots: Vec::new(),
             wave: 0,
@@ -553,6 +578,8 @@ impl Game {
         p.yaw = (-at[0]).atan2(at[2]);
         p.pitch = 0.0;
         p.hp = 100.0;
+        p.stamina = 1.0;
+        p.winded = false;
         p.ammo = full_ammo();
         p.loadout[0] = p.picked;
         p.weapon = p.picked;
@@ -737,7 +764,7 @@ impl Game {
         let (sy, cy) = self.player.yaw.sin_cos();
         let right = [cy, 0.0, sy];
         let up = cross(right, fwd);
-        let spread = w.spread + (w.ads_spread - w.spread) * ads;
+        let spread = self.player.spread();
         // the shot is drawn from the muzzle, which sits right/down from the eye until the gun is raised
         let (side, drop) = (0.2 * (1.0 - ads), 0.18 * (1.0 - 0.7 * ads));
         let muzzle = [
@@ -854,7 +881,20 @@ impl Game {
             wx /= l;
             wz /= l;
         }
-        let speed = if inp.sprint { SPRINT } else { WALK } * w.speed * (1.0 - 0.4 * p.ads);
+        // sprinting while moving spends stamina; once rested it comes back
+        let sprinting = inp.sprint && l > 0.0 && !p.winded && p.stamina > 0.0;
+        if sprinting {
+            p.stamina = (p.stamina - dt / SPRINT_TIME).max(0.0);
+            p.since_sprint = 0.0;
+            p.winded = p.stamina == 0.0;
+        } else {
+            p.since_sprint += dt;
+            if p.since_sprint > STAMINA_REST {
+                p.stamina = (p.stamina + dt / STAMINA_REFILL).min(1.0);
+            }
+            p.winded &= p.stamina < WINDED_UNTIL;
+        }
+        let speed = if sprinting { SPRINT } else { WALK } * w.speed * (1.0 - 0.4 * p.ads);
         let (was_ground, fall) = (p.body.on_ground, -p.body.vel[1]);
         step_body(&mut p.body, [wx * speed, wz * speed], inp.jump, dt, world);
         let run = (p.body.vel[0].powi(2) + p.body.vel[2].powi(2)).sqrt();
@@ -1290,6 +1330,29 @@ mod tests {
             shots += 1;
         }
         assert!(shots >= 6, "a brute died in {shots} shots");
+    }
+
+    #[test]
+    fn sprint_runs_out_leaves_you_winded_and_comes_back() {
+        let mut g = arena();
+        g.wave_t = f32::INFINITY;
+        g.input.w = true;
+        g.input.sprint = true;
+        idle(&mut g, SPRINT_TIME / 2.0);
+        let s = g.player.stamina;
+        assert!((0.4..0.6).contains(&s), "half the sprint left {s}");
+        idle(&mut g, SPRINT_TIME / 2.0 + 0.5);
+        assert_eq!(g.player.stamina, 0.0);
+        assert!(g.player.winded);
+        // still holding sprint: walking pace, and the bar refills
+        let z = g.player.body.pos[2];
+        idle(&mut g, 1.0);
+        assert!(z - g.player.body.pos[2] < WALK * 1.05, "sprinted while winded");
+        g.input = Input::default();
+        idle(&mut g, WINDED_UNTIL * STAMINA_REFILL);
+        assert!(!g.player.winded, "still winded on {}", g.player.stamina);
+        idle(&mut g, STAMINA_REFILL);
+        assert_eq!(g.player.stamina, 1.0);
     }
 
     fn bot_ahead_zombie(g: &mut Game, kind: u8) {

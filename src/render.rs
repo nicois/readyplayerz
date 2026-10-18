@@ -1563,7 +1563,7 @@ impl Renderer {
         let eye = g.player.eye();
         let aspect = self.width as f32 / self.height.max(1) as f32;
         let p = &g.player;
-        let fov = 1.2 * (1.0 + (p.gun().zoom - 1.0) * p.ads);
+        let fov = p.fov();
         let fwd = p.forward();
 
         // zombies are queued once and drawn twice: into the sun's shadow map, then into the picture
