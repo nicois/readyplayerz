@@ -21,7 +21,7 @@ const REACH_UP: f32 = 1.0;
 const HEADROOM: f32 = 1.8;
 /// Tallest ledge a bot pulls itself up onto (see `sim::BOT_REACH`), straight on only, with room above it to rise;
 /// a climb costs as much as walking this many steps further, so stairs win where there are any.
-pub const LEDGE: f32 = 3.4;
+pub const LEDGE: f32 = 2.9;
 const LEDGE_COST: u32 = 40;
 
 /// One standable spot: the middle of a cell at some height.

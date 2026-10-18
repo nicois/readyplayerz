@@ -461,8 +461,9 @@ fn move_axis(pos: &mut V3, axis: usize, delta: f32, world: &Grid, lift: f32) -> 
     hit
 }
 
-/// How high above the feet a ledge can be and still be caught: about as far as the hands reach.
-const LEDGE_REACH: f32 = 2.1;
+/// How high above the feet a ledge can be and still be caught: with a jump's 1.28 m, up to about 2.9 m from the
+/// ground, onto a container but not a storey (3.3 m).
+const LEDGE_REACH: f32 = 1.6;
 /// A ledge lower than this is a step or a hop, not a climb.
 const LEDGE_LOW: f32 = 0.25;
 /// How long a pull up takes: so long and so much more a metre of it. Zombies are slower about it.
@@ -521,7 +522,13 @@ fn find_ledge(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), world: &Grid) -> 
                 false
             });
             let top = top + EPS;
-            if top <= pos[1] + reach + 0.05 && free([c[0], top, c[1]]) && free([pos[0], top, pos[2]]) {
+            // the body has to fit all the way in, risen beside the ledge and over onto it, not just at the ends, or it
+            // goes through a wall to the floor behind it
+            let clear = (0..=6).all(|k| {
+                let s = k as f32 / 6.0;
+                free([pos[0] + (c[0] - pos[0]) * s, top, pos[2] + (c[1] - pos[2]) * s])
+            });
+            if top <= pos[1] + reach + 0.05 && clear {
                 return Some(Climb { from: pos, to: [c[0], top, c[1]], t: 0.0, time: pace.0 + pace.1 * (top - pos[1]) });
             }
         }
@@ -1819,11 +1826,11 @@ mod tests {
 
     #[test]
     fn a_ledge_out_of_reach_or_without_space_is_not_climbed() {
-        // too high to reach even at the top of a jump
-        let mut g = ledge_ahead(3.6);
+        // a storey is too high to reach even at the top of a jump
+        let mut g = ledge_ahead(3.3);
         g.input.jump = true;
         idle(&mut g, 2.0);
-        assert!(g.player.body.pos[1] < 1.5, "climbed a 3.6 m wall: {:?}", g.player.body.pos);
+        assert!(g.player.body.pos[1] < 1.5, "climbed a 3.3 m wall: {:?}", g.player.body.pos);
         // walking into a crate without jumping only bumps into it
         let mut g = ledge_ahead(1.0);
         g.input.w = true;
@@ -1845,6 +1852,22 @@ mod tests {
         let p = g.player.body.pos;
         assert!((p[1] - 3.5).abs() < 0.05, "fell to {p:?} instead of pulling up");
         assert_eq!(g.player.hp, 100.0);
+    }
+
+    #[test]
+    fn a_ledge_is_not_climbed_through_a_wall() {
+        // a tall wall with an upper floor behind it, its top in reach of a player high up beside the wall
+        let mut walls = map::perimeter();
+        walls.push(block(0.0, -2.3, 4.0, 7.0, 0.4));
+        walls.push(Aabb { min: [-2.0, 3.0, -6.0], max: [2.0, 3.3, -2.5] });
+        let mut g = Game::with_walls(1, walls);
+        g.bots.clear();
+        g.player.body.pos = [0.0, 2.0, -1.6];
+        g.player.body.on_ground = false;
+        g.player.yaw = 0.0;
+        g.input.jump = true;
+        idle(&mut g, 1.5);
+        assert!(g.player.body.pos[2] > -2.1, "went through the wall to {:?}", g.player.body.pos);
     }
 
     /// A container with no stairs, the player camped on top and a zombie on the ground 8 m off.
