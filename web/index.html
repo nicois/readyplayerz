@@ -22,11 +22,60 @@
   #ammo small { display: block; font-size: 13px; opacity: .7; }
   #score { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); font-size: 18px; text-shadow: 0 1px 3px #000; }
   #dead { position: absolute; top: 40%; width: 100%; text-align: center; font-size: 28px; display: none; text-shadow: 0 2px 6px #000; }
-  #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10,14,28,.72); cursor: pointer; }
-  #menu div { text-align: center; max-width: 440px; padding: 0 20px; }
-  #menu h1 { margin: 0 0 6px; font-size: 40px; letter-spacing: .12em; }
-  #menu p { margin: 4px 0; opacity: .8; }
-  #menu .go { margin-top: 18px; font-size: 18px; opacity: 1; }
+  /* the menu is a stack of screens: main, loadout, the weapon picker for a slot, settings */
+  #menu { position: fixed; inset: 0; display: flex; background: linear-gradient(90deg, rgba(8,11,20,.94), rgba(8,11,20,.8) 50%, rgba(8,11,20,.4)); }
+  :where(#menu) button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+  .screen { display: none; flex-direction: column; width: 100%; max-width: 1040px; padding: 7vh 6vw; box-sizing: border-box; overflow-y: auto; }
+  .screen.on { display: flex; }
+  #menu h1 { margin: 0; font-size: 56px; letter-spacing: .14em; }
+  .sub { margin: 4px 0 34px; max-width: 440px; opacity: .7; }
+  nav { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+  .item { padding: 8px 22px 8px 14px; font-size: 24px; letter-spacing: .1em; text-transform: uppercase; border-left: 3px solid transparent; opacity: .75; }
+  .item:hover, .item:focus-visible { opacity: 1; outline: none; border-left-color: #ffd36a; background: linear-gradient(90deg, rgba(255,211,106,.16), transparent); }
+  .item small { display: block; font-size: 12px; letter-spacing: .04em; text-transform: none; opacity: .65; }
+  .item.danger { display: none; margin-top: 14px; font-size: 16px; color: #ff9a8a; }
+  .note { min-height: 1.4em; margin: 18px 0 0; font-size: 13px; color: #ffd36a; }
+  .screen header { display: flex; align-items: baseline; gap: 20px; margin-bottom: 26px; }
+  .screen h2 { margin: 0; font-size: 30px; letter-spacing: .12em; text-transform: uppercase; }
+  .back { font-size: 14px; letter-spacing: .08em; opacity: .65; }
+  .back:hover { opacity: 1; color: #ffd36a; }
+  #slots { display: flex; flex-wrap: wrap; gap: 14px; }
+  .lslot { width: 300px; max-width: 100%; padding: 16px 18px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.16); border-radius: 6px; }
+  .lslot:hover { border-color: #ffd36a; background: rgba(255,211,106,.1); }
+  .lslot b { font-size: 11px; font-weight: normal; letter-spacing: .12em; opacity: .6; }
+  .lslot h3 { margin: 6px 0 2px; font-size: 26px; letter-spacing: .06em; }
+  .lslot span { display: block; font-size: 12px; opacity: .6; }
+  .lslot em { display: block; margin-top: 12px; font-size: 12px; font-style: normal; color: #ffd36a; }
+  #tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,.14); }
+  .tab { margin-bottom: -1px; padding: 8px 14px; font-size: 13px; letter-spacing: .1em; text-transform: uppercase; border-bottom: 2px solid transparent; opacity: .6; }
+  .tab:hover { opacity: 1; }
+  .tab.on { opacity: 1; border-bottom-color: #ffd36a; }
+  .tab i { margin-left: 6px; font-style: normal; opacity: .5; }
+  .pick { display: grid; grid-template-columns: minmax(200px, 300px) 1fr; gap: 32px; }
+  #list { display: flex; flex-direction: column; gap: 4px; max-height: 56vh; overflow-y: auto; }
+  .gun { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; font-size: 15px; letter-spacing: .04em; background: rgba(255,255,255,.05); border: 1px solid transparent; border-radius: 4px; }
+  .gun:hover, .gun:focus-visible, .gun.hl { outline: none; border-color: rgba(255,211,106,.6); background: rgba(255,211,106,.1); }
+  .gun i { font-size: 10px; font-style: normal; letter-spacing: .1em; color: #ffd36a; }
+  #detail > span { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; opacity: .6; }
+  #detail h3 { margin: 2px 0 14px; font-size: 32px; letter-spacing: .06em; }
+  .stat { display: grid; grid-template-columns: 96px 1fr 76px; gap: 12px; align-items: center; margin-top: 10px; font-size: 13px; }
+  .stat .bar { position: relative; height: 6px; background: rgba(255,255,255,.12); }
+  .stat .bar div { position: absolute; left: 0; top: 0; bottom: 0; background: #e8ecff; }
+  .stat .bar u { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: #ffd36a; }
+  .stat .up { color: #7dff9a; }
+  .stat .down { color: #ff8a8a; }
+  .hint { margin-top: 22px; font-size: 12px; opacity: .55; }
+  .row { display: flex; align-items: center; gap: 20px; margin: 8px 0; }
+  .row > b, .screen h4 { width: 110px; margin: 0; font-size: 13px; font-weight: normal; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
+  .screen h4 { margin: 28px 0 10px; }
+  .seg { display: flex; gap: 6px; }
+  .seg button { padding: 5px 14px; border: 1px solid rgba(255,255,255,.2); border-radius: 4px; opacity: .7; }
+  .seg button:hover { opacity: 1; }
+  .seg button.on { opacity: 1; border-color: #ffd36a; background: rgba(255,211,106,.14); }
+  #keys { display: grid; grid-template-columns: 170px 1fr; gap: 4px 20px; margin: 0; font-size: 13px; }
+  #keys dt { opacity: .6; }
+  #keys dd { margin: 0; }
+  @media (max-width: 640px) { .pick { grid-template-columns: 1fr; } #menu h1 { font-size: 40px; } }
   #err { color: #ff8a8a; }
   #bar { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; gap: 6px; }
   .slot { min-width: 74px; padding: 5px 8px; text-align: center; background: rgba(10,14,28,.45); border: 1px solid rgba(255,255,255,.18); border-radius: 4px; opacity: .6; text-shadow: 0 1px 3px #000; }
@@ -40,31 +89,7 @@
   #map { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(8,10,14,.86); }
   #map canvas { position: static; width: min(92vh, 92vw); height: min(92vh, 92vw); border: 1px solid rgba(255,255,255,.3); }
   #map small { position: absolute; bottom: 10px; opacity: .6; }
-  #loadout { display: flex; gap: 10px; justify-content: center; margin: 18px 0 4px; }
-  .card { width: 118px; padding: 10px 8px; text-align: center; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.2); border-radius: 6px; cursor: pointer; }
-  .card:hover { background: rgba(255,255,255,.12); }
-  .card.on { border-color: #ffd36a; background: rgba(255,211,106,.14); }
-  .card h3 { margin: 0 0 6px; font-size: 15px; letter-spacing: .06em; }
-  .card small { display: block; font-size: 12px; opacity: .75; text-align: left; }
-  #menu div.wide { max-width: 640px; }
-  #menu #loadout, #menu .card { max-width: none; padding-left: 8px; padding-right: 8px; }
-  #menu #loadout { padding: 0; align-items: flex-end; }
-  #menu .group, #menu .group > div { max-width: none; padding: 0; }
-  .group { display: flex; flex-direction: column; gap: 4px; }
-  .group > b { font-size: 11px; font-weight: normal; letter-spacing: .1em; opacity: .6; text-align: left; }
-  .group > div { display: flex; gap: 10px; }
-  .card.fixed { cursor: default; }
-  .card.next { border-style: dashed; border-color: #ffd36a; }
-  #lock { font-size: 12px; min-height: 1.4em; color: #ffd36a; }
-  #end { display: none; margin-top: 8px; padding: 4px 14px; font: inherit; color: #ff9a8a; background: rgba(255,90,70,.1); border: 1px solid rgba(255,120,100,.45); border-radius: 4px; cursor: pointer; }
-  #end:hover { background: rgba(255,90,70,.22); }
   #dead small { display: block; margin-top: 10px; font-size: 15px; }
-  #dead small span { margin: 0 6px; opacity: .55; }
-  #dead small span.on { opacity: 1; color: #ffd36a; }
-  #gfx { display: flex; gap: 6px; justify-content: center; align-items: center; margin: 10px 0 0; }
-  #gfx span { padding: 3px 10px; border: 1px solid rgba(255,255,255,.2); border-radius: 4px; cursor: pointer; opacity: .7; }
-  #gfx span:hover { opacity: 1; }
-  #gfx span.on { opacity: 1; border-color: #ffd36a; background: rgba(255,211,106,.14); }
   #loading { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #12182a; transition: opacity .35s; }
   #loading.done { opacity: 0; pointer-events: none; }
   #loading h1 { margin: 0 0 18px; font-size: 40px; letter-spacing: .12em; }
@@ -87,22 +112,47 @@
   <div id="bar"></div>
 </div>
 <div id="map"><canvas id="mapcv" width="720" height="720"></canvas><small>Tab to close</small></div>
-<div id="menu"><div class="wide">
-  <h1>ZOMBIES</h1>
-  <p>WASD move &middot; Shift sprint &middot; Space jump</p>
-  <p>Mouse aim &middot; Click shoot &middot; Right-click aim down sights &middot; R reload</p>
-  <p>1 primary &middot; 2 pistol &middot; mouse wheel swaps &middot; Tab map &middot; M <span id="mute">sound on</span></p>
-  <div id="loadout">
-    <div class="group"><b>PRIMARY</b><div id="primaries"></div></div>
-    <div class="group"><b>SECONDARY</b><div id="secondary"></div></div>
-  </div>
-  <p id="lock"></p>
-  <div id="gfx">Graphics</div>
-  <p id="tagline">Survive the waves. They don't stop. Health comes back if you stay clear for a while.</p>
-  <p class="go" id="go">Click to play</p>
-  <button id="end">End game</button>
-  <p id="err"></p>
-</div></div>
+<div id="menu">
+  <section class="screen on" id="s-main">
+    <h1>ZOMBIES</h1>
+    <p class="sub">Survive the waves. They don't stop. Health comes back if you stay clear for a while.</p>
+    <nav>
+      <button class="item" id="play">Play</button>
+      <button class="item" data-go="s-loadout">Loadout<small id="sum"></small></button>
+      <button class="item" data-go="s-settings">Settings</button>
+      <button class="item danger" id="end">End game</button>
+    </nav>
+    <p class="note pending"></p>
+    <p id="err"></p>
+  </section>
+  <section class="screen" id="s-loadout">
+    <header><button class="back">&lsaquo; Back</button><h2>Loadout</h2></header>
+    <div id="slots"></div>
+    <p class="note pending"></p>
+  </section>
+  <section class="screen" id="s-pick">
+    <header><button class="back">&lsaquo; Back</button><h2 id="pick-title"></h2></header>
+    <div id="tabs"></div>
+    <div class="pick"><div id="list"></div><div id="detail"></div></div>
+  </section>
+  <section class="screen" id="s-settings">
+    <header><button class="back">&lsaquo; Back</button><h2>Settings</h2></header>
+    <div class="row"><b>Graphics</b><div class="seg" id="gfx"></div></div>
+    <div class="row"><b>Sound</b><div class="seg" id="snd"></div></div>
+    <h4>Controls</h4>
+    <dl id="keys">
+      <dt>WASD</dt><dd>Move</dd>
+      <dt>Shift / Space</dt><dd>Sprint / jump</dd>
+      <dt>Mouse / click</dt><dd>Aim / shoot</dd>
+      <dt>Right-click</dt><dd>Aim down sights</dd>
+      <dt>R</dt><dd>Reload</dd>
+      <dt>1 / 2 / wheel</dt><dd>Primary / secondary / swap</dd>
+      <dt>Tab</dt><dd>Map</dd>
+      <dt>M</dt><dd>Sound on and off</dd>
+      <dt>Esc</dt><dd>Pause, and back in the menu</dd>
+    </dl>
+  </section>
+</div>
 <div id="loading"><h1>ZOMBIES</h1><div class="track"><div class="fill" id="lfill"></div></div><p id="lstatus">Loading...</p></div>
 <script type="module">
 import init, { Client } from "./pkg/arena.js";
@@ -172,43 +222,136 @@ try {
 }
 addEventListener("resize", () => client.resize(...size()));
 
-const gfx = QUALITY.map((name, i) => {
-  const el = document.createElement("span");
-  el.textContent = name;
-  // picking a quality stays on the menu instead of starting the game, so the change can be seen behind it
-  el.addEventListener("click", e => { e.stopPropagation(); setQuality(i); });
-  $("gfx").appendChild(el);
-  return el;
-});
-function setQuality(i) {
+const el = (tag, cls, html) => {
+  const e = document.createElement(tag);
+  e.className = cls;
+  e.innerHTML = html;
+  return e;
+};
+// a row of buttons where one is on; picking one stays on the menu, so the change can be seen behind it
+function segmented(parent, labels, pick) {
+  const buttons = labels.map((label, i) => {
+    const b = el("button", "", label);
+    b.addEventListener("click", () => set(i));
+    parent.appendChild(b);
+    return b;
+  });
+  const set = i => { pick(i); buttons.forEach((b, j) => b.classList.toggle("on", j === i)); };
+  return set;
+}
+const setQuality = segmented($("gfx"), QUALITY, i => {
   quality = i;
   client.set_quality(i);
   client.resize(...size());
-  gfx.forEach((el, j) => el.classList.toggle("on", j === i));
-}
+});
 setQuality(0);
 
 const names = client.weapon_names();
-const stats = client.weapon_stats();
-const sound = new Sound(Array.from({ length: names.length }, (_, i) => stats[i * 4 + 3]));
-// the loadout: one primary to pick, and the pistol everyone carries
-const primaries = client.primary_count();
-const cards = [];
-names.forEach((name, i) => {
-  const [dmg, rpm, mag, rel] = stats.slice(i * 4, i * 4 + 4);
-  const card = document.createElement("div");
-  card.className = "card";
-  card.innerHTML = `<h3>${i < primaries ? `${i + 1} &middot; ` : ""}${name}</h3><small>${dmg} dmg</small><small>${Math.round(rpm)} rpm</small><small>${mag} rounds</small><small>${rel.toFixed(1)}s reload</small>`;
-  if (i < primaries) {
-    // a pick falls through to start playing; mid-game it is carried from the next life
-    card.addEventListener("click", () => client.pick_primary(i));
-    $("primaries").appendChild(card);
-    cards.push(card);
-  } else {
-    card.classList.add("fixed", "on");
-    $("secondary").appendChild(card);
-  }
+const classes = client.weapon_classes();
+const STRIDE = 7;
+const raw = client.weapon_stats();
+const guns = names.map((name, i) => {
+  const [dmg, rpm, mag, reload, hip, aim, speed] = raw.slice(i * STRIDE, (i + 1) * STRIDE);
+  // one number for how tight the shots go, mostly while aiming
+  return { i, name, cls: classes[i], dmg, rpm, mag, reload, speed, acc: 1 / (1 + 60 * aim + 8 * hip) };
 });
+const sound = new Sound(guns.map(g => g.reload));
+const setSound = segmented($("snd"), ["On", "Off"], i => { if (sound.muted !== (i === 1)) sound.toggleMute(); });
+setSound(0);
+
+// the stat bars: how good a gun is at each (higher is better, drawn against the best of all guns) and how to print it
+const STATS = [
+  ["Damage", g => g.dmg, g => Math.round(g.dmg)],
+  ["Fire rate", g => g.rpm, g => `${Math.round(g.rpm)} rpm`],
+  ["Accuracy", g => g.acc, g => Math.round(g.acc * 100)],
+  ["Mobility", g => g.speed - 0.8, g => `${Math.round(g.speed * 100)}%`],
+  ["Reload", g => 1 / g.reload, g => `${g.reload.toFixed(1)}s`],
+  ["Magazine", g => g.mag, g => g.mag],
+];
+const best = STATS.map(([, f]) => Math.max(...guns.map(f)));
+const frac = (k, g) => `${Math.max(0.04, STATS[k][1](g) / best[k]) * 100}%`;
+
+// the loadout: a primary to pick, and the pistol everyone carries (its slot opens the same picker, with one gun in it)
+const primaries = client.primary_count();
+const loadoutNow = () => {
+  const h = client.hud();
+  return { carried: h[18], picked: h[19], inPlay: h[20] > 0 };
+};
+const SLOTS = [
+  { name: "Primary", guns: guns.filter(g => g.i < primaries), equipped: () => loadoutNow().picked, equip: i => client.pick_primary(i) },
+  { name: "Secondary", guns: guns.filter(g => g.i >= primaries), equipped: () => primaries, equip: () => {} },
+];
+const pendingText = () => {
+  const { carried, picked, inPlay } = loadoutNow();
+  return picked !== carried ? `${names[picked]} from your next life` : inPlay ? "Loadout changes are carried from your next life" : "";
+};
+
+// screens, and where Back goes from each
+const BACK = { "s-loadout": "s-main", "s-settings": "s-main", "s-pick": "s-loadout" };
+let screen = "s-main";
+function show(id) {
+  screen = id;
+  document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === id));
+  if (id === "s-loadout") drawLoadout();
+  document.querySelectorAll(".pending").forEach(p => p.textContent = pendingText());
+}
+document.querySelectorAll(".back").forEach(b => b.addEventListener("click", () => show(BACK[screen])));
+document.querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => show(b.dataset.go)));
+
+function drawLoadout() {
+  const { carried, picked } = loadoutNow();
+  $("slots").replaceChildren(...SLOTS.map((slot, s) => {
+    const g = guns[slot.equipped()];
+    const later = s === 0 && picked !== carried ? `<em>From your next life &middot; the ${names[carried]} until then</em>` : "";
+    const b = el("button", "lslot", `<b>${slot.name.toUpperCase()}</b><h3>${g.name}</h3><span>${g.cls}</span>${later}`);
+    b.addEventListener("click", () => openPicker(s));
+    return b;
+  }));
+}
+
+// the picker for one slot: a tab per class, the guns in it, and the stats of the one under the mouse
+// compared with the one equipped
+let pickSlot = 0;
+let tab = "";
+function openPicker(s) {
+  pickSlot = s;
+  tab = guns[SLOTS[s].equipped()].cls;
+  $("pick-title").textContent = `${SLOTS[s].name} weapon`;
+  drawPicker();
+  show("s-pick");
+}
+function drawPicker() {
+  const slot = SLOTS[pickSlot];
+  const eq = slot.equipped();
+  const tabs = [...new Set(slot.guns.map(g => g.cls))];
+  $("tabs").replaceChildren(...tabs.map(c => {
+    const b = el("button", c === tab ? "tab on" : "tab", `${c}<i>${slot.guns.filter(g => g.cls === c).length}</i>`);
+    b.addEventListener("click", () => { tab = c; drawPicker(); });
+    return b;
+  }));
+  const shown = slot.guns.filter(g => g.cls === tab);
+  const rows = shown.map(g => {
+    const b = el("button", "gun", `<span>${g.name}</span>${g.i === eq ? "<i>EQUIPPED</i>" : ""}`);
+    const hover = () => { rows.forEach(r => r.classList.toggle("hl", r === b)); drawDetail(g); };
+    b.addEventListener("mouseenter", hover);
+    b.addEventListener("focus", hover);
+    b.addEventListener("click", () => { slot.equip(g.i); show("s-loadout"); });
+    return b;
+  });
+  $("list").replaceChildren(...rows);
+  drawDetail(shown.find(g => g.i === eq) || shown[0]);
+}
+function drawDetail(g) {
+  const eq = guns[SLOTS[pickSlot].equipped()];
+  const other = g.i !== eq.i;
+  const bars = STATS.map(([label, f, print], k) => {
+    const d = other ? Math.sign(f(g) - f(eq)) : 0;
+    const mark = other ? `<u style="left:${frac(k, eq)}"></u>` : "";
+    return `<div class="stat"><span>${label}</span><div class="bar"><div style="width:${frac(k, g)}"></div>${mark}</div><span class="${d > 0 ? "up" : d < 0 ? "down" : ""}">${print(g)}</span></div>`;
+  });
+  const hint = other ? `Click to equip &middot; the marks show your ${eq.name}` : "Equipped";
+  $("detail").innerHTML = `<span>${g.cls}</span><h3>${g.name}</h3>${bars.join("")}<p class="hint">${hint}</p>`;
+}
 // the bar in play: the carried primary in slot 1, the pistol in slot 2
 const slots = [0, primaries].map((w, i) => {
   const slot = document.createElement("div");
@@ -221,8 +364,10 @@ let shownPrimary = 0;
 
 // dev flags: ?demo runs the game behind the menu (for screenshots where pointer lock isn't available),
 // ?calm removes the bots, ?at=x,z,yaw[,y] puts the player somewhere, ?primary=1-4 picks the primary,
-// ?slot=2 holds the pistol, ?clean hides the menu
+// ?slot=2 holds the pistol, ?clean hides the menu, ?screen=loadout|pick|settings opens a menu screen
 const params = new URLSearchParams(location.search);
+if (params.get("screen") === "pick") openPicker(0);
+else if (params.has("screen")) show(`s-${params.get("screen")}`);
 if (params.has("demo")) client.set_paused(false);
 if (params.has("calm")) client.remove_bots();
 if (params.has("primary")) client.pick_primary(Number(params.get("primary")) - 1);
@@ -237,16 +382,16 @@ if (params.has("gun")) { const [x, y, z, yaw = 0.05] = params.get("gun").split("
 if (params.has("show")) client.show_zombies(Number(params.get("show")) || 3, Number(params.get("dist")) || 2.8, Number(params.get("side")) || 0);
 const locked = () => document.pointerLockElement === canvas;
 // ending the game stays on the menu, ready to pick a loadout and start again
-$("end").addEventListener("click", e => {
-  e.stopPropagation();
+$("end").addEventListener("click", () => {
   client.end_game();
   sound.cancel();
+  show("s-main");
 });
-menu.addEventListener("click", () => { sound.start(); canvas.requestPointerLock(); });
+$("play").addEventListener("click", () => { sound.start(); canvas.requestPointerLock(); });
 document.addEventListener("pointerlockchange", () => {
   menu.style.display = locked() ? "none" : "flex";
   client.set_paused(!locked());
-  if (!locked()) { client.release_all(); sound.cancel(); }
+  if (!locked()) { client.release_all(); sound.cancel(); show("s-main"); }
 });
 // the whole arena from above: ground markings first, then walls from low to tall so tall things sit on top
 const S = 3.6;
@@ -312,7 +457,8 @@ addEventListener("keydown", e => {
     return;
   }
   if (e.repeat) return;
-  if (e.code === "KeyM") $("mute").textContent = sound.toggleMute() ? "sound off" : "sound on";
+  if (e.code === "Escape" && !locked() && BACK[screen]) show(BACK[screen]);
+  if (e.code === "KeyM") setSound(sound.muted ? 0 : 1);
   if (locked()) { client.key(e.code, true); if (e.code === "Space") e.preventDefault(); }
 });
 addEventListener("keyup", e => client.key(e.code, false));
@@ -337,15 +483,9 @@ function loop(t) {
   }
   slots[0].classList.toggle("on", weapon === carried);
   slots[1].classList.toggle("on", weapon === primaries);
-  // the carried gun is marked; a different pick waits for the next life and is marked as coming
-  const pending = picked !== carried;
-  cards.forEach((el, i) => {
-    el.classList.toggle("on", i === carried);
-    el.classList.toggle("next", pending && i === picked);
-  });
-  $("lock").textContent = pending ? `${names[picked]} from your next life` : inPlay ? "A new pick is carried from your next life" : "";
-  $("end").style.display = inPlay ? "inline-block" : "none";
-  $("go").textContent = inPlay ? "Click to resume" : "Click to play";
+  $("sum").textContent = `${names[picked]} · ${names[primaries]}`;
+  $("end").style.display = inPlay ? "block" : "none";
+  $("play").textContent = inPlay ? "Resume" : "Play";
   const scopeOn = scoped && ads > 0.85;
   $("scope").style.display = scopeOn ? "block" : "none";
   $("cross").style.display = scopeOn || ads > 0.5 ? "none" : "block";
@@ -358,9 +498,8 @@ function loop(t) {
   const dead = $("dead");
   dead.style.display = respawn > 0 ? "block" : "none";
   if (respawn > 0) {
-    const pick = names.slice(0, primaries).map((n, i) => `<span class="${i === picked ? "on" : ""}">${i + 1} ${n}</span>`).join("");
     dead.innerHTML = `Overrun on wave ${wave}. Restarting in ${respawn.toFixed(1)}`
-      + `<small>Next life: ${pick}</small><small style="opacity:.6;font-size:12px">press 1-${primaries} to change &middot; Esc pauses</small>`;
+      + `<small>Next life: ${names[picked]} &middot; Esc to change your loadout</small>`;
   }
   if (!loaded) {
     // the first frame has been drawn: show it on the next one

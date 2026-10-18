@@ -63,6 +63,8 @@ pub mod ev {
 /// Everything that differs between guns. Angles are radians, times are seconds.
 pub struct Weapon {
     pub name: &'static str,
+    /// what the loadout menu files it under
+    pub class: &'static str,
     pub mag: u32,
     pub delay: f32,
     pub reload: f32,
@@ -84,11 +86,11 @@ pub struct Weapon {
 }
 
 pub static WEAPONS: [Weapon; WEAPON_COUNT] = [
-    Weapon { name: "Carbine", mag: 30, delay: 0.11, reload: 1.4, pellets: 1, body_dmg: 34.0, head_dmg: 75.0, spread: 0.010, ads_spread: 0.002, kick: 0.006, auto: true, zoom: 0.8, scope: false, speed: 1.0 },
-    Weapon { name: "SMG", mag: 35, delay: 0.065, reload: 1.2, pellets: 1, body_dmg: 20.0, head_dmg: 40.0, spread: 0.022, ads_spread: 0.007, kick: 0.004, auto: true, zoom: 0.85, scope: false, speed: 1.08 },
-    Weapon { name: "Shotgun", mag: 6, delay: 0.85, reload: 2.4, pellets: 8, body_dmg: 14.0, head_dmg: 28.0, spread: 0.055, ads_spread: 0.038, kick: 0.045, auto: false, zoom: 0.9, scope: false, speed: 1.0 },
-    Weapon { name: "Sniper", mag: 5, delay: 1.3, reload: 2.6, pellets: 1, body_dmg: 100.0, head_dmg: 150.0, spread: 0.04, ads_spread: 0.0, kick: 0.03, auto: false, zoom: 0.3, scope: true, speed: 0.92 },
-    Weapon { name: "Pistol", mag: 12, delay: 0.16, reload: 1.1, pellets: 1, body_dmg: 26.0, head_dmg: 60.0, spread: 0.014, ads_spread: 0.004, kick: 0.012, auto: false, zoom: 0.85, scope: false, speed: 1.05 },
+    Weapon { name: "Carbine", class: "Assault rifle", mag: 30, delay: 0.11, reload: 1.4, pellets: 1, body_dmg: 34.0, head_dmg: 75.0, spread: 0.010, ads_spread: 0.002, kick: 0.006, auto: true, zoom: 0.8, scope: false, speed: 1.0 },
+    Weapon { name: "SMG", class: "SMG", mag: 35, delay: 0.065, reload: 1.2, pellets: 1, body_dmg: 20.0, head_dmg: 40.0, spread: 0.022, ads_spread: 0.007, kick: 0.004, auto: true, zoom: 0.85, scope: false, speed: 1.08 },
+    Weapon { name: "Shotgun", class: "Shotgun", mag: 6, delay: 0.85, reload: 2.4, pellets: 8, body_dmg: 14.0, head_dmg: 28.0, spread: 0.055, ads_spread: 0.038, kick: 0.045, auto: false, zoom: 0.9, scope: false, speed: 1.0 },
+    Weapon { name: "Sniper", class: "Sniper", mag: 5, delay: 1.3, reload: 2.6, pellets: 1, body_dmg: 100.0, head_dmg: 150.0, spread: 0.04, ads_spread: 0.0, kick: 0.03, auto: false, zoom: 0.3, scope: true, speed: 0.92 },
+    Weapon { name: "Pistol", class: "Pistol", mag: 12, delay: 0.16, reload: 1.1, pellets: 1, body_dmg: 26.0, head_dmg: 60.0, spread: 0.014, ads_spread: 0.004, kick: 0.012, auto: false, zoom: 0.85, scope: false, speed: 1.05 },
 ];
 
 #[derive(Clone, Copy, Debug)]

@@ -62,12 +62,10 @@ impl Client {
             "ShiftLeft" | "ShiftRight" => i.sprint = down,
             "KeyR" => i.reload = down,
             _ if down => {
-                // alive: 1 primary, 2 pistol; dead: 1-4 picks the primary for the next life
+                // 1 primary, 2 pistol; the loadout itself is picked in the menu
                 if let Some(n) = code.strip_prefix("Digit").and_then(|d| d.parse::<usize>().ok()) {
                     if self.game.player.alive() {
                         self.game.select_slot(n.wrapping_sub(1));
-                    } else {
-                        self.game.pick_primary(n.wrapping_sub(1));
                     }
                 }
             }
@@ -152,11 +150,17 @@ impl Client {
         WEAPONS.iter().map(|w| w.name.to_string()).collect()
     }
 
-    /// Per weapon: damage per shot, rounds per minute, magazine, reload seconds.
+    /// What the loadout menu files each weapon under, e.g. "SMG".
+    pub fn weapon_classes(&self) -> Vec<String> {
+        WEAPONS.iter().map(|w| w.class.to_string()).collect()
+    }
+
+    /// Per weapon: damage per shot, rounds per minute, magazine, reload seconds, hip spread, aimed spread,
+    /// movement speed multiplier.
     pub fn weapon_stats(&self) -> Vec<f32> {
         WEAPONS
             .iter()
-            .flat_map(|w| [w.body_dmg * w.pellets as f32, 60.0 / w.delay, w.mag as f32, w.reload])
+            .flat_map(|w| [w.body_dmg * w.pellets as f32, 60.0 / w.delay, w.mag as f32, w.reload, w.spread, w.ads_spread, w.speed])
             .collect()
     }
 
