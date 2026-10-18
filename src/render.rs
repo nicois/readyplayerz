@@ -183,15 +183,21 @@ vec3 eye_color(vec3 iris, vec3 d) {
     vec3 c = mix(white, iris * (0.7 + 0.6 * noise3(d * 30.0)), smoothstep(0.66, 0.58, ang));
     return mix(c, vec3(0.015), smoothstep(0.3, 0.24, ang));
 }
+// a point on the body to where it is on the face as modelled (body::to_head, with copies of its numbers)
+const float HEAD_K = 0.87, HEAD_PIVOT = 1.50, HEAD_LIFT = 0.025;
+vec3 head_space(vec3 p) {
+    return vec3(p.x / HEAD_K, HEAD_PIVOT + (p.y - HEAD_PIVOT - HEAD_LIFT) / HEAD_K, p.z / HEAD_K);
+}
 // the rest of a face and body that paint can do: sunken eyes, dark lips, blood on the mouth and hands, wounds
 vec3 skin_detail(vec3 c, vec3 p, float aux, float wet) {
-    vec3 q = vec3(abs(p.x), p.y, p.z);
+    vec3 h = head_space(p);
+    vec3 q = vec3(abs(h.x), h.y, h.z);
     float eyes = exp(-pow(length((q - vec3(0.04, 1.664, -0.085)) * vec3(1.0, 1.3, 1.0)) / 0.034, 2.0));
     c = mix(c, vec3(0.20, 0.10, 0.15), eyes * 0.45);
-    float lips = exp(-pow(length((p - vec3(0.0, 1.575, -0.09)) * vec3(1.0, 1.6, 1.4)) / 0.036, 2.0));
+    float lips = exp(-pow(length((h - vec3(0.0, 1.575, -0.09)) * vec3(1.0, 1.6, 1.4)) / 0.036, 2.0));
     c = mix(c, vec3(0.30, 0.10, 0.12), lips * 0.65);
     // blood round the mouth, running down the chin and neck
-    float mouth = exp(-pow(length((p - vec3(0.0, 1.55, -0.09)) * vec3(0.9, 0.55, 1.0)) / 0.06, 2.0));
+    float mouth = exp(-pow(length((h - vec3(0.0, 1.55, -0.09)) * vec3(0.9, 0.55, 1.0)) / 0.06, 2.0));
     float run = smoothstep(0.55, 0.78, noise3(vec3(p.x * 42.0, p.y * 7.0, p.z * 42.0))) * step(p.y, 1.56) * step(1.36, p.y) * (1.0 - smoothstep(0.0, 0.08, abs(p.x))) * step(p.z, 0.02);
     c = mix(c, vec3(0.30, 0.025, 0.035), clamp(mouth * (0.5 + 0.7 * noise3(p * 55.0)) + run * 0.8, 0.0, 0.9));
     // hands and forearms
@@ -293,10 +299,11 @@ void main() {
             if (u_cut.w != 0.0 && sign(v_rest.x) == u_cut.w && v_rest.y < 0.52 && v_rest.y > 0.1 + 0.04 * nz) discard;
             if (noise3(v_rest * 21.0 + 7.0 + v_seed) > 0.83) discard;
         } else if (v_umat > 11.5 && v_umat < 12.5) {
-            vec3 r = v_rest - vec3(0.0, 1.68, 0.01);
+            vec3 h = head_space(v_rest);
+            vec3 r = h - vec3(0.0, 1.68, 0.01);
             float thr = mix(0.05, -0.075, smoothstep(0.0, 0.1, r.z)) + 0.02 * smoothstep(0.06, 0.1, abs(r.x)) + 0.012 * pow(abs(r.x) / 0.1, 2.0) + 0.04 * (noise3(v_rest * 48.0) - 0.5) + 0.016 * (nz - 0.5);
-            bool hair = u_hairk.x > 0.5 && r.y > thr && v_rest.y > 1.61;
-            bool beard = u_hairk.y > 0.5 && r.y < -0.025 && r.z < 0.02 && v_rest.y > 1.5 && !(abs(v_rest.x) < 0.034 && abs(v_rest.y - 1.575) < 0.018);
+            bool hair = u_hairk.x > 0.5 && r.y > thr && h.y > 1.61;
+            bool beard = u_hairk.y > 0.5 && r.y < -0.025 && r.z < 0.02 && h.y > 1.5 && !(abs(h.x) < 0.034 && abs(h.y - 1.575) < 0.018);
             if (!(hair || beard)) discard;
         }
     }
@@ -1809,7 +1816,10 @@ impl Renderer {
         let roll = (ph * 0.35 + seed).sin() * 0.28;
         let head = mul(&chest, &around([0.0, 1.54, 0.0], &mul(&rot_y((ph * 0.3 + seed).sin() * 0.3 * (1.0 - strike) + (g.time * 6.0 + seed).sin().powi(15) * 0.18), &mul(&rot_z(roll), &rot_x((if runner { 0.3 } else { 0.15 }) + 0.7 * flinch)))));
         let mouth = 0.2 + 0.5 * strike + 0.1 * (ph * 0.8).sin().abs();
-        let jaw = mul(&head, &around([0.0, 1.60, 0.03], &rot_x(-mouth)));
+        let jaw = mul(&head, &around(body::head_to_rest([0.0, 1.60, 0.03]), &rot_x(-mouth)));
+        // the eyes and teeth are placed on the face as modelled, which the body shrinks onto its neck
+        let (hk, hp) = (body::HEAD_K, body::HEAD_PIVOT);
+        let modelled = mul(&translate(0.0, hp + body::HEAD_LIFT, 0.0), &mul(&scale(hk, hk, hk), &translate(0.0, -hp, 0.0)));
 
         let mut bones = [IDENTITY; body::BONES];
         bones[body::PELVIS] = pelvis;
@@ -1874,14 +1884,15 @@ impl Renderer {
         }
         if id % 5 == 2 {
             sites.push([-0.03, 1.10, -0.10, 0.05]);
-            sites.push([0.05, 1.70, -0.09, 0.03]);
+            let brow = body::head_to_rest([0.05, 1.70, -0.09]);
+            sites.push([brow[0], brow[1], brow[2], 0.03]);
         }
         if bare != 0.0 {
             let at = body::arm_rest(bare, [body::ARM_X, 1.03, -0.045]);
             sites.push([at[0], at[1], at[2], 0.04]);
         }
         if torn > 0.0 {
-            sites.push([0.097, 0.30, -0.05, 0.045]);
+            sites.push([0.083, 0.30, -0.045, 0.045]);
         }
         for (w, s) in wounds.iter_mut().zip(&sites) {
             *w = *s;
@@ -1905,6 +1916,7 @@ impl Renderer {
         // ---- the face: wet bloodshot eyes, teeth and a tongue, which sit in the head and jaw
         if d < 28.0 {
             let r0 = IDENTITY;
+            let (head, jaw) = (mul(&head, &modelled), mul(&jaw, &modelled));
             let iris = [[0.35, 0.20, 0.10], [0.20, 0.30, 0.35], [0.30, 0.35, 0.15], [0.10, 0.07, 0.05]][(id / 4) % 4];
             for sx in [-1.0f32, 1.0] {
                 self.ell(&head, [sx * 0.04, 1.668, -0.082], [0.0108, 0.0102, 0.0102], &r0, iris, 14.0, 0.0, 0.0);

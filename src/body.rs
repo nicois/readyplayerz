@@ -25,12 +25,28 @@ pub const WRIST: usize = 15;
 pub const STRIDE: usize = 15;
 
 /// Where the arms hang from, and how far out they are held in the rest pose.
-pub const ARM_X: f32 = 0.218;
+pub const ARM_X: f32 = 0.205;
 pub const SHOULDER_Y: f32 = 1.41;
 pub const ARM_ANGLE: f32 = 0.5;
 /// The head is cut from the body here, and the hands where the forearm ends.
 const NECK_Y: f32 = 1.50;
 const WRIST_Y: f32 = 0.875;
+/// The face is modelled a size too big (the eyes, teeth and face paint are placed in that model's frame): it is
+/// shrunk by `HEAD_K` about the middle of the neck at `HEAD_PIVOT` and lifted by `HEAD_LIFT`, so the head is about
+/// an eighth of the height and sits on a neck. The zombie shader paints the face with a copy of these three.
+pub const HEAD_K: f32 = 0.87;
+pub const HEAD_PIVOT: f32 = 1.50;
+pub const HEAD_LIFT: f32 = 0.025;
+
+/// A point of the body to where it is on the face as modelled.
+fn to_head(p: V) -> V {
+    [p[0] / HEAD_K, HEAD_PIVOT + (p[1] - HEAD_PIVOT - HEAD_LIFT) / HEAD_K, p[2] / HEAD_K]
+}
+
+/// A point on the face as modelled to where it is on the body.
+pub fn head_to_rest(p: V) -> V {
+    [p[0] * HEAD_K, HEAD_PIVOT + HEAD_LIFT + (p[1] - HEAD_PIVOT) * HEAD_K, p[2] * HEAD_K]
+}
 
 pub struct Mesh {
     pub verts: Vec<f32>,
@@ -115,60 +131,81 @@ pub fn arm_rest(side: f32, p: V) -> V {
     [side * (ARM_X + cs * q[0] - sn * q[1]), SHOULDER_Y + sn * q[0] + cs * q[1], p[2]]
 }
 
+/// Neck to hips: a ribcage broad across the chest narrowing to the waist (the V of a man's back), a pelvis no
+/// wider than the chest, shoulders that slope from the neck out to the arms.
 fn torso(p: V) -> f32 {
-    let mut d = flat_cone(p, [0.0, 0.99, 0.0], [0.0, 1.19, 0.0], 0.125, 0.138, 0.78);
-    d = smin(d, flat_cone(p, [0.0, 1.17, 0.0], [0.0, 1.40, 0.0], 0.14, 0.168, 0.72), 0.05);
-    d = smin(d, ell(p, [0.0, 1.452, 0.0], [0.17, 0.052, 0.09]), 0.04);
-    d = smin(d, ell(p, [0.0, 0.96, 0.0], [0.15, 0.1, 0.108]), 0.05);
     let ax = [p[0].abs(), p[1], p[2]];
-    d = smin(d, ell(ax, [0.078, 0.90, 0.03], [0.085, 0.09, 0.08]), 0.04);
-    // chest muscle, collarbones, trapezius, and the neck with its two strap muscles
-    d = smin(d, ell(ax, [0.075, 1.335, -0.075], [0.072, 0.058, 0.045]), 0.03);
-    d = smin(d, cone(ax, [0.012, 1.466, -0.045], [0.14, 1.455, -0.035], 0.011, 0.011), 0.015);
-    d = smin(d, ell(p, [0.0, 1.47, 0.03], [0.07, 0.05, 0.06]), 0.03);
-    d = smin(d, cone(p, [0.0, 1.46, 0.0], [0.0, 1.60, -0.012], 0.064, 0.056), 0.04);
-    d = smin(d, cone(ax, [0.045, 1.595, 0.015], [0.02, 1.47, -0.045], 0.016, 0.014), 0.02);
+    // ribcage, belly and pelvis
+    let mut d = ell(p, [0.0, 1.265, 0.008], [0.152, 0.2, 0.112]);
+    d = smin(d, flat_cone(p, [0.0, 1.13, 0.01], [0.0, 0.99, 0.008], 0.132, 0.138, 0.74), 0.07);
+    d = smin(d, ell(p, [0.0, 1.06, -0.035], [0.115, 0.1, 0.075]), 0.05);
+    d = smin(d, ell(p, [0.0, 0.935, 0.01], [0.158, 0.1, 0.105]), 0.06);
+    // the broad back under the arms, the shoulder blades, and the buttocks
+    d = smin(d, ell(ax, [0.1, 1.27, 0.035], [0.075, 0.15, 0.072]), 0.05);
+    d = smin(d, ell(ax, [0.075, 1.355, 0.072], [0.068, 0.075, 0.045]), 0.04);
+    d = smin(d, ell(ax, [0.068, 0.875, 0.055], [0.08, 0.085, 0.07]), 0.04);
+    // chest muscles: broad flat plates
+    d = smin(d, ell(ax, [0.075, 1.335, -0.08], [0.09, 0.055, 0.032]), 0.05);
+    // the mass between the ribs and the arm, then the trapezius sloping from the neck to the shoulder
+    d = smin(d, ell(ax, [0.15, 1.39, 0.0], [0.07, 0.055, 0.065]), 0.04);
+    d = smin(d, cone(ax, [0.025, 1.5, 0.025], [0.17, 1.435, 0.012], 0.048, 0.034), 0.045);
+    // collarbones, the neck and its two strap muscles
+    d = smin(d, cone(ax, [0.015, 1.443, -0.06], [0.165, 1.452, -0.028], 0.011, 0.011), 0.02);
+    d = smin(d, cone(p, [0.0, 1.43, 0.012], [0.0, 1.62, -0.004], 0.06, 0.053), 0.04);
+    d = smin(d, cone(ax, [0.045, 1.6, 0.012], [0.018, 1.455, -0.052], 0.015, 0.013), 0.02);
     d
 }
 
+/// Both legs, hips to toes: thighs that taper to the knee, a kneecap, calves at the back of the shin, slim ankles.
 fn legs(p: V) -> f32 {
     let q = [p[0].abs(), p[1], p[2]];
-    let mut d = cone(q, [0.105, 0.93, 0.0], [0.098, 0.505, -0.004], 0.102, 0.062);
-    d = smin(d, ell(q, [0.103, 0.78, -0.018], [0.088, 0.15, 0.09]), 0.04);
-    d = smin(d, ell(q, [0.098, 0.505, -0.012], [0.055, 0.055, 0.055]), 0.03);
-    d = smin(d, ell(q, [0.098, 0.5, -0.043], [0.034, 0.04, 0.025]), 0.02);
-    d = smin(d, cone(q, [0.098, 0.505, 0.0], [0.097, 0.095, 0.0], 0.062, 0.038), 0.03);
-    d = smin(d, ell(q, [0.097, 0.37, 0.025], [0.052, 0.11, 0.058]), 0.035);
-    d = smin(d, cone(q, [0.097, 0.46, -0.05], [0.097, 0.14, -0.04], 0.015, 0.012), 0.02);
-    d = smin(d, ell(q, [0.097, 0.093, 0.0], [0.04, 0.05, 0.042]), 0.02);
-    d = smin(d, ell(q, [0.097, 0.052, -0.045], [0.046, 0.048, 0.125]), 0.02);
-    d = smin(d, ell(q, [0.097, 0.033, -0.15], [0.04, 0.026, 0.045]), 0.015);
+    let mut d = cone(q, [0.092, 0.92, 0.005], [0.085, 0.5, -0.004], 0.09, 0.052);
+    // the front, outside and back of the thigh
+    d = smin(d, ell(q, [0.09, 0.72, -0.022], [0.07, 0.17, 0.066]), 0.04);
+    d = smin(d, ell(q, [0.118, 0.76, 0.0], [0.045, 0.14, 0.06]), 0.04);
+    d = smin(d, ell(q, [0.085, 0.72, 0.028], [0.06, 0.15, 0.058]), 0.04);
+    // the knee and its cap
+    d = smin(d, ell(q, [0.085, 0.5, -0.01], [0.046, 0.06, 0.046]), 0.04);
+    d = smin(d, ell(q, [0.085, 0.497, -0.044], [0.027, 0.032, 0.018]), 0.025);
+    // the shin, the calf behind it and the shinbone down the front
+    d = smin(d, cone(q, [0.085, 0.49, 0.0], [0.08, 0.095, 0.004], 0.048, 0.031), 0.03);
+    d = smin(d, ell(q, [0.087, 0.37, 0.024], [0.048, 0.11, 0.052]), 0.04);
+    d = smin(d, ell(q, [0.075, 0.34, 0.022], [0.04, 0.08, 0.04]), 0.03);
+    d = smin(d, cone(q, [0.085, 0.45, -0.038], [0.08, 0.14, -0.026], 0.014, 0.011), 0.02);
+    // ankle, heel, foot and toes
+    d = smin(d, ell(q, [0.08, 0.085, 0.0], [0.037, 0.045, 0.038]), 0.02);
+    d = smin(d, ell(q, [0.08, 0.04, 0.028], [0.034, 0.04, 0.045]), 0.02);
+    d = smin(d, ell(q, [0.083, 0.042, -0.06], [0.045, 0.038, 0.115]), 0.02);
+    d = smin(d, ell(q, [0.087, 0.026, -0.155], [0.044, 0.025, 0.045]), 0.015);
     d
 }
 
 /// One hand in the arm's own frame: a palm, a thumb and four curled fingers.
 fn hand(q: V) -> f32 {
-    let mut d = ell(q, [ARM_X, 0.82, 0.0], [0.022, 0.054, 0.039]);
-    d = smin(d, cone(q, [ARM_X - 0.012, 0.85, -0.026], [ARM_X - 0.04, 0.795, -0.05], 0.012, 0.009), 0.012);
-    for (i, dz) in [-0.026f32, -0.0085, 0.0085, 0.026].iter().enumerate() {
-        let longer = if i == 1 || i == 2 { 0.008 } else if i == 3 { -0.008 } else { 0.0 };
-        let (a, b, c) = ([ARM_X, 0.78, *dz], [ARM_X - 0.016, 0.74 - longer, *dz], [ARM_X - 0.038, 0.715 - longer, *dz]);
-        d = smin(d, cone(q, a, b, 0.0095, 0.0085), 0.006);
-        d = smin(d, cone(q, b, c, 0.0085, 0.0075), 0.006);
+    let mut d = ell(q, [ARM_X, 0.818, 0.0], [0.023, 0.058, 0.042]);
+    d = smin(d, cone(q, [ARM_X - 0.012, 0.855, -0.028], [ARM_X - 0.042, 0.79, -0.054], 0.013, 0.01), 0.012);
+    for (i, dz) in [-0.029f32, -0.0095, 0.0095, 0.028].iter().enumerate() {
+        let longer = if i == 1 || i == 2 { 0.009 } else if i == 3 { -0.01 } else { 0.0 };
+        let (a, b, c) = ([ARM_X, 0.775, *dz], [ARM_X - 0.014, 0.728 - longer, *dz], [ARM_X - 0.036, 0.695 - longer, *dz]);
+        d = smin(d, cone(q, a, b, 0.0105, 0.0093), 0.006);
+        d = smin(d, cone(q, b, c, 0.0093, 0.0078), 0.006);
     }
     d
 }
 
-/// The whole arm, shoulder to fingertips, at `p` in the rest pose.
+/// The whole arm, shoulder to fingertips, at `p` in the rest pose: a deltoid capping the shoulder, biceps and
+/// triceps, a forearm thick below the elbow that thins to a flat wrist.
 fn arm(p: V) -> f32 {
     let q = arm_down(p);
-    let mut d = ell(q, [ARM_X, 1.40, 0.0], [0.064, 0.062, 0.064]);
-    d = smin(d, cone(q, [ARM_X, 1.40, 0.0], [ARM_X, 1.13, 0.0], 0.056, 0.04), 0.03);
-    d = smin(d, ell(q, [ARM_X, 1.285, -0.012], [0.046, 0.095, 0.05]), 0.03);
-    d = smin(d, ell(q, [ARM_X, 1.27, 0.018], [0.04, 0.09, 0.035]), 0.03);
-    d = smin(d, ell(q, [ARM_X, 1.13, 0.003], [0.04, 0.042, 0.042]), 0.02);
-    d = smin(d, cone(q, [ARM_X, 1.13, 0.0], [ARM_X, WRIST_Y, 0.0], 0.04, 0.029), 0.025);
-    d = smin(d, ell(q, [ARM_X, 1.03, -0.005], [0.043, 0.075, 0.045]), 0.03);
+    let mut d = ell(q, [ARM_X + 0.006, 1.37, 0.0], [0.054, 0.085, 0.06]);
+    d = smin(d, cone(q, [ARM_X, 1.40, 0.0], [ARM_X, 1.13, 0.0], 0.046, 0.036), 0.03);
+    d = smin(d, ell(q, [ARM_X, 1.255, -0.016], [0.04, 0.085, 0.04]), 0.03);
+    d = smin(d, ell(q, [ARM_X + 0.004, 1.28, 0.02], [0.04, 0.095, 0.04]), 0.03);
+    d = smin(d, ell(q, [ARM_X, 1.13, 0.006], [0.036, 0.04, 0.038]), 0.02);
+    // the forearm is broader across the back of the hand than through it
+    let flat = [q[0], q[1], q[2] * 0.78];
+    d = smin(d, cone(flat, [ARM_X, 1.12, 0.0], [ARM_X, WRIST_Y, 0.0], 0.034, 0.024), 0.025);
+    d = smin(d, ell(q, [ARM_X, 1.055, -0.004], [0.042, 0.085, 0.043]), 0.035);
     smin(d, hand(q), 0.015)
 }
 
@@ -203,14 +240,14 @@ fn head(p: V) -> f32 {
 /// The whole body, hands and head included, in the rest pose.
 pub fn skin(p: V) -> f32 {
     let mut d = 1.0f32;
-    if p[1] > 0.78 && p[1] < 1.64 && p[0].abs() < 0.32 {
+    if p[1] > 0.68 && p[1] < 1.64 && p[0].abs() < 0.32 {
         d = torso(p);
     }
     if p[1] < 1.12 {
         d = smin(d, legs(p), 0.045);
     }
     if p[1] > 1.36 {
-        d = smin(d, head(p), 0.03);
+        d = smin(d, head(to_head(p)) * HEAD_K, 0.03);
     }
     if p[0].abs() > 0.1 && p[1] > 0.55 && p[1] < 1.62 {
         d = smin(d, arm(p), 0.02);
@@ -237,28 +274,35 @@ fn hand_part(p: V) -> f32 {
     skin(p).max(hand_zone(p))
 }
 
-/// A shirt: the body from the hips to the neck and out along the arms, swollen to cloth thickness.
+/// A shirt: the body from the hips to the neck and out along the arms, swollen to cloth thickness, that hangs
+/// straight down from the chest and shoulder blades instead of clinging to the waist.
 fn shirt(p: V) -> f32 {
-    (body_part(p) - 0.013).max(0.84 - p[1]).max(p[1] - 1.545)
+    let hang = flat_cone(p, [0.0, 1.3, 0.012], [0.0, 0.86, 0.012], 0.158, 0.168, 0.75);
+    let d = smin(body_part(p) - 0.013, hang.max(p[1] - 1.36), 0.04);
+    d.max(0.84 - p[1]).max(p[1] - 1.545)
 }
 
-/// Trousers and shoes: the hips and legs swollen, a fatter boot over the foot.
+/// Trousers and shoes: the hips and legs swollen, each leg hanging loose from the seat to the ankle, a fatter
+/// boot over the foot.
 fn pants(p: V) -> f32 {
     let q = [p[0].abs(), p[1], p[2]];
-    let mut d = smin(ell(p, [0.0, 0.96, 0.0], [0.15, 0.1, 0.108]), legs(p), 0.045);
-    d = smin(d, ell(q, [0.078, 0.90, 0.03], [0.085, 0.09, 0.08]), 0.04) - 0.014;
-    // boots: ankle and foot wrapped thicker
-    let boot = smin(ell(q, [0.097, 0.07, -0.05], [0.06, 0.075, 0.14]), ell(q, [0.097, 0.1, 0.0], [0.05, 0.07, 0.05]), 0.03);
-    d = smin(d, boot, 0.02);
+    let mut d = smin(ell(p, [0.0, 0.935, 0.01], [0.158, 0.1, 0.105]), legs(p), 0.045);
+    d = smin(d, ell(q, [0.068, 0.875, 0.055], [0.08, 0.085, 0.07]), 0.04) - 0.014;
+    let leg = cone(q, [0.092, 0.86, 0.006], [0.083, 0.13, 0.004], 0.1, 0.058);
+    d = smin(d, leg, 0.03);
+    // shoes: a low upper over the foot and round the ankle, on a flat sole
+    let shoe = smin(ell(q, [0.084, 0.05, -0.058], [0.05, 0.05, 0.13]), ell(q, [0.081, 0.085, 0.0], [0.045, 0.055, 0.048]), 0.03);
+    d = smin(d, shoe.max(-p[1]), 0.02);
     d.max(p[1] - 1.04)
 }
 
 /// Hair on the skull and a beard on the jaw, as one thin shell; the shader decides which parts show.
 fn hair(p: V) -> f32 {
-    let q = [p[0].abs(), p[1], p[2]];
-    let mut d = ell(p, [0.0, 1.695, 0.03], [0.112, 0.126, 0.122]);
+    let h = to_head(p);
+    let q = [h[0].abs(), h[1], h[2]];
+    let mut d = ell(h, [0.0, 1.695, 0.03], [0.112, 0.126, 0.122]);
     d = smin(d, cone(q, [0.047, 1.60, 0.0], [0.0, 1.535, -0.07], 0.047, 0.04), 0.03);
-    d.max(NECK_Y - p[1])
+    (d * HEAD_K).max(NECK_Y - p[1])
 }
 
 /// Where each bone runs in the rest pose, for the weights.
@@ -274,14 +318,14 @@ fn segments() -> Vec<Seg> {
         Seg { bone: PELVIS, a: [0.0, 0.88, 0.0], b: [0.0, 1.0, 0.0], r: 0.15 },
         Seg { bone: SPINE, a: [0.0, 1.0, 0.0], b: [0.0, 1.17, 0.0], r: 0.13 },
         Seg { bone: CHEST, a: [0.0, 1.17, 0.0], b: [0.0, 1.44, 0.0], r: 0.15 },
-        Seg { bone: HEAD, a: [0.0, 1.52, 0.0], b: [0.0, 1.76, 0.0], r: 0.09 },
-        Seg { bone: JAW, a: [0.0, 1.585, -0.02], b: [0.0, 1.54, -0.07], r: 0.035 },
+        Seg { bone: HEAD, a: head_to_rest([0.0, 1.52, 0.0]), b: head_to_rest([0.0, 1.76, 0.0]), r: 0.09 * HEAD_K },
+        Seg { bone: JAW, a: head_to_rest([0.0, 1.585, -0.02]), b: head_to_rest([0.0, 1.54, -0.07]), r: 0.035 * HEAD_K },
     ];
     for (k, side) in [-1.0f32, 1.0].iter().enumerate() {
         let x = |v: f32| side * v;
-        s.push(Seg { bone: HIP + k, a: [x(0.105), 0.93, 0.0], b: [x(0.098), 0.505, 0.0], r: 0.1 });
-        s.push(Seg { bone: KNEE + k, a: [x(0.098), 0.505, 0.0], b: [x(0.097), 0.095, 0.0], r: 0.06 });
-        s.push(Seg { bone: ANKLE + k, a: [x(0.097), 0.093, 0.0], b: [x(0.097), 0.04, -0.15], r: 0.045 });
+        s.push(Seg { bone: HIP + k, a: [x(0.092), 0.92, 0.0], b: [x(0.085), 0.5, 0.0], r: 0.09 });
+        s.push(Seg { bone: KNEE + k, a: [x(0.085), 0.5, 0.0], b: [x(0.08), 0.095, 0.0], r: 0.05 });
+        s.push(Seg { bone: ANKLE + k, a: [x(0.08), 0.093, 0.0], b: [x(0.085), 0.04, -0.15], r: 0.04 });
         s.push(Seg { bone: SHOULDER + k, a: arm_rest(*side, [ARM_X, 1.40, 0.0]), b: arm_rest(*side, [ARM_X, 1.13, 0.0]), r: 0.055 });
         s.push(Seg { bone: ELBOW + k, a: arm_rest(*side, [ARM_X, 1.13, 0.0]), b: arm_rest(*side, [ARM_X, WRIST_Y, 0.0]), r: 0.04 });
         s.push(Seg { bone: WRIST + k, a: arm_rest(*side, [ARM_X, WRIST_Y, 0.0]), b: arm_rest(*side, [ARM_X, 0.715, 0.0]), r: 0.035 });
@@ -305,7 +349,8 @@ fn weights(p: V, segs: &[Seg]) -> ([f32; 4], [f32; 4]) {
         if paired && ((s.bone - HIP) % 2 == 0) != side_left && p[0].abs() > 0.03 {
             continue;
         }
-        if s.bone == JAW && !(p[2] < -0.015 && p[1] < 1.605 && p[1] > NECK_Y) {
+        let h = to_head(p);
+        if s.bone == JAW && !(h[2] < -0.015 && h[1] < 1.605 && p[1] > NECK_Y) {
             continue;
         }
         let d = (dist_to_segment(p, s.a, s.b) - s.r).max(0.0);
@@ -533,6 +578,80 @@ mod tests {
         assert_eq!(i[0] as usize, KNEE + 1, "a right shin follows the right knee bone, got {i:?} {w:?}");
         let (i, _) = weights([-0.098, 0.3, 0.0], &segs);
         assert_eq!(i[0] as usize, KNEE, "and a left one the left");
+    }
+
+    /// Ray-traces the rest pose from the front, the side, three quarters and the back into `$VIEWS` (a .ppm), to
+    /// look at the shape without the game: `VIEWS=out.ppm cargo test --release views -- --ignored`. `$BARE` set
+    /// leaves the clothes and hair off.
+    #[test]
+    #[ignore]
+    fn views() {
+        let out = std::env::var("VIEWS").expect("set VIEWS to the picture to write");
+        let bare = std::env::var("BARE").is_ok();
+        let parts: Vec<(&(dyn Fn(V) -> f32 + Sync), [f32; 3])> = if bare {
+            vec![(&skin, [0.78, 0.62, 0.54])]
+        } else {
+            vec![(&skin, [0.78, 0.62, 0.54]), (&shirt, [0.30, 0.42, 0.55]), (&pants, [0.25, 0.25, 0.30]), (&hair, [0.15, 0.10, 0.07])]
+        };
+        let scene = |p: V| parts.iter().map(|(f, _)| f(p)).fold(f32::MAX, f32::min);
+        let (w, h, px) = (330usize, 640usize, 1.92 / 640.0);
+        // looking from where, as a turn round the figure: front (it faces -z), side, three quarters, back
+        let turns = [std::f32::consts::PI, std::f32::consts::FRAC_PI_2, 2.4, 0.0];
+        let mut img = vec![[0u8; 3]; w * h * turns.len()];
+        std::thread::scope(|s| {
+            for (v, chunk) in img.chunks_mut(w * h).enumerate() {
+                let (scene, parts, a) = (&scene, &parts, turns[v]);
+                s.spawn(move || {
+                    let (sa, ca) = a.sin_cos();
+                    // the camera looks along -dir; right is across the picture
+                    let dir = [sa, 0.0, ca];
+                    let right = [ca, 0.0, -sa];
+                    for y in 0..h {
+                        for x in 0..w {
+                            let (u, t) = ((x as f32 - w as f32 / 2.0) * px, 1.9 - y as f32 * px);
+                            let mut p = [right[0] * u + dir[0] * 1.0, t, right[2] * u + dir[2] * 1.0];
+                            let mut col = [0.93, 0.93, 0.9];
+                            if (t * 100.0).rem_euclid(10.0) < 0.3 {
+                                col = [0.82, 0.82, 0.8];
+                            }
+                            for _ in 0..200 {
+                                let d = scene(p);
+                                if d < 0.0006 {
+                                    let e = 0.001;
+                                    let g = [
+                                        scene([p[0] + e, p[1], p[2]]) - scene([p[0] - e, p[1], p[2]]),
+                                        scene([p[0], p[1] + e, p[2]]) - scene([p[0], p[1] - e, p[2]]),
+                                        scene([p[0], p[1], p[2] + e]) - scene([p[0], p[1], p[2] - e]),
+                                    ];
+                                    let l = len(g).max(1e-9);
+                                    let n = [g[0] / l, g[1] / l, g[2] / l];
+                                    let base = parts.iter().min_by(|a, b| a.0(p).partial_cmp(&b.0(p)).unwrap()).unwrap().1;
+                                    let key = [0.5 * sa - 0.5 * ca, 0.6, 0.5 * ca + 0.5 * sa];
+                                    let kl = len(key);
+                                    let lit = 0.25 + 0.75 * (dot(n, key) / kl).max(0.0) + 0.15 * dot(n, dir).max(0.0);
+                                    col = base.map(|c| c * lit);
+                                    break;
+                                }
+                                p = [p[0] - dir[0] * d * 0.8, p[1], p[2] - dir[2] * d * 0.8];
+                                if dot(p, dir) < -1.0 {
+                                    break;
+                                }
+                            }
+                            chunk[y * w + x] = col.map(|c| (c.clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0) as u8);
+                        }
+                    }
+                });
+            }
+        });
+        let mut ppm = format!("P6 {} {} 255\n", w * turns.len(), h).into_bytes();
+        for y in 0..h {
+            for v in 0..turns.len() {
+                for x in 0..w {
+                    ppm.extend_from_slice(&img[v * w * h + y * w + x]);
+                }
+            }
+        }
+        std::fs::write(out, ppm).unwrap();
     }
 
     #[test]
