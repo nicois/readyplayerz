@@ -20,34 +20,25 @@ const EPS: f32 = 0.001;
 const SENS: f32 = 0.0022;
 /// Half the side of the square arena.
 pub const HALF: f32 = 100.0;
-const BOT_COUNT: usize = 14;
 /// Most zombies alive at once; the rest of a wave trickles in as they die.
 const MAX_ZOMBIES: u32 = 24;
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Mode {
-    /// armed soldiers that shoot and respawn
-    Soldiers,
-    /// waves of melee zombies, no respawns
-    Zombies,
-}
 /// The tallest ledge a walking body climbs without jumping, so stairs and terraces work.
 const STEP_UP: f32 = 0.4;
-const BOT_SPEED: f32 = 3.2;
 /// Bots further than this from the player just glide along their route instead of simulating a body.
 const LOD_RADIUS: f32 = 40.0;
 /// Side of one cell of the wall grid.
 const CELL: f32 = 4.0;
 pub const EQUIP_TIME: f32 = 0.35;
-pub const WEAPON_COUNT: usize = 4;
+pub const WEAPON_COUNT: usize = 5;
+/// The first PRIMARIES weapons are the ones a loadout picks from; the pistol is everyone's sidearm.
+pub const PRIMARIES: usize = 4;
+pub const PISTOL: usize = 4;
 
 /// Things that happened this tick that a client may want to play a sound for.
 /// Each event is `[code, a, b]` in `Game::events`.
 pub mod ev {
     /// a = weapon
     pub const SHOT: f32 = 1.0;
-    /// a = distance, b = pan (-1 left, 1 right)
-    pub const ENEMY_SHOT: f32 = 2.0;
     // hit, headshot and kill are ordered so the loudest one in a volley wins
     pub const HIT: f32 = 3.0;
     pub const HEAD: f32 = 4.0;
@@ -97,6 +88,7 @@ pub static WEAPONS: [Weapon; WEAPON_COUNT] = [
     Weapon { name: "SMG", mag: 35, delay: 0.065, reload: 1.2, pellets: 1, body_dmg: 20.0, head_dmg: 40.0, spread: 0.022, ads_spread: 0.007, kick: 0.004, auto: true, zoom: 0.85, scope: false, speed: 1.08 },
     Weapon { name: "Shotgun", mag: 6, delay: 0.85, reload: 2.4, pellets: 8, body_dmg: 14.0, head_dmg: 28.0, spread: 0.055, ads_spread: 0.038, kick: 0.045, auto: false, zoom: 0.9, scope: false, speed: 1.0 },
     Weapon { name: "Sniper", mag: 5, delay: 1.3, reload: 2.6, pellets: 1, body_dmg: 100.0, head_dmg: 150.0, spread: 0.04, ads_spread: 0.0, kick: 0.03, auto: false, zoom: 0.3, scope: true, speed: 0.92 },
+    Weapon { name: "Pistol", mag: 12, delay: 0.16, reload: 1.1, pellets: 1, body_dmg: 26.0, head_dmg: 60.0, spread: 0.014, ads_spread: 0.004, kick: 0.012, auto: false, zoom: 0.85, scope: false, speed: 1.05 },
 ];
 
 #[derive(Clone, Copy, Debug)]
@@ -186,6 +178,12 @@ pub struct Player {
     pub pitch: f32,
     pub hp: f32,
     pub weapon: usize,
+    /// the guns carried this life: a primary and the pistol
+    pub loadout: [usize; 2],
+    /// the primary to carry next life; it can only change before the first spawn or while dead
+    pub picked: usize,
+    /// has played this life, which locks the loadout until death
+    pub in_play: bool,
     /// rounds left per weapon
     pub ammo: [u32; WEAPON_COUNT],
     pub reload_t: f32,
@@ -234,11 +232,10 @@ pub struct Bot {
     pub body: Body,
     pub hp: f32,
     pub alive: bool,
-    pub respawn_t: f32,
-    /// time to the next shot (soldiers) or the next swing (zombies)
+    /// time to the next swing
     pub fire_t: f32,
     pub phase: f32,
-    /// zombies: 0 walker, 1 runner, 2 brute
+    /// 0 walker, 1 runner, 2 brute
     pub kind: u8,
     pub speed: f32,
     /// visual and hit box size
@@ -248,7 +245,7 @@ pub struct Bot {
     pub growl_t: f32,
     /// 1 when just hit, fading to 0: the zombie flinches and slows
     pub hit_t: f32,
-    /// a zombie that was shot down without bursting stays as a corpse for `CORPSE_T`; this is how long it has lain there
+    /// a zombie that was shot down stays as a corpse for `CORPSE_T`; this is how long it has lain there
     pub corpse: bool,
     pub dead_t: f32,
     /// the way it was facing when it fell
@@ -259,8 +256,9 @@ pub struct Bot {
 pub const CORPSE_T: f32 = 6.0;
 
 impl Bot {
-    pub(crate) fn soldier(pos: V3, phase: f32) -> Bot {
-        Bot { body: Body { pos, ..Body::default() }, hp: 100.0, alive: true, respawn_t: 0.0, fire_t: 1.0, phase, kind: 0, speed: BOT_SPEED, scale: 1.0, swing_t: 0.0, growl_t: 0.0, hit_t: 0.0, corpse: false, dead_t: 0.0, face: 0.0 }
+    /// A walker; `spawn_zombie` makes the others from it.
+    pub(crate) fn zombie(pos: V3, phase: f32) -> Bot {
+        Bot { body: Body { pos, ..Body::default() }, hp: 100.0, alive: true, fire_t: 0.5, phase, kind: 0, speed: 3.0, scale: 1.0, swing_t: 0.0, growl_t: 0.0, hit_t: 0.0, corpse: false, dead_t: 0.0, face: 0.0 }
     }
     pub fn body_box(&self) -> Aabb {
         let (p, s) = (self.body.pos, self.scale);
@@ -272,31 +270,13 @@ impl Bot {
     }
 }
 
-/// What a zombie's pieces look like, in the order of the chunks in `burst`: scalp, head, torso, jacket,
-/// blood, arms, legs, boots, and a rib bone where the rifle would be.
-const ZOMBIE_CHUNKS: [[f32; 3]; 12] = [
-    [0.18, 0.14, 0.10],
-    [0.66, 0.48, 0.40],
-    [0.30, 0.20, 0.18],
-    [0.28, 0.10, 0.09],
-    [0.45, 0.06, 0.07],
-    [0.60, 0.44, 0.36],
-    [0.60, 0.44, 0.36],
-    [0.20, 0.19, 0.17],
-    [0.20, 0.19, 0.17],
-    [0.12, 0.10, 0.09],
-    [0.12, 0.10, 0.09],
-    [0.75, 0.72, 0.62],
-];
-
 pub struct Tracer {
     pub a: V3,
     pub b: V3,
     pub life: f32,
-    pub enemy: bool,
 }
 
-/// A chunk of a dead soldier, or a spark. Purely cosmetic.
+/// A drop of blood. Purely cosmetic.
 pub struct Debris {
     pub pos: V3,
     pub vel: V3,
@@ -305,11 +285,6 @@ pub struct Debris {
     pub half: V3,
     pub color: [f32; 3],
     pub life: f32,
-    pub max_life: f32,
-    /// sparks are drawn unlit and fall lighter
-    pub glow: bool,
-    /// drawn as a smooth lump rather than a box (flesh and blood)
-    pub round: bool,
 }
 
 const MAX_DEBRIS: usize = 300;
@@ -326,9 +301,9 @@ pub struct Game {
     pub debris: Vec<Debris>,
     pub events: Vec<[f32; 3]>,
     pub player: Player,
+    /// the zombies, alive and fallen
     pub bots: Vec<Bot>,
-    pub mode: Mode,
-    /// zombies mode: the current wave (0 before the first), zombies still to arrive, and the timers
+    /// the current wave (0 before the first), zombies still to arrive, and the timers
     pub wave: u32,
     to_spawn: u32,
     spawn_t: f32,
@@ -423,9 +398,6 @@ fn step_body(b: &mut Body, target: [f32; 2], jump: bool, dt: f32, world: &Grid) 
     hx || hz
 }
 
-fn sub(a: V3, b: V3) -> V3 {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
 fn len(a: V3) -> f32 {
     (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt()
 }
@@ -443,15 +415,6 @@ fn along(o: V3, d: V3, t: f32) -> V3 {
 impl Game {
     pub fn new(seed: u32) -> Game {
         Game::with_map(seed, map::build(seed))
-    }
-
-    pub fn with_mode(seed: u32, mode: Mode) -> Game {
-        let mut g = Game::new(seed);
-        g.mode = mode;
-        if mode == Mode::Zombies {
-            g.bots.clear();
-        }
-        g
     }
 
     /// Zombies still to kill this wave: those alive plus those yet to arrive.
@@ -480,12 +443,11 @@ impl Game {
             (0, 100.0, self.rng.range(2.5, 3.4), 1.0)
         };
         let phase = self.rng.range(0.0, 6.28);
-        let mut z = Bot::soldier(pos, phase);
+        let mut z = Bot::zombie(pos, phase);
         z.kind = kind;
         z.hp = hp;
         z.speed = speed;
         z.scale = scale;
-        z.fire_t = 0.5;
         z.growl_t = self.rng.range(1.0, 6.0);
         match self.bots.iter().position(|b| !b.alive && (!b.corpse || b.dead_t > CORPSE_T)) {
             Some(i) => self.bots[i] = z,
@@ -516,12 +478,14 @@ impl Game {
         }
     }
 
-    /// A game on bare walls with no spawn points, for tests.
+    /// A game on bare walls with no spawn points and no waves coming, for tests.
     #[cfg(test)]
     fn with_walls(seed: u32, walls: Vec<Aabb>) -> Game {
         let colors = vec![[0.5; 3]; walls.len()];
         let mats = vec![0; walls.len()];
-        Game::with_map(seed, Map { walls, colors, mats, decals: Vec::new(), spawns: Vec::new() })
+        let mut g = Game::with_map(seed, Map { walls, colors, mats, decals: Vec::new(), spawns: Vec::new() });
+        g.wave_t = f32::INFINITY;
+        g
     }
 
     pub fn with_map(seed: u32, map: Map) -> Game {
@@ -545,6 +509,9 @@ impl Game {
                 pitch: 0.0,
                 hp: 100.0,
                 weapon: 0,
+                loadout: [0, PISTOL],
+                picked: 0,
+                in_play: false,
                 ammo: full_ammo(),
                 reload_t: 0.0,
                 cooldown: 0.0,
@@ -561,7 +528,6 @@ impl Game {
                 since_hurt: 99.0,
             },
             bots: Vec::new(),
-            mode: Mode::Soldiers,
             wave: 0,
             to_spawn: 0,
             spawn_t: 0.0,
@@ -572,11 +538,6 @@ impl Game {
             rng: Rng(seed.max(1)),
         };
         g.respawn_player();
-        for _ in 0..BOT_COUNT {
-            let pos = g.bot_spawn();
-            let phase = g.rng.range(0.0, 6.28);
-            g.bots.push(Bot::soldier(pos, phase));
-        }
         g
     }
 
@@ -591,9 +552,35 @@ impl Game {
         p.pitch = 0.0;
         p.hp = 100.0;
         p.ammo = full_ammo();
+        p.loadout[0] = p.picked;
+        p.weapon = p.picked;
         p.reload_t = 0.0;
         p.equip_t = 0.0;
         p.ads = 0.0;
+    }
+
+    /// Picks the primary for the loadout. Before the first spawn is played it is carried straight away; otherwise
+    /// from the next life, so a life is always played with the gun it started with.
+    pub fn pick_primary(&mut self, i: usize) -> bool {
+        if i >= PRIMARIES {
+            return false;
+        }
+        let p = &mut self.player;
+        p.picked = i;
+        if p.alive() && !p.in_play {
+            p.loadout[0] = i;
+            p.weapon = i;
+            p.reload_t = 0.0;
+            p.ads = 0.0;
+        }
+        true
+    }
+
+    /// Switches to the primary (slot 0) or the pistol (slot 1).
+    pub fn select_slot(&mut self, slot: usize) {
+        if let Some(&w) = self.player.loadout.get(slot) {
+            self.select(w);
+        }
     }
 
     /// A spawn point at least `far` from everything in `from`, or failing that the best of a few.
@@ -636,12 +623,6 @@ impl Game {
         self.events.push([ev::EQUIP, 0.0, 0.0]);
     }
 
-    fn bot_spawn(&mut self) -> V3 {
-        // open ground, not on top of the player
-        let from = [self.player.body.pos];
-        self.pick_spawn(&from, 30.0)
-    }
-
     fn wall_distance(&self, o: V3, d: V3) -> f32 {
         self.world.raycast(o, d, RANGE)
     }
@@ -657,7 +638,7 @@ impl Game {
         if self.player.hp <= 0.0 {
             self.events.push([ev::DEATH, 0.0, 0.0]);
             self.player.deaths += 1;
-            self.player.respawn_t = if self.mode == Mode::Zombies { 4.0 } else { 2.0 };
+            self.player.respawn_t = 4.0;
         }
     }
 
@@ -682,62 +663,6 @@ impl Game {
         (best, target)
     }
 
-    /// Blows a soldier apart into the pieces it was drawn from, plus sparks. `dir` is the way the shot was going.
-    fn burst(&mut self, at: V3, dir: V3, head: bool, power: f32) {
-        let z = self.mode == Mode::Zombies;
-        // height of the centre, half extents, colour, extra upward kick
-        const CHUNKS: [(f32, V3, [f32; 3], f32); 12] = [
-            (1.70, [0.13, 0.08, 0.13], [0.11, 0.12, 0.14], 3.0), // helmet
-            (1.55, [0.10, 0.10, 0.10], [0.80, 0.60, 0.46], 1.0), // head
-            (1.25, [0.22, 0.12, 0.12], [0.24, 0.26, 0.28], 0.0), // torso
-            (1.05, [0.24, 0.10, 0.13], [0.13, 0.14, 0.17], 0.0), // vest
-            (1.20, [0.14, 0.10, 0.03], [0.78, 0.14, 0.17], 1.0), // chest plate
-            (1.15, [0.05, 0.20, 0.05], [0.24, 0.26, 0.28], 0.5), // arms
-            (1.15, [0.05, 0.20, 0.05], [0.24, 0.26, 0.28], 0.5),
-            (0.60, [0.07, 0.28, 0.08], [0.15, 0.17, 0.18], 0.0), // legs
-            (0.60, [0.07, 0.28, 0.08], [0.15, 0.17, 0.18], 0.0),
-            (0.08, [0.09, 0.06, 0.13], [0.10, 0.10, 0.11], 0.0), // boots
-            (0.08, [0.09, 0.06, 0.13], [0.10, 0.10, 0.11], 0.0),
-            (1.15, [0.03, 0.04, 0.22], [0.10, 0.10, 0.11], 1.5), // rifle
-        ];
-        let push = [dir[0], 0.0, dir[2]];
-        for (i, (h, half, color, lift)) in CHUNKS.iter().enumerate() {
-            let k = (4.0 + 3.0 * power) * self.rng.range(0.6, 1.2);
-            let pop = if head && i < 2 { 4.0 } else { 0.0 };
-            let vel = [
-                push[0] * k + self.rng.range(-2.5, 2.5) * power * 0.6,
-                (2.5 + lift + pop + self.rng.range(0.0, 3.0)) * (0.8 + 0.3 * power),
-                push[2] * k + self.rng.range(-2.5, 2.5) * power * 0.6,
-            ];
-            let life = self.rng.range(4.0, 5.5);
-            let (r, s) = (&mut self.rng, 12.0);
-            let rot = [r.range(0.0, 6.28), r.range(0.0, 6.28), r.range(0.0, 6.28)];
-            let spin = [r.range(-s, s), r.range(-s, s), r.range(-s, s)];
-            let pos = [at[0] + r.range(-0.1, 0.1), at[1] + h, at[2] + r.range(-0.1, 0.1)];
-            let color = if z { ZOMBIE_CHUNKS[i] } else { *color };
-            self.debris.push(Debris { pos, vel, rot, spin, half: *half, color, life, max_life: life, glow: false, round: z });
-        }
-        for _ in 0..18 {
-            let r = &mut self.rng;
-            let a = r.range(0.0, std::f32::consts::TAU);
-            let sp = r.range(3.0, 9.0) * power;
-            let vel = [a.cos() * sp + dir[0] * 3.0, r.range(1.0, 7.0), a.sin() * sp + dir[2] * 3.0];
-            let color = match (z, r.f() < 0.5) {
-                (false, true) => [1.0, 0.75, 0.25],
-                (false, false) => [1.0, 0.45, 0.15],
-                (true, true) => [0.75, 0.05, 0.05],
-                (true, false) => [0.5, 0.03, 0.04],
-            };
-            let life = r.range(0.35, 0.85);
-            let pos = [at[0], at[1] + 1.1, at[2]];
-            self.debris.push(Debris { pos, vel, rot: [0.0; 3], spin: [0.0; 3], half: [0.035; 3], color, life, max_life: life, glow: true, round: false });
-        }
-        if self.debris.len() > MAX_DEBRIS {
-            let extra = self.debris.len() - MAX_DEBRIS;
-            self.debris.drain(..extra);
-        }
-    }
-
     /// A spray of blood droplets from a hit.
     fn blood(&mut self, at: V3, dir: V3, n: usize) {
         for _ in 0..n {
@@ -746,7 +671,7 @@ impl Game {
             let life = r.range(0.4, 0.9);
             let s = r.range(0.02, 0.04);
             let color = if r.f() < 0.5 { [0.45, 0.03, 0.04] } else { [0.30, 0.02, 0.03] };
-            self.debris.push(Debris { pos: at, vel, rot: [0.0; 3], spin: [0.0; 3], half: [s; 3], color, life, max_life: life, glow: false, round: true });
+            self.debris.push(Debris { pos: at, vel, rot: [0.0; 3], spin: [0.0; 3], half: [s; 3], color, life });
         }
         if self.debris.len() > MAX_DEBRIS {
             let extra = self.debris.len() - MAX_DEBRIS;
@@ -757,7 +682,7 @@ impl Game {
     fn tick_debris(&mut self, dt: f32, world: &Grid) {
         for d in &mut self.debris {
             d.life -= dt;
-            d.vel[1] -= GRAVITY * if d.glow { 0.5 } else { 1.0 } * dt;
+            d.vel[1] -= GRAVITY * dt;
             let r = d.half[0].max(d.half[1]).max(d.half[2]);
             let mut grounded = false;
             for axis in 0..3 {
@@ -834,9 +759,7 @@ impl Game {
             };
             let (dist, target) = self.trace_bots(eye, dir);
             if let Some((i, head)) = target {
-                if self.mode == Mode::Zombies {
-                    self.blood(along(eye, dir, dist), dir, if head { 10 } else { 6 });
-                }
+                self.blood(along(eye, dir, dist), dir, if head { 10 } else { 6 });
                 let pp = self.player.body.pos;
                 let bot = &mut self.bots[i];
                 bot.hp -= if head { w.head_dmg } else { w.body_dmg };
@@ -845,27 +768,19 @@ impl Game {
                 outcome = outcome.max(if head { ev::HEAD } else { ev::HIT });
                 if bot.hp <= 0.0 {
                     bot.alive = false;
-                    bot.respawn_t = 3.0;
                     let at = bot.body.pos;
                     let power = (w.body_dmg * w.pellets as f32 / 34.0).sqrt().clamp(0.8, 1.8);
                     // zombies always crumple where they stand; harder kills just spray more blood
-                    let collapse = self.mode == Mode::Zombies;
-                    if collapse {
-                        bot.corpse = true;
-                        bot.dead_t = 0.0;
-                        bot.face = (pp[0] - at[0]).atan2(-(pp[2] - at[2]));
-                    }
+                    bot.corpse = true;
+                    bot.dead_t = 0.0;
+                    bot.face = (pp[0] - at[0]).atan2(-(pp[2] - at[2]));
                     self.player.kills += 1;
                     self.player.kill_t = 1.0;
-                    if collapse {
-                        self.blood([at[0], at[1] + if head { 1.6 } else { 1.2 }, at[2]], dir, if head || power > 1.3 { 32 } else { 16 });
-                    } else {
-                        self.burst(at, dir, head, power);
-                    }
+                    self.blood([at[0], at[1] + if head { 1.6 } else { 1.2 }, at[2]], dir, if head || power > 1.3 { 32 } else { 16 });
                     outcome = ev::KILL;
                 }
             }
-            self.tracers.push(Tracer { a: muzzle, b: along(eye, dir, dist), life: 0.06, enemy: false });
+            self.tracers.push(Tracer { a: muzzle, b: along(eye, dir, dist), life: 0.06 });
         }
 
         if outcome > 0.0 {
@@ -884,9 +799,7 @@ impl Game {
         let world = self.world.clone();
         self.nav.set_goal(self.player.body.pos);
         self.tick_player(dt, &world);
-        if self.mode == Mode::Zombies {
-            self.tick_waves(dt);
-        }
+        self.tick_waves(dt);
         self.tick_bots(dt, &world);
         self.tick_debris(dt, &world);
         for t in &mut self.tracers {
@@ -908,18 +821,17 @@ impl Game {
         if !p.alive() {
             p.respawn_t -= dt;
             if p.respawn_t <= 0.0 {
-                if self.mode == Mode::Zombies {
-                    self.reset_waves();
-                }
+                self.reset_waves();
                 self.respawn_player();
             }
             return;
         }
+        p.in_play = true;
 
         let w = p.gun();
         // zombie runs are long, so health comes back when nothing has touched you for a while
         p.since_hurt += dt;
-        if self.mode == Mode::Zombies && p.since_hurt > 5.0 {
+        if p.since_hurt > 5.0 {
             p.hp = (p.hp + 8.0 * dt).min(100.0);
         }
         p.equip_t = (p.equip_t - dt).max(0.0);
@@ -976,30 +888,15 @@ impl Game {
 
     fn tick_bots(&mut self, dt: f32, world: &Grid) {
         let target = self.player.body.pos;
-        let target_eye = self.player.eye();
         let player_alive = self.player.alive();
-        let time = self.time;
         let mut dmg = 0.0;
-        let mut shots = Vec::new();
         let mut heard = Vec::new();
         let (psy, pcy) = self.player.yaw.sin_cos();
-        let zombies = self.mode == Mode::Zombies;
         let snap: Vec<(V3, bool)> = self.bots.iter().map(|b| (b.body.pos, b.alive)).collect();
 
         for i in 0..self.bots.len() {
             if !self.bots[i].alive {
-                if zombies {
-                    self.bots[i].dead_t += dt;
-                    continue;
-                }
-                self.bots[i].respawn_t -= dt;
-                if self.bots[i].respawn_t <= 0.0 {
-                    let pos = self.bot_spawn();
-                    let b = &mut self.bots[i];
-                    b.body = Body { pos, ..Body::default() };
-                    b.hp = 100.0;
-                    b.alive = true;
-                }
+                self.bots[i].dead_t += dt;
                 continue;
             }
             let b = &mut self.bots[i];
@@ -1008,14 +905,8 @@ impl Game {
             let dist = (dx * dx + dz * dz).sqrt().max(0.001);
             let (nx, nz) = (dx / dist, dz / dist);
             b.hit_t = (b.hit_t - dt * 3.0).max(0.0);
-            let strafe = if zombies { 0.0 } else { (time * 1.3 + b.phase).sin() * 2.0 };
-            let go = match (player_alive, zombies) {
-                (false, _) => 0.0,
-                (true, true) if dist > 1.2 || (target[1] - b.body.pos[1]).abs() > 1.6 => b.speed,
-                (true, false) if dist > 6.0 => BOT_SPEED,
-                _ => 0.0,
-            };
-
+            // it walks at the player until it is close enough to strike, flinching when hit
+            let go = if player_alive && (dist > 1.2 || (target[1] - b.body.pos[1]).abs() > 1.6) { b.speed } else { 0.0 };
             let go = go * (1.0 - 0.8 * b.hit_t);
 
             if dist > LOD_RADIUS && player_alive {
@@ -1049,24 +940,21 @@ impl Game {
             let to_player = [dx, target[1] + 0.6 - knee[1], dz];
             let reach = len(to_player).max(0.001);
             let straight = world.raycast(knee, [to_player[0] / reach, to_player[1] / reach, to_player[2] / reach], reach) >= reach;
-            let tv = match self.nav.next(b.body.pos) {
+            let mut tv = match self.nav.next(b.body.pos) {
                 Some(to) if !straight => {
                     let (rx, rz) = (to[0] - b.body.pos[0], to[2] - b.body.pos[2]);
                     let l = (rx * rx + rz * rz).sqrt().max(1e-4);
                     [rx / l * go, rz / l * go]
                 }
-                _ => [nx * go - nz * strafe, nz * go + nx * strafe],
+                _ => [nx * go, nz * go],
             };
-            let mut tv = tv;
-            if zombies {
-                // push apart from neighbours so a horde doesn't stack into one body
-                for (j, (pj, aj)) in snap.iter().enumerate() {
-                    let (ox, oz) = (b.body.pos[0] - pj[0], b.body.pos[2] - pj[2]);
-                    let d = (ox * ox + oz * oz).sqrt();
-                    if j != i && *aj && d < 0.9 && d > 0.001 {
-                        tv[0] += ox / d * (0.9 - d) * 4.0;
-                        tv[1] += oz / d * (0.9 - d) * 4.0;
-                    }
+            // push apart from neighbours so a horde doesn't stack into one body
+            for (j, (pj, aj)) in snap.iter().enumerate() {
+                let (ox, oz) = (b.body.pos[0] - pj[0], b.body.pos[2] - pj[2]);
+                let d = (ox * ox + oz * oz).sqrt();
+                if j != i && *aj && d < 0.9 && d > 0.001 {
+                    tv[0] += ox / d * (0.9 - d) * 4.0;
+                    tv[1] += oz / d * (0.9 - d) * 4.0;
                 }
             }
             let blocked = step_body(&mut b.body, tv, false, dt, world);
@@ -1074,55 +962,25 @@ impl Game {
                 b.body.vel[1] = JUMP;
             }
 
-            if zombies {
-                b.swing_t = (b.swing_t - dt * 2.5).max(0.0);
-                b.fire_t -= dt;
-                b.growl_t -= dt;
-                if b.growl_t <= 0.0 {
-                    b.growl_t = self.rng.range(4.0, 9.0);
-                    if dist < 45.0 {
-                        heard.push([ev::GROWL, dist, -(nx * pcy + nz * psy)]);
-                    }
-                }
-                if player_alive && dist < 1.7 && (target[1] - b.body.pos[1]).abs() < 1.6 && b.fire_t <= 0.0 {
-                    b.fire_t = 0.9;
-                    b.swing_t = 1.0;
-                    dmg += if b.kind == 2 { 30.0 } else { 12.0 };
-                }
-                continue;
-            }
-            if player_alive && dist < 1.6 {
-                dmg += 20.0 * dt;
-            }
+            b.swing_t = (b.swing_t - dt * 2.5).max(0.0);
             b.fire_t -= dt;
-            if player_alive && dist < 16.0 && b.fire_t <= 0.0 {
-                let eye = [b.body.pos[0], b.body.pos[1] + 1.5, b.body.pos[2]];
-                let to = sub(target_eye, eye);
-                let d = len(to);
-                let dir = [to[0] / d, to[1] / d, to[2] / d];
-                b.fire_t = 0.9 + self.rng.f() * 0.6;
-                let clear = self.walls_clear(eye, dir, d);
-                if clear {
-                    let hit = self.rng.f() < 0.3;
-                    let end = if hit { target_eye } else { along(target_eye, [self.rng.range(-1.0, 1.0), self.rng.range(-0.5, 0.5), self.rng.range(-1.0, 1.0)], 1.0) };
-                    shots.push(Tracer { a: eye, b: end, life: 0.08, enemy: true });
-                    // pan by how far to the player's right the shooter is
-                    heard.push([ev::ENEMY_SHOT, d, -(dir[0] * pcy + dir[2] * psy)]);
-                    if hit {
-                        dmg += 8.0;
-                    }
+            b.growl_t -= dt;
+            if b.growl_t <= 0.0 {
+                b.growl_t = self.rng.range(4.0, 9.0);
+                if dist < 45.0 {
+                    heard.push([ev::GROWL, dist, -(nx * pcy + nz * psy)]);
                 }
+            }
+            if player_alive && dist < 1.7 && (target[1] - b.body.pos[1]).abs() < 1.6 && b.fire_t <= 0.0 {
+                b.fire_t = 0.9;
+                b.swing_t = 1.0;
+                dmg += if b.kind == 2 { 30.0 } else { 12.0 };
             }
         }
-        self.tracers.extend(shots);
         self.events.extend(heard);
         if dmg > 0.0 {
             self.hurt_player(dmg);
         }
-    }
-
-    fn walls_clear(&self, o: V3, d: V3, dist: f32) -> bool {
-        self.world.raycast(o, d, dist) >= dist
     }
 }
 
@@ -1160,10 +1018,11 @@ mod tests {
     }
 
     #[test]
-    fn bots_spawn_in_the_open_and_away_from_the_player() {
+    fn zombies_spawn_in_the_open_and_away_from_the_player() {
         let mut g = Game::new(3);
         for _ in 0..200 {
-            let p = g.bot_spawn();
+            g.spawn_zombie();
+            let p = g.bots.last().unwrap().body.pos;
             let probe = aabb_at(p, HW, H);
             assert!(!g.world.find(&probe, |w| overlaps(&probe, w)), "spawned in a wall: {p:?}");
             let d = ((p[0] - g.player.body.pos[0]).powi(2) + (p[2] - g.player.body.pos[2]).powi(2)).sqrt();
@@ -1181,13 +1040,14 @@ mod tests {
     #[test]
     fn bots_find_their_way_around_a_wall() {
         let mut g = long_wall_arena();
-        g.bots.truncate(1);
         g.player.body.pos = [20.0, 0.0, 15.0];
-        g.bots[0].body.pos = [20.0, 0.0, -15.0];
+        g.bots.push(Bot::zombie([20.0, 0.0, -15.0], 0.0));
         let mut closest = f32::MAX;
+        // once it gets there it claws the player down, and the restart clears it away
         for _ in 0..(40.0 / STEP) as usize {
             g.tick(STEP);
-            let (b, p) = (g.bots[0].body.pos, g.player.body.pos);
+            let Some(z) = g.bots.first() else { break };
+            let (b, p) = (z.body.pos, g.player.body.pos);
             closest = closest.min(((b[0] - p[0]).powi(2) + (b[2] - p[2]).powi(2)).sqrt());
         }
         assert!(closest < 8.0, "never got round the wall, closest {closest}");
@@ -1198,6 +1058,7 @@ mod tests {
         for seed in 1..4 {
             let mut g = Game::new(seed);
             g.player.body.pos = [0.0, 0.0, 16.0];
+            g.player.hp = 1e6;
             for _ in 0..(30.0 / STEP) as usize {
                 g.tick(STEP);
                 for b in g.bots.iter().filter(|b| b.alive) {
@@ -1228,13 +1089,9 @@ mod tests {
     }
 
     #[test]
-    fn three_body_shots_kill_a_bot() {
+    fn three_body_shots_kill_a_walker() {
         let mut g = arena();
-        g.bots.truncate(1);
-        g.player.body.pos = [0.0, 0.0, 16.0];
-        g.bots[0].body.pos = [0.0, 0.0, 14.0]; // 2m straight ahead (yaw 0 faces -z)
-        g.player.yaw = 0.0;
-        g.player.pitch = -0.2; // lands on the torso, below the head box
+        bot_ahead(&mut g);
         let before = g.player.kills;
         for _ in 0..3 {
             g.player.cooldown = 0.0;
@@ -1244,12 +1101,9 @@ mod tests {
         assert!(!g.bots[0].alive);
     }
 
+    /// A walker 2 m straight ahead (yaw 0 faces -z), aimed at the torso, below the head box.
     fn bot_ahead(g: &mut Game) {
-        g.bots.truncate(1);
-        g.player.body.pos = [0.0, 0.0, 16.0];
-        g.bots[0].body.pos = [0.0, 0.0, 14.0];
-        g.player.yaw = 0.0;
-        g.player.pitch = -0.2;
+        bot_ahead_zombie(g, 0);
     }
 
     #[test]
@@ -1289,14 +1143,14 @@ mod tests {
     }
 
     #[test]
-    fn a_kill_blows_the_soldier_apart_and_the_pieces_settle_and_vanish() {
+    fn a_kill_drops_the_zombie_in_a_spray_of_blood_that_settles_and_vanishes() {
         let mut g = arena();
         bot_ahead(&mut g);
         g.select(3);
         g.player.cooldown = 0.0;
         g.player_fire();
-        assert!(!g.bots[0].alive);
-        assert!(g.debris.len() >= 12, "only {} pieces", g.debris.len());
+        assert!(!g.bots[0].alive && g.bots[0].corpse);
+        assert!(g.debris.len() >= 16, "only {} drops", g.debris.len());
         assert!(g.player.kill_t > 0.9);
         g.bots.clear();
         for _ in 0..(1.0 / STEP) as usize {
@@ -1357,20 +1211,15 @@ mod tests {
 
     fn zombie_game() -> Game {
         let mut g = arena();
-        g.mode = Mode::Zombies;
-        g.bots.clear();
         g.wave_t = 0.0;
         g
     }
 
     #[test]
-    fn zombies_arrive_in_waves_and_claw_but_never_shoot() {
+    fn zombies_arrive_in_waves_and_claw() {
         let mut g = zombie_game();
         g.player.hp = 1e6;
-        for _ in 0..(40.0 / STEP) as usize {
-            g.tick(STEP);
-            assert!(g.tracers.iter().all(|t| !t.enemy), "a zombie shot at the player");
-        }
+        idle(&mut g, 40.0);
         assert_eq!(g.wave, 1);
         assert!(g.bots.iter().any(|b| b.alive));
         assert!(g.player.hp < 1e6, "no zombie ever reached the player");
@@ -1407,6 +1256,27 @@ mod tests {
     }
 
     #[test]
+    fn a_pick_is_carried_at_once_before_playing_and_from_the_next_life_after() {
+        let mut g = arena();
+        g.bots.clear();
+        assert!(g.pick_primary(2));
+        assert_eq!((g.player.weapon, g.player.loadout), (2, [2, PISTOL]));
+        assert!(!g.pick_primary(PISTOL), "the pistol is not a primary");
+        idle(&mut g, 0.1);
+        // picked while alive: carried from the next life
+        assert!(g.pick_primary(1));
+        assert_eq!(g.player.loadout[0], 2, "changed guns mid-life");
+        g.select_slot(1);
+        assert_eq!(g.player.weapon, PISTOL);
+        g.hurt_player(1e9);
+        assert!(g.pick_primary(3));
+        assert_eq!(g.player.loadout[0], 2, "the pick should wait for the respawn");
+        idle(&mut g, 4.2);
+        assert!(g.player.alive());
+        assert_eq!((g.player.weapon, g.player.loadout), (3, [3, PISTOL]));
+    }
+
+    #[test]
     fn a_brute_takes_more_shots_than_a_walker() {
         let mut g = zombie_game();
         bot_ahead_zombie(&mut g, 2);
@@ -1424,7 +1294,7 @@ mod tests {
         g.player.body.pos = [0.0, 0.0, 16.0];
         g.player.yaw = 0.0;
         g.player.pitch = -0.2;
-        let mut z = Bot::soldier([0.0, 0.0, 14.0], 0.0);
+        let mut z = Bot::zombie([0.0, 0.0, 14.0], 0.0);
         z.kind = kind;
         z.hp = if kind == 2 { 320.0 } else { 100.0 };
         z.scale = if kind == 2 { 1.25 } else { 1.0 };

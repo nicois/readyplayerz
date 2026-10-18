@@ -1,7 +1,7 @@
 //! Browser glue: owns the game and renderer, and is driven from JS.
 
 use crate::render::Renderer;
-use crate::sim::{Game, Mode, STEP, WEAPONS, WEAPON_COUNT};
+use crate::sim::{Game, PRIMARIES, STEP, WEAPONS};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
@@ -13,13 +13,14 @@ pub struct Client {
     acc: f32,
     last: f64,
     paused: bool,
+    /// what the map was made from, so ending the game can start a fresh one on the same map
+    seed: u32,
 }
 
 #[wasm_bindgen]
 impl Client {
     #[wasm_bindgen(constructor)]
-    /// `mode` is "soldiers" or "zombies".
-    pub fn new(canvas: HtmlCanvasElement, mode: &str) -> Result<Client, JsValue> {
+    pub fn new(canvas: HtmlCanvasElement) -> Result<Client, JsValue> {
         std::panic::set_hook(Box::new(|info| web_sys::console::error_1(&info.to_string().into())));
         let gl = canvas
             .get_context("webgl2")?
@@ -27,15 +28,27 @@ impl Client {
             .dyn_into::<WebGl2RenderingContext>()?;
         let mut renderer = Renderer::new(gl, canvas.width(), canvas.height())?;
         let seed = (js_sys::Math::random() * 4_000_000_000.0) as u32;
-        let mode = if mode == "zombies" { Mode::Zombies } else { Mode::Soldiers };
-        let game = Game::with_mode(seed, mode);
+        let game = Game::new(seed);
         renderer.upload_world(&game)?;
-        Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true })
+        Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true, seed })
+    }
+
+    /// Ends the game: a fresh one on the same map, with the score cleared and the loadout picked so far.
+    pub fn end_game(&mut self) {
+        let picked = self.game.player.picked;
+        self.game = Game::new(self.seed);
+        self.game.pick_primary(picked);
+        self.acc = 0.0;
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
         self.renderer.width = width;
         self.renderer.height = height;
+    }
+
+    /// Graphics quality: 0 low, 1 medium, 2 high. JS resizes the canvas to match.
+    pub fn set_quality(&mut self, q: u8) {
+        self.renderer.quality = q;
     }
 
     pub fn key(&mut self, code: &str, down: bool) {
@@ -49,19 +62,24 @@ impl Client {
             "ShiftLeft" | "ShiftRight" => i.sprint = down,
             "KeyR" => i.reload = down,
             _ if down => {
+                // alive: 1 primary, 2 pistol; dead: 1-4 picks the primary for the next life
                 if let Some(n) = code.strip_prefix("Digit").and_then(|d| d.parse::<usize>().ok()) {
-                    self.game.select(n.wrapping_sub(1));
+                    if self.game.player.alive() {
+                        self.game.select_slot(n.wrapping_sub(1));
+                    } else {
+                        self.game.pick_primary(n.wrapping_sub(1));
+                    }
                 }
             }
             _ => {}
         }
     }
 
-    /// Mouse wheel: next or previous weapon.
-    pub fn cycle_weapon(&mut self, dir: i32) {
-        let n = WEAPON_COUNT as i32;
-        let next = (self.game.player.weapon as i32 + dir).rem_euclid(n);
-        self.game.select(next as usize);
+    /// Mouse wheel: swaps between the primary and the pistol, whichever way it turns.
+    pub fn cycle_weapon(&mut self, _dir: i32) {
+        let p = &self.game.player;
+        let slot = if p.weapon == p.loadout[0] { 1 } else { 0 };
+        self.game.select_slot(slot);
     }
 
     /// The menu is up: keep drawing, stop the simulation.
@@ -99,7 +117,7 @@ impl Client {
         for i in 0..n {
             let off = (i as f32 - (n as f32 - 1.0) / 2.0) * 1.4 + side;
             let at = [p[0] + f[0] * dist + right[0] * off, p[1], p[2] + f[2] * dist + right[2] * off];
-            let mut z = crate::sim::Bot::soldier(at, i as f32 * 1.7 + 0.3);
+            let mut z = crate::sim::Bot::zombie(at, i as f32 * 1.7 + 0.3);
             z.kind = (i % 3) as u8;
             self.game.bots.push(z);
         }
@@ -120,8 +138,14 @@ impl Client {
         std::mem::take(&mut self.game.events).into_iter().flatten().collect()
     }
 
-    pub fn select_weapon(&mut self, i: usize) {
-        self.game.select(i);
+    /// Picks the loadout's primary: carried at once before the game starts, otherwise from the next life.
+    pub fn pick_primary(&mut self, i: usize) -> bool {
+        self.game.pick_primary(i)
+    }
+
+    /// How many of `weapon_names` are primaries; the one after them is the pistol.
+    pub fn primary_count(&self) -> usize {
+        PRIMARIES
     }
 
     pub fn weapon_names(&self) -> Vec<String> {
@@ -172,7 +196,8 @@ impl Client {
     }
 
     /// health, ammo, magazine size, reloading, kills, deaths, hit marker, damage flash, respawn countdown,
-    /// weapon index, aim amount, scoped, kill marker, x, z, yaw, wave, zombies left
+    /// weapon index, aim amount, scoped, kill marker, x, z, yaw, wave, zombies left, carried primary,
+    /// picked primary, game under way
     pub fn hud(&self) -> Vec<f32> {
         let p = &self.game.player;
         vec![
@@ -194,6 +219,9 @@ impl Client {
             p.yaw,
             self.game.wave as f32,
             self.game.zombies_left() as f32,
+            p.loadout[0] as f32,
+            p.picked as f32,
+            if p.in_play { 1.0 } else { 0.0 },
         ]
     }
 }

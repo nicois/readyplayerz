@@ -1,7 +1,7 @@
 // Synthesized sound effects. Everything is built from noise and oscillators, so there are no audio files.
 // The sim reports what happened as [code, a, b] triples; `play` turns them into sound.
 
-const SHOT = 1, ENEMY_SHOT = 2, HIT = 3, HEAD = 4, KILL = 5, HURT = 6, RELOAD = 7, EQUIP = 8, STEP = 9, JUMP = 10, LAND = 11, DEATH = 12, GROWL = 13, WAVE = 14;
+const SHOT = 1, HIT = 3, HEAD = 4, KILL = 5, HURT = 6, RELOAD = 7, EQUIP = 8, STEP = 9, JUMP = 10, LAND = 11, DEATH = 12, GROWL = 13, WAVE = 14;
 
 // per gun: crack (highpass noise: freq, gain, seconds), thump (sine: from, to, seconds, gain), tail (lowpass noise), reverb send
 const GUNS = [
@@ -9,6 +9,7 @@ const GUNS = [
   { crack: [3000, 0.40, 0.045], thump: [230, 70, 0.07, 0.6], tail: [1200, 300, 0.12, 0.2], wet: 0.2 },
   { crack: [1400, 0.90, 0.14], thump: [120, 28, 0.28, 1.1], tail: [700, 100, 0.55, 0.5], wet: 0.35 },
   { crack: [1100, 1.00, 0.16], thump: [90, 24, 0.40, 1.2], tail: [900, 90, 0.95, 0.6], wet: 0.5 },
+  { crack: [2600, 0.45, 0.04], thump: [210, 60, 0.07, 0.6], tail: [1100, 250, 0.15, 0.25], wet: 0.22 },
 ];
 
 export class Sound {
@@ -168,14 +169,6 @@ export class Sound {
     }
   }
 
-  enemyShot(dist, pan) {
-    const t = this.ctx.currentTime, vol = 0.6 / (1 + dist * 0.18), k = 1 / (1 + dist * 0.08);
-    const d = this.bus(pan, Math.min(0.5, 0.2 + dist * 0.015));
-    this.noise(d, t, 0.06, "bandpass", 1800 * k, 900 * k, vol * 0.9, 0.8);
-    this.tone(d, t, "sine", 140, 50, 0.1, vol * 0.8);
-    this.noise(d, t, 0.2, "lowpass", 800 * k, 150, vol * 0.4);
-  }
-
   // a low, wavering groan with some breath in it, softer and duller the further away it is
   growl(dist, pan) {
     const ctx = this.ctx, t = ctx.currentTime, vol = 0.9 / (1 + dist * 0.12), dur = 0.9 + Math.random() * 0.5;
@@ -310,7 +303,6 @@ export class Sound {
       const a = events[i + 1], b = events[i + 2];
       switch (events[i]) {
         case SHOT: this.shot(a); break;
-        case ENEMY_SHOT: this.enemyShot(a, b); break;
         case HIT: this.hit(); break;
         case HEAD: this.headshot(); break;
         case KILL: this.kill(); break;

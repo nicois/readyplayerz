@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Arena</title>
+<title>Zombies</title>
 <style>
   html, body { margin: 0; height: 100%; background: #12182a; overflow: hidden; font: 14px/1.4 ui-monospace, Menlo, monospace; color: #e8ecff; }
   canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
@@ -48,7 +48,30 @@
   .card small { display: block; font-size: 12px; opacity: .75; text-align: left; }
   #menu div.wide { max-width: 640px; }
   #menu #loadout, #menu .card { max-width: none; padding-left: 8px; padding-right: 8px; }
-  #menu #loadout { padding: 0; }
+  #menu #loadout { padding: 0; align-items: flex-end; }
+  #menu .group, #menu .group > div { max-width: none; padding: 0; }
+  .group { display: flex; flex-direction: column; gap: 4px; }
+  .group > b { font-size: 11px; font-weight: normal; letter-spacing: .1em; opacity: .6; text-align: left; }
+  .group > div { display: flex; gap: 10px; }
+  .card.fixed { cursor: default; }
+  .card.next { border-style: dashed; border-color: #ffd36a; }
+  #lock { font-size: 12px; min-height: 1.4em; color: #ffd36a; }
+  #end { display: none; margin-top: 8px; padding: 4px 14px; font: inherit; color: #ff9a8a; background: rgba(255,90,70,.1); border: 1px solid rgba(255,120,100,.45); border-radius: 4px; cursor: pointer; }
+  #end:hover { background: rgba(255,90,70,.22); }
+  #dead small { display: block; margin-top: 10px; font-size: 15px; }
+  #dead small span { margin: 0 6px; opacity: .55; }
+  #dead small span.on { opacity: 1; color: #ffd36a; }
+  #gfx { display: flex; gap: 6px; justify-content: center; align-items: center; margin: 10px 0 0; }
+  #gfx span { padding: 3px 10px; border: 1px solid rgba(255,255,255,.2); border-radius: 4px; cursor: pointer; opacity: .7; }
+  #gfx span:hover { opacity: 1; }
+  #gfx span.on { opacity: 1; border-color: #ffd36a; background: rgba(255,211,106,.14); }
+  #loading { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #12182a; transition: opacity .35s; }
+  #loading.done { opacity: 0; pointer-events: none; }
+  #loading h1 { margin: 0 0 18px; font-size: 40px; letter-spacing: .12em; }
+  #loading .track { width: 260px; height: 4px; background: rgba(255,255,255,.12); border-radius: 2px; overflow: hidden; }
+  #loading .fill { width: 0; height: 100%; background: #ffd36a; transition: width .2s; }
+  #loading p { margin: 12px 0 0; font-size: 13px; opacity: .7; }
+  #loading p.err { color: #ff8a8a; opacity: 1; max-width: 480px; text-align: center; }
 </style>
 </head>
 <body>
@@ -65,15 +88,22 @@
 </div>
 <div id="map"><canvas id="mapcv" width="720" height="720"></canvas><small>Tab to close</small></div>
 <div id="menu"><div class="wide">
-  <h1>ARENA</h1>
+  <h1>ZOMBIES</h1>
   <p>WASD move &middot; Shift sprint &middot; Space jump</p>
   <p>Mouse aim &middot; Click shoot &middot; Right-click aim down sights &middot; R reload</p>
-  <p>1-4 or mouse wheel switch gun &middot; Tab map &middot; M <span id="mute">sound on</span></p>
-  <div id="loadout"></div>
-  <p id="tagline">Headshots hurt. Red boxes shoot back.</p>
+  <p>1 primary &middot; 2 pistol &middot; mouse wheel swaps &middot; Tab map &middot; M <span id="mute">sound on</span></p>
+  <div id="loadout">
+    <div class="group"><b>PRIMARY</b><div id="primaries"></div></div>
+    <div class="group"><b>SECONDARY</b><div id="secondary"></div></div>
+  </div>
+  <p id="lock"></p>
+  <div id="gfx">Graphics</div>
+  <p id="tagline">Survive the waves. They don't stop. Health comes back if you stay clear for a while.</p>
   <p class="go" id="go">Click to play</p>
+  <button id="end">End game</button>
   <p id="err"></p>
 </div></div>
+<div id="loading"><h1>ZOMBIES</h1><div class="track"><div class="fill" id="lfill"></div></div><p id="lstatus">Loading...</p></div>
 <script type="module">
 import init, { Client } from "./pkg/arena.js";
 import { Sound } from "./audio.js";
@@ -83,55 +113,121 @@ const menu = document.getElementById("menu");
 const err = document.getElementById("err");
 const $ = id => document.getElementById(id);
 
+// graphics quality, low / medium / high: how much of the screen's resolution to draw at (the renderer turns
+// multisampling, occlusion and soft shadows up with it). Always starts on low.
+const QUALITY = ["Low", "Medium", "High"];
+const RES_SCALE = [0.5, 0.75, 1];
+let quality = 0;
+
 function size() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2) * RES_SCALE[quality];
   canvas.width = Math.floor(innerWidth * dpr);
   canvas.height = Math.floor(innerHeight * dpr);
   return [canvas.width, canvas.height];
 }
 
+// the loading screen covers the page until the first frame is drawn: downloading the wasm is the first
+// 60% of the bar, building the map and the guns the next 30%, the first frame (shaders compiling) the rest
+const loading = (frac, text) => {
+  $("lfill").style.width = `${Math.round(frac * 100)}%`;
+  if (text) $("lstatus").textContent = text;
+};
+// lets the loading screen paint before something long and synchronous
+const paint = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+
+async function download(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url}: ${res.status} ${res.statusText}`);
+  const total = Number(res.headers.get("Content-Length")) || 0;
+  if (!total || !res.body) return res.arrayBuffer();
+  const reader = res.body.getReader();
+  const chunks = [];
+  for (let got = 0; ;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    got += value.length;
+    loading(0.6 * Math.min(got / total, 1), `Downloading ${Math.round(Math.min(got / total, 1) * 100)}%`);
+  }
+  return new Blob(chunks).arrayBuffer();
+}
+
 let client;
 try {
-  await init();
+  loading(0, "Downloading");
+  const wasm = await download("pkg/arena_bg.wasm");
+  loading(0.6, "Starting");
+  await init({ module_or_path: wasm });
+  loading(0.65, "Building the map and the guns");
+  await paint();
   size();
-  client = new Client(canvas, window.MODE || "soldiers");
+  client = new Client(canvas);
+  loading(0.9, "Warming up the renderer");
+  await paint();
 } catch (e) {
+  $("lstatus").textContent = `Could not start: ${e}`;
+  $("lstatus").className = "err";
   err.textContent = String(e);
   throw e;
 }
 addEventListener("resize", () => client.resize(...size()));
 
-const zombies = window.MODE === "zombies";
-if (zombies) {
-  document.title = "Zombies";
-  document.querySelector("#menu h1").textContent = "ZOMBIES";
-  $("tagline").textContent = "Survive the waves. They don't stop. Health comes back if you stay clear for a while.";
+const gfx = QUALITY.map((name, i) => {
+  const el = document.createElement("span");
+  el.textContent = name;
+  // picking a quality stays on the menu instead of starting the game, so the change can be seen behind it
+  el.addEventListener("click", e => { e.stopPropagation(); setQuality(i); });
+  $("gfx").appendChild(el);
+  return el;
+});
+function setQuality(i) {
+  quality = i;
+  client.set_quality(i);
+  client.resize(...size());
+  gfx.forEach((el, j) => el.classList.toggle("on", j === i));
 }
+setQuality(0);
+
 const names = client.weapon_names();
 const stats = client.weapon_stats();
 const sound = new Sound(Array.from({ length: names.length }, (_, i) => stats[i * 4 + 3]));
-const cards = [], slots = [];
+// the loadout: one primary to pick, and the pistol everyone carries
+const primaries = client.primary_count();
+const cards = [];
 names.forEach((name, i) => {
   const [dmg, rpm, mag, rel] = stats.slice(i * 4, i * 4 + 4);
   const card = document.createElement("div");
   card.className = "card";
-  card.innerHTML = `<h3>${i + 1} &middot; ${name}</h3><small>${dmg} dmg</small><small>${Math.round(rpm)} rpm</small><small>${mag} rounds</small><small>${rel.toFixed(1)}s reload</small>`;
-  card.addEventListener("click", () => client.select_weapon(i));
-  $("loadout").appendChild(card);
-  cards.push(card);
+  card.innerHTML = `<h3>${i < primaries ? `${i + 1} &middot; ` : ""}${name}</h3><small>${dmg} dmg</small><small>${Math.round(rpm)} rpm</small><small>${mag} rounds</small><small>${rel.toFixed(1)}s reload</small>`;
+  if (i < primaries) {
+    // a pick falls through to start playing; mid-game it is carried from the next life
+    card.addEventListener("click", () => client.pick_primary(i));
+    $("primaries").appendChild(card);
+    cards.push(card);
+  } else {
+    card.classList.add("fixed", "on");
+    $("secondary").appendChild(card);
+  }
+});
+// the bar in play: the carried primary in slot 1, the pistol in slot 2
+const slots = [0, primaries].map((w, i) => {
   const slot = document.createElement("div");
   slot.className = "slot";
-  slot.innerHTML = `${name}<b>${i + 1}</b>`;
+  slot.innerHTML = `<span>${names[w]}</span><b>${i + 1}</b>`;
   $("bar").appendChild(slot);
-  slots.push(slot);
+  return slot;
 });
-// clicking a card picks the gun and the click then falls through to start playing
+let shownPrimary = 0;
 
 // dev flags: ?demo runs the game behind the menu (for screenshots where pointer lock isn't available),
-// ?calm removes the bots, ?at=x,z,yaw[,y] puts the player somewhere
+// ?calm removes the bots, ?at=x,z,yaw[,y] puts the player somewhere, ?primary=1-4 picks the primary,
+// ?slot=2 holds the pistol, ?clean hides the menu
 const params = new URLSearchParams(location.search);
 if (params.has("demo")) client.set_paused(false);
 if (params.has("calm")) client.remove_bots();
+if (params.has("primary")) client.pick_primary(Number(params.get("primary")) - 1);
+if (params.has("slot")) client.key("Digit" + params.get("slot"), true);
+if (params.has("clean")) menu.style.visibility = "hidden";
 
 if (params.has("at")) {
   const [x, z, yaw = 0, y = 0] = params.get("at").split(",").map(Number);
@@ -140,6 +236,12 @@ if (params.has("at")) {
 if (params.has("gun")) { const [x, y, z, yaw = 0.05] = params.get("gun").split(",").map(Number); client.set_gun_offset(x, y, z, yaw); }
 if (params.has("show")) client.show_zombies(Number(params.get("show")) || 3, Number(params.get("dist")) || 2.8, Number(params.get("side")) || 0);
 const locked = () => document.pointerLockElement === canvas;
+// ending the game stays on the menu, ready to pick a loadout and start again
+$("end").addEventListener("click", e => {
+  e.stopPropagation();
+  client.end_game();
+  sound.cancel();
+});
 menu.addEventListener("click", () => { sound.start(); canvas.requestPointerLock(); });
 document.addEventListener("pointerlockchange", () => {
   menu.style.display = locked() ? "none" : "flex";
@@ -223,28 +325,53 @@ addEventListener("wheel", e => { if (locked() && e.deltaY) client.cycle_weapon(e
 function loop(t) {
   client.frame(t);
   sound.play(client.take_events());
-  const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped, killt, px, pz, pyaw, wave, left] = client.hud();
+  const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped, killt, px, pz, pyaw, wave, left, carried, picked, inPlay] = client.hud();
   lastPos = [px, pz, pyaw];
   if (showMap) drawMap();
   $("hp").textContent = Math.ceil(hp);
   $("am").textContent = ammo;
   $("mg").textContent = mag;
-  slots.forEach((el, i) => el.classList.toggle("on", i === weapon));
-  cards.forEach((el, i) => el.classList.toggle("on", i === weapon));
+  if (carried !== shownPrimary) {
+    shownPrimary = carried;
+    slots[0].querySelector("span").textContent = names[carried];
+  }
+  slots[0].classList.toggle("on", weapon === carried);
+  slots[1].classList.toggle("on", weapon === primaries);
+  // the carried gun is marked; a different pick waits for the next life and is marked as coming
+  const pending = picked !== carried;
+  cards.forEach((el, i) => {
+    el.classList.toggle("on", i === carried);
+    el.classList.toggle("next", pending && i === picked);
+  });
+  $("lock").textContent = pending ? `${names[picked]} from your next life` : inPlay ? "A new pick is carried from your next life" : "";
+  $("end").style.display = inPlay ? "inline-block" : "none";
+  $("go").textContent = inPlay ? "Click to resume" : "Click to play";
   const scopeOn = scoped && ads > 0.85;
   $("scope").style.display = scopeOn ? "block" : "none";
   $("cross").style.display = scopeOn || ads > 0.5 ? "none" : "block";
   $("rl").textContent = reloading ? "reloading..." : "";
   $("kd").textContent = `${kills} kills / ${deaths} deaths`;
-  $("score").textContent = zombies ? (left > 0 ? `Wave ${wave} \u00b7 ${left} left` : wave === 0 ? "Get ready..." : `Wave ${wave} cleared`) : `${kills} kills`;
+  $("score").textContent = left > 0 ? `Wave ${wave} \u00b7 ${left} left` : wave === 0 ? "Get ready..." : `Wave ${wave} cleared`;
   $("flash").style.opacity = flash;
   $("cross").classList.toggle("hit", hit > 0.5);
   $("cross").classList.toggle("kill", killt > 0.4);
   const dead = $("dead");
   dead.style.display = respawn > 0 ? "block" : "none";
-  dead.textContent = zombies ? `Overrun on wave ${wave}. Restarting in ${respawn.toFixed(1)}` : `You died. Respawning in ${respawn.toFixed(1)}`;
+  if (respawn > 0) {
+    const pick = names.slice(0, primaries).map((n, i) => `<span class="${i === picked ? "on" : ""}">${i + 1} ${n}</span>`).join("");
+    dead.innerHTML = `Overrun on wave ${wave}. Restarting in ${respawn.toFixed(1)}`
+      + `<small>Next life: ${pick}</small><small style="opacity:.6;font-size:12px">press 1-${primaries} to change &middot; Esc pauses</small>`;
+  }
+  if (!loaded) {
+    // the first frame has been drawn: show it on the next one
+    loaded = true;
+    loading(1, "Ready");
+    requestAnimationFrame(() => $("loading").classList.add("done"));
+    setTimeout(() => $("loading").remove(), 600);
+  }
   requestAnimationFrame(loop);
 }
+let loaded = false;
 requestAnimationFrame(loop);
 </script>
 </body>

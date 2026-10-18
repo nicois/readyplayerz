@@ -1,6 +1,6 @@
 //! WebGL2 renderer: flat-shaded boxes and lines, one shader.
 
-use crate::sim::{Bot, Game, Mode, HALF, V3};
+use crate::sim::{Bot, Game, HALF, V3};
 use js_sys::Float32Array;
 use std::cell::{Cell, RefCell};
 use web_sys::{
@@ -95,7 +95,7 @@ void main() {
 
 // Lighting: sky and ground ambient, a warm sun (keep SUN in step with SKY_FRAG), and walls darkening towards
 // the ground. Surfaces from the batched world carry a colour and material per vertex and get a procedural
-// pattern that fades out with distance; everything else (soldiers, gun, debris) uses u_color.
+// pattern that fades out with distance; everything else (zombies, gun, blood) uses u_color.
 const FRAG: &str = r#"#version 300 es
 precision highp float;
 in vec3 v_nrm;
@@ -114,6 +114,8 @@ flat in float v_seed;
 uniform float u_batch;
 uniform float u_pass;
 uniform float u_shon;
+// 1 for soft shadow edges, 0 for a single hard lookup
+uniform float u_soft;
 uniform float u_skin;
 uniform float u_view;
 uniform mat3 u_envrot;
@@ -220,6 +222,7 @@ float shadow_term(vec4 ls) {
     vec3 p = ls.xyz / ls.w * 0.5 + 0.5;
     if (p.z >= 1.0) return 1.0;
     float e = max(abs(p.x - 0.5), abs(p.y - 0.5)) * 2.0;
+    if (u_soft < 0.5) return mix(texture(u_shadow, vec3(p.xy, p.z - 0.0004)), 1.0, smoothstep(0.8, 1.0, e));
     float t = 1.0 / 2048.0;
     float s = 0.0;
     for (int y = -1; y <= 1; y++) {
@@ -330,8 +333,13 @@ void main() {
         if (v_umat < 20.5) {
             albedo = mix(base * (0.93 + 0.14 * grain), vec3(0.55, 0.56, 0.58), scratch * 0.25);
             metal = 0.85;
-        } else if (v_umat < 22.5) {
+        } else if (v_umat < 21.5) {
             albedo = base * (0.7 + 0.6 * grain);
+        } else if (v_umat < 22.5) {
+            // wood: grain running along the gun, with darker streaks between the growth rings
+            float rings = noise3(q * vec3(90.0, 90.0, 6.0));
+            float streak = smoothstep(0.45, 0.75, noise3(q * vec3(260.0, 260.0, 14.0) + rings * 2.0));
+            albedo = base * (0.8 + 0.35 * rings) * (1.0 - 0.3 * streak);
         } else if (v_umat < 23.5) {
             albedo = mix(base * (0.8 + 0.4 * noise3(q * vec3(40.0, 40.0, 400.0))), vec3(0.62), scratch * 0.3);
             metal = 1.0;
@@ -509,6 +517,7 @@ uniform vec2 u_px;
 uniform vec2 u_range;
 uniform float u_t;
 uniform float u_aspect;
+uniform float u_aoon;
 out vec4 o;
 float lin(float d) {
     return 2.0 * u_range.x * u_range.y / (u_range.y + u_range.x - (d * 2.0 - 1.0) * (u_range.y - u_range.x));
@@ -521,17 +530,19 @@ float hash(vec2 p) {
 void main() {
     vec2 uv = v_ndc * 0.5 + 0.5;
     vec3 c = texture(u_color, uv).rgb;
-    float z0 = lin(texture(u_depth, uv).r);
-    float ao = 0.0, w = 0.0;
-    for (int y = -2; y <= 2; y++) {
-        for (int x = -2; x <= 2; x++) {
-            vec2 q = uv + vec2(float(x), float(y)) * u_px * 1.5;
-            float wt = exp(-abs(lin(texture(u_depth, q).r) - z0) * 6.0 / max(z0 * 0.1, 0.3));
-            ao += texture(u_ao, q).r * wt;
-            w += wt;
+    if (u_aoon > 0.5) {
+        float z0 = lin(texture(u_depth, uv).r);
+        float ao = 0.0, w = 0.0;
+        for (int y = -2; y <= 2; y++) {
+            for (int x = -2; x <= 2; x++) {
+                vec2 q = uv + vec2(float(x), float(y)) * u_px * 1.5;
+                float wt = exp(-abs(lin(texture(u_depth, q).r) - z0) * 6.0 / max(z0 * 0.1, 0.3));
+                ao += texture(u_ao, q).r * wt;
+                w += wt;
+            }
         }
+        c *= ao / max(w, 0.0001);
     }
-    c *= ao / max(w, 0.0001);
     float lum = dot(c, vec3(0.299, 0.587, 0.114));
     c = mix(vec3(lum), c, 1.04);
     c = mix(c, c * c * (3.0 - 2.0 * c), 0.2);
@@ -592,22 +603,30 @@ struct GpuFigure {
     hair: GpuMesh,
 }
 
-/// One part of the carbine on the GPU, with the look it is drawn in.
+/// One part of a gun on the GPU, with the look it is drawn in.
 struct GpuPiece {
     vao: WebGlVertexArrayObject,
     count: i32,
     mat: f32,
     color: [f32; 3],
     shiny: f32,
+    glow: f32,
 }
 
-/// The carbine and its hands, grouped by what moves together.
-struct GpuCarbine {
+/// A gun, grouped by what moves together (see `gunmodel::Gun`).
+struct GpuGun {
     body: Vec<GpuPiece>,
     mag: Vec<GpuPiece>,
     trigger: Vec<GpuPiece>,
-    right_hand: Vec<GpuPiece>,
-    left_hand: Vec<GpuPiece>,
+    action: Vec<GpuPiece>,
+    spec: crate::gunmodel::Spec,
+}
+
+/// The hands every gun shares.
+struct GpuHands {
+    right: Vec<GpuPiece>,
+    left: Vec<GpuPiece>,
+    pistol_left: Vec<GpuPiece>,
 }
 
 /// A zombie to draw this frame: its bones, how detailed it is, and what it looks like.
@@ -631,6 +650,7 @@ struct SkinJob {
 struct Targets {
     w: u32,
     h: u32,
+    samples: i32,
     msaa: WebGlFramebuffer,
     rb: [web_sys::WebGlRenderbuffer; 2],
     resolve: WebGlFramebuffer,
@@ -644,7 +664,8 @@ pub struct Renderer {
     /// where the gun sits in the view, for inspecting it; None for the normal place
     pub gun_offset: Cell<Option<[f32; 3]>>,
     pub gun_yaw: Cell<f32>,
-    carbine: GpuCarbine,
+    guns: Vec<GpuGun>,
+    hands: GpuHands,
     u_view: Option<WebGlUniformLocation>,
     u_envrot: Option<WebGlUniformLocation>,
     u_eyew: Option<WebGlUniformLocation>,
@@ -703,11 +724,29 @@ pub struct Renderer {
     u_pass: Option<WebGlUniformLocation>,
     u_shon: Option<WebGlUniformLocation>,
     u_shadow: Option<WebGlUniformLocation>,
+    u_soft: Option<WebGlUniformLocation>,
     shadow_fbo: WebGlFramebuffer,
     shadow_tex: WebGlTexture,
+    /// the most samples the multisampled image can have here
+    max_samples: i32,
+    /// graphics quality: 0 low, 1 medium, 2 high (see `Quality`)
+    pub quality: u8,
     pub width: u32,
     pub height: u32,
 }
+
+/// What each graphics quality turns on. The picture's resolution is picked in JS, which sizes the canvas.
+struct Quality {
+    samples: i32,
+    ao: bool,
+    soft_shadows: bool,
+}
+
+const QUALITY: [Quality; 3] = [
+    Quality { samples: 0, ao: false, soft_shadows: false },
+    Quality { samples: 2, ao: false, soft_shadows: true },
+    Quality { samples: 4, ao: true, soft_shadows: true },
+];
 
 fn compile(gl: &GL, kind: u32, src: &str) -> Result<WebGlShader, String> {
     let s = gl.create_shader(kind).ok_or("create_shader failed")?;
@@ -908,12 +947,6 @@ impl Part {
     }
 }
 
-const GUNMETAL: [f32; 3] = [0.30, 0.32, 0.36];
-const DARK: [f32; 3] = [0.12, 0.12, 0.14];
-const POLYMER: [f32; 3] = [0.20, 0.21, 0.23];
-const GLOVE: [f32; 3] = [0.14, 0.14, 0.15];
-const SLEEVE: [f32; 3] = [0.26, 0.32, 0.22];
-const WOOD: [f32; 3] = [0.30, 0.20, 0.12];
 
 impl Renderer {
     pub fn new(gl: GL, width: u32, height: u32) -> Result<Renderer, String> {
@@ -926,13 +959,23 @@ impl Renderer {
         let ao_prog = link(&gl, &sky_vs, &compile(&gl, GL::FRAGMENT_SHADER, AO_FRAG)?)?;
         let comp_prog = link(&gl, &sky_vs, &compile(&gl, GL::FRAGMENT_SHADER, COMP_FRAG)?)?;
 
-        let c = crate::gunmodel::Carbine::new();
-        let carbine = GpuCarbine {
-            body: Self::upload_pieces(&gl, &c.body)?,
-            mag: Self::upload_pieces(&gl, &c.mag)?,
-            trigger: Self::upload_pieces(&gl, &c.trigger)?,
-            right_hand: Self::upload_pieces(&gl, &c.right_hand)?,
-            left_hand: Self::upload_pieces(&gl, &c.left_hand)?,
+        let guns = crate::gunmodel::guns()
+            .iter()
+            .map(|g| {
+                Ok(GpuGun {
+                    body: Self::upload_pieces(&gl, &g.body)?,
+                    mag: Self::upload_pieces(&gl, &g.mag)?,
+                    trigger: Self::upload_pieces(&gl, &g.trigger)?,
+                    action: Self::upload_pieces(&gl, &g.action)?,
+                    spec: g.spec,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let h = crate::gunmodel::Hands::new();
+        let hands = GpuHands {
+            right: Self::upload_pieces(&gl, &h.right)?,
+            left: Self::upload_pieces(&gl, &h.left)?,
+            pistol_left: Self::upload_pieces(&gl, &h.pistol_left)?,
         };
         // the zombie body at three levels of detail: close up, in the middle, far away
         let figures = [1.0, 2.0, 4.0].iter().map(|s| Self::upload_figure(&gl, &crate::body::Figure::new(*s))).collect::<Result<Vec<_>, _>>()?;
@@ -986,12 +1029,14 @@ impl Renderer {
         Self::layout(&gl);
 
         gl.enable(GL::DEPTH_TEST);
+        let max_samples = gl.get_parameter(GL::MAX_SAMPLES).ok().and_then(|v| v.as_f64()).unwrap_or(4.0) as i32;
         let u = |n: &str| gl.get_uniform_location(&prog, n);
         let u_mat = u("u_mat");
         Ok(Renderer {
             gun_offset: Cell::new(None),
             gun_yaw: Cell::new(0.05),
-            carbine,
+            guns,
+            hands,
             u_view: u("u_view"),
             u_envrot: u("u_envrot"),
             u_eyew: u("u_eyew"),
@@ -1025,6 +1070,9 @@ impl Renderer {
             u_pass: u("u_pass"),
             u_shon: u("u_shon"),
             u_shadow: u("u_shadow"),
+            u_soft: u("u_soft"),
+            max_samples,
+            quality: 0,
             inst_e,
             list_e: RefCell::new(Vec::new()),
             seed: Cell::new(0.0),
@@ -1073,7 +1121,7 @@ impl Renderer {
                 unsafe {
                     gl.buffer_data_with_array_buffer_view(GL::ELEMENT_ARRAY_BUFFER, &js_sys::Uint32Array::view(&p.mesh.idx), GL::STATIC_DRAW);
                 }
-                Ok(GpuPiece { vao, count: p.mesh.idx.len() as i32, mat: p.mat, color: p.color, shiny: p.shiny })
+                Ok(GpuPiece { vao, count: p.mesh.idx.len() as i32, mat: p.mat, color: p.color, shiny: p.shiny, glow: p.glow })
             })
             .collect()
     }
@@ -1371,9 +1419,8 @@ impl Renderer {
         Ok(t)
     }
 
-    fn make_targets(gl: &GL, w: u32, h: u32) -> Result<Targets, String> {
+    fn make_targets(gl: &GL, w: u32, h: u32, samples: i32) -> Result<Targets, String> {
         let (wi, hi) = (w as i32, h as i32);
-        let samples = gl.get_parameter(GL::MAX_SAMPLES).ok().and_then(|v| v.as_f64()).unwrap_or(4.0).min(4.0) as i32;
         let rb_c = gl.create_renderbuffer().ok_or("renderbuffer")?;
         gl.bind_renderbuffer(GL::RENDERBUFFER, Some(&rb_c));
         gl.renderbuffer_storage_multisample(GL::RENDERBUFFER, samples, GL::RGBA8, wi, hi);
@@ -1403,7 +1450,7 @@ impl Renderer {
         gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&ao_fbo));
         gl.framebuffer_texture_2d(GL::FRAMEBUFFER, GL::COLOR_ATTACHMENT0, GL::TEXTURE_2D, Some(&ao), 0);
         gl.bind_framebuffer(GL::FRAMEBUFFER, None);
-        Ok(Targets { w, h, msaa, rb: [rb_c, rb_d], resolve, color, depth, ao_fbo, ao })
+        Ok(Targets { w, h, samples, msaa, rb: [rb_c, rb_d], resolve, color, depth, ao_fbo, ao })
     }
 
     /// Copies what has been drawn so far from the multisampled image into the readable one.
@@ -1418,26 +1465,29 @@ impl Renderer {
     }
 
     /// Occlusion from the depth buffer, then everything composited onto the screen.
-    fn post(&self, t: &Targets, fov: f32, time: f32) {
+    fn post(&self, t: &Targets, fov: f32, time: f32, ao: bool) {
         let gl = &self.gl;
         let (px, loc) = ([1.0 / t.w as f32, 1.0 / t.h as f32], |p: &WebGlProgram, n: &str| gl.get_uniform_location(p, n));
         gl.disable(GL::DEPTH_TEST);
         gl.bind_vertex_array(None);
         gl.viewport(0, 0, t.w as i32, t.h as i32);
 
-        gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&t.ao_fbo));
-        gl.use_program(Some(&self.ao_prog));
-        gl.active_texture(GL::TEXTURE0);
-        gl.bind_texture(GL::TEXTURE_2D, Some(&t.depth));
-        gl.uniform1i(loc(&self.ao_prog, "u_depth").as_ref(), 0);
-        gl.uniform2f(loc(&self.ao_prog, "u_px").as_ref(), px[0], px[1]);
-        gl.uniform2f(loc(&self.ao_prog, "u_range").as_ref(), NEAR, FAR);
-        gl.uniform1f(loc(&self.ao_prog, "u_ty").as_ref(), (fov / 2.0).tan());
-        gl.uniform1f(loc(&self.ao_prog, "u_rows").as_ref(), t.h as f32);
-        gl.draw_arrays(GL::TRIANGLES, 0, 3);
+        if ao {
+            gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&t.ao_fbo));
+            gl.use_program(Some(&self.ao_prog));
+            gl.active_texture(GL::TEXTURE0);
+            gl.bind_texture(GL::TEXTURE_2D, Some(&t.depth));
+            gl.uniform1i(loc(&self.ao_prog, "u_depth").as_ref(), 0);
+            gl.uniform2f(loc(&self.ao_prog, "u_px").as_ref(), px[0], px[1]);
+            gl.uniform2f(loc(&self.ao_prog, "u_range").as_ref(), NEAR, FAR);
+            gl.uniform1f(loc(&self.ao_prog, "u_ty").as_ref(), (fov / 2.0).tan());
+            gl.uniform1f(loc(&self.ao_prog, "u_rows").as_ref(), t.h as f32);
+            gl.draw_arrays(GL::TRIANGLES, 0, 3);
+        }
 
         gl.bind_framebuffer(GL::FRAMEBUFFER, None);
         gl.use_program(Some(&self.comp_prog));
+        gl.uniform1f(loc(&self.comp_prog, "u_aoon").as_ref(), if ao { 1.0 } else { 0.0 });
         gl.bind_texture(GL::TEXTURE_2D, Some(&t.color));
         gl.active_texture(GL::TEXTURE1);
         gl.bind_texture(GL::TEXTURE_2D, Some(&t.ao));
@@ -1474,8 +1524,8 @@ impl Renderer {
         mul(&ortho(SHADOW_HALF, 220.0), &look_dir(eye, f))
     }
 
-    /// Draws everything that blocks the sun into the shadow map: the nearby walls, soldiers and zombies.
-    fn shadow_pass(&self, g: &Game, centre: V3, lvp: &M4) {
+    /// Draws everything that blocks the sun into the shadow map: the nearby walls and the zombies queued by `render`.
+    fn shadow_pass(&self, centre: V3, lvp: &M4) {
         let gl = &self.gl;
         gl.bind_texture(GL::TEXTURE_2D, None);
         gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&self.shadow_fbo));
@@ -1500,15 +1550,7 @@ impl Renderer {
             }
             gl.uniform1f(self.u_batch.as_ref(), 0.0);
         }
-        if g.mode == Mode::Zombies {
-            self.flush();
-        } else {
-            for (i, b) in g.bots.iter().enumerate().filter(|(_, b)| b.alive) {
-                if (b.body.pos[0] - centre[0]).hypot(b.body.pos[2] - centre[2]) < SHADOW_HALF * 1.4 {
-                    self.draw_soldier(g, i, b);
-                }
-            }
-        }
+        self.flush();
         gl.disable(GL::POLYGON_OFFSET_FILL);
         self.shadow_pass.set(false);
         gl.color_mask(true, true, true, true);
@@ -1529,22 +1571,22 @@ impl Renderer {
         self.jobs.borrow_mut().clear();
         let foot = p.body.pos;
         let centre = [foot[0] + fwd[0] * 18.0, foot[1], foot[2] + fwd[2] * 18.0];
-        if g.mode == Mode::Zombies {
-            for (i, b) in g.bots.iter().enumerate().filter(|(_, b)| b.alive || (b.corpse && b.dead_t < crate::sim::CORPSE_T)) {
-                let to = [b.body.pos[0] - eye[0], b.body.pos[1] - eye[1], b.body.pos[2] - eye[2]];
-                let near_light = (b.body.pos[0] - centre[0]).hypot(b.body.pos[2] - centre[2]) < SHADOW_HALF * 1.4;
-                if dot(to, fwd) >= -3.0 || near_light {
-                    self.draw_zombie(g, i, b);
-                }
+        for (i, b) in g.bots.iter().enumerate().filter(|(_, b)| b.alive || (b.corpse && b.dead_t < crate::sim::CORPSE_T)) {
+            let to = [b.body.pos[0] - eye[0], b.body.pos[1] - eye[1], b.body.pos[2] - eye[2]];
+            let near_light = (b.body.pos[0] - centre[0]).hypot(b.body.pos[2] - centre[2]) < SHADOW_HALF * 1.4;
+            if dot(to, fwd) >= -3.0 || near_light {
+                self.draw_zombie(g, i, b);
             }
         }
         gl.use_program(Some(&self.prog));
         let lvp = self.light_vp(centre);
         gl.uniform_matrix4fv_with_f32_array(self.u_lvp.as_ref(), false, &lvp);
-        self.shadow_pass(g, centre, &lvp);
+        self.shadow_pass(centre, &lvp);
 
+        let q = &QUALITY[(self.quality as usize).min(QUALITY.len() - 1)];
+        let samples = q.samples.min(self.max_samples);
         let (w, h) = (self.width.max(1), self.height.max(1));
-        if self.targets.borrow().as_ref().map_or(true, |t| t.w != w || t.h != h) {
+        if self.targets.borrow().as_ref().map_or(true, |t| t.w != w || t.h != h || t.samples != samples) {
             if let Some(old) = self.targets.borrow_mut().take() {
                 gl.delete_framebuffer(Some(&old.msaa));
                 gl.delete_framebuffer(Some(&old.resolve));
@@ -1556,7 +1598,7 @@ impl Renderer {
                 gl.delete_texture(Some(&old.depth));
                 gl.delete_texture(Some(&old.ao));
             }
-            *self.targets.borrow_mut() = Some(Self::make_targets(gl, w, h).expect("render targets"));
+            *self.targets.borrow_mut() = Some(Self::make_targets(gl, w, h, samples).expect("render targets"));
         }
         let targets = self.targets.borrow();
         let t = targets.as_ref().expect("render targets");
@@ -1574,6 +1616,7 @@ impl Renderer {
         gl.bind_texture(GL::TEXTURE_2D, Some(&self.shadow_tex));
         gl.uniform1i(self.u_shadow.as_ref(), 0);
         gl.uniform1f(self.u_shon.as_ref(), 1.0);
+        gl.uniform1f(self.u_soft.as_ref(), if q.soft_shadows { 1.0 } else { 0.0 });
         gl.uniform1f(self.u_dark.as_ref(), self.dark);
         gl.uniform1f(self.u_flash.as_ref(), if self.dark > 0.0 { 1.0 } else { 0.0 });
         gl.uniform3f(self.u_fdir.as_ref(), fwd[0], fwd[1], fwd[2]);
@@ -1582,32 +1625,17 @@ impl Renderer {
         gl.uniform3f(self.u_eye.as_ref(), eye[0], eye[1], eye[2]);
 
         self.draw_world(eye, fwd);
-        if g.mode == Mode::Zombies {
-            self.flush();
-        } else {
-            for (i, b) in g.bots.iter().enumerate().filter(|(_, b)| b.alive) {
-                let to = [b.body.pos[0] - eye[0], b.body.pos[1] - eye[1], b.body.pos[2] - eye[2]];
-                if dot(to, fwd) >= -3.0 {
-                    self.draw_soldier(g, i, b);
-                }
-            }
-        }
+        self.flush();
         for d in &g.debris {
-            // pieces shrink away at the end of their life
-            let k = (d.life / if d.glow { d.max_life } else { 0.6 }).min(1.0);
+            // drops shrink away at the end of their life
+            let k = (d.life / 0.6).min(1.0);
             let h = [d.half[0] * k, d.half[1] * k, d.half[2] * k];
             let spin = mul(&rot_y(d.rot[1]), &mul(&rot_x(d.rot[0]), &rot_z(d.rot[2])));
-            if d.round {
-                let model = mul(&translate(d.pos[0], d.pos[1], d.pos[2]), &mul(&spin, &scale(h[0], h[1], h[2])));
-                self.draw_mesh(&self.sphere_vao, self.sphere_count, &model, d.color, 0.0, 0.3, 0.0);
-            } else {
-                let model = mul(&translate(d.pos[0], d.pos[1], d.pos[2]), &mul(&spin, &box_model([-h[0], -h[1], -h[2]], h)));
-                self.draw_model(&model, d.color, if d.glow { 1.0 } else { 0.0 }, 0.1);
-            }
+            let model = mul(&translate(d.pos[0], d.pos[1], d.pos[2]), &mul(&spin, &scale(h[0], h[1], h[2])));
+            self.draw_mesh(&self.sphere_vao, self.sphere_count, &model, d.color, 0.0, 0.3, 0.0);
         }
         for t in &g.tracers {
-            let c = if t.enemy { [1.0, 0.35, 0.3] } else { [1.0, 0.95, 0.6] };
-            self.draw_lines(&[t.a[0], t.a[1], t.a[2], t.b[0], t.b[1], t.b[2]], c, 1.0);
+            self.draw_lines(&[t.a[0], t.a[1], t.a[2], t.b[0], t.b[1], t.b[2]], [1.0, 0.95, 0.6], 1.0);
         }
 
         // the world's depth is kept for the occlusion pass before the gun gets a depth buffer of its own
@@ -1631,7 +1659,7 @@ impl Renderer {
         // the gun's depth goes in too, so the occlusion pass treats it as a solid object instead of shading it
         // with whatever is behind it
         self.resolve(t, true);
-        self.post(t, fov, g.time);
+        self.post(t, fov, g.time, q.ao);
     }
 
     /// A zombie: a smooth skinned human body (see `body`) moved by a jointed skeleton, with clothes, hair and a face.
@@ -1796,112 +1824,58 @@ impl Renderer {
         }
     }
 
-    /// An enemy built from the same cube: legs that swing with speed, vest, helmet and a rifle held across the chest.
-    fn draw_soldier(&self, g: &Game, i: usize, b: &Bot) {
-        let p = b.body.pos;
-        let yaw = (g.player.body.pos[0] - p[0]).atan2(-(g.player.body.pos[2] - p[2]));
-        let base = mul(&translate(p[0], p[1], p[2]), &rot_y(-yaw));
-        let speed = (b.body.vel[0].powi(2) + b.body.vel[2].powi(2)).sqrt();
-        let amp = if b.body.on_ground { (speed / 3.0).min(1.0) } else { 0.0 };
-        let ph = g.time * 9.0 + b.phase;
-        let swing = if b.body.on_ground { ph.sin() * 0.7 * amp } else { 0.5 };
-        let upper = mul(&base, &translate(0.0, (ph * 2.0).cos().abs() * 0.03 * amp, 0.0));
-
-        let t = (i % 3) as f32 * 0.035;
-        let shirt = [0.22 + t, 0.24, 0.27 - t];
-        let pants = [0.15, 0.16 + t, 0.18];
-        let vest = [0.13, 0.14, 0.17];
-        let red = [0.78, 0.14, 0.17];
-        let skin = [0.80, 0.60, 0.46];
-        let helmet = [0.11, 0.12, 0.14];
-        let glove = [0.08, 0.08, 0.09];
-        let steel = [0.10, 0.10, 0.11];
-
-        for (side, angle) in [(-1.0f32, swing), (1.0, -swing)] {
-            let hip = around([side * 0.115, 0.88, 0.0], &rot_x(angle));
-            let (a, c) = (side * 0.03, side * 0.20);
-            let (x0, x1) = (a.min(c), a.max(c));
-            self.draw_part(&base, &part([x0, 0.0, -0.09], [x1, 0.88, 0.09], pants, 0.05).rot(hip), 0.0);
-            self.draw_part(&base, &part([x0 - 0.01, 0.0, -0.17], [x1 + 0.01, 0.10, 0.10], steel, 0.2).rot(hip), 0.0);
-            self.draw_part(&base, &part([x0 - 0.005, 0.40, -0.10], [x1 + 0.005, 0.52, -0.085], vest, 0.1).rot(hip), 0.0); // knee pad
-        }
-
-        // arms reach forward to the rifle: right hand on the grip, left on the handguard
-        let arm = |side: f32, up: f32, turn: f32| {
-            let pivot = [side * 0.31, 1.31, 0.0];
-            let r = around(pivot, &mul(&rot_y(turn), &rot_x(up)));
-            [
-                part([side * 0.31 - 0.055, 0.84, -0.055], [side * 0.31 + 0.055, 1.31, 0.055], shirt, 0.05).rot(r),
-                part([side * 0.31 - 0.05, 0.75, -0.05], [side * 0.31 + 0.05, 0.85, 0.05], glove, 0.05).rot(r),
-            ]
-        };
-        let parts = [
-            // torso, vest with chest plate and belt
-            part([-0.24, 0.85, -0.13], [0.24, 1.38, 0.13], shirt, 0.05),
-            part([-0.27, 0.95, -0.155], [0.27, 1.36, 0.155], vest, 0.15),
-            part([-0.15, 1.05, -0.175], [0.15, 1.29, -0.155], red, 0.3),
-            part([-0.26, 0.82, -0.145], [0.26, 0.90, 0.145], steel, 0.2),
-            part([-0.27, 1.34, -0.07], [-0.20, 1.40, 0.07], vest, 0.1), // shoulder pads
-            part([0.20, 1.34, -0.07], [0.27, 1.40, 0.07], vest, 0.1),
-            // neck, head, helmet, visor
-            part([-0.05, 1.38, -0.05], [0.05, 1.47, 0.05], skin, 0.05),
-            part([-0.11, 1.45, -0.115], [0.11, 1.66, 0.115], skin, 0.1),
-            part([-0.135, 1.60, -0.15], [0.135, 1.78, 0.14], helmet, 0.45),
-            part([-0.10, 1.51, -0.13], [0.10, 1.60, -0.115], [0.02, 0.03, 0.05], 0.9),
-            // rifle
-            part([0.055, 1.10, -0.18], [0.105, 1.19, 0.12], steel, 0.4),
-            part([0.072, 1.14, -0.60], [0.088, 1.17, -0.18], [0.14, 0.14, 0.16], 0.6),
-            part([0.065, 1.00, -0.12], [0.095, 1.10, -0.06], steel, 0.3),
-            part([0.06, 1.08, 0.12], [0.10, 1.17, 0.26], [0.09, 0.09, 0.10], 0.1),
-        ];
-        for p in &parts {
-            self.draw_part(&upper, p, 0.0);
-        }
-        for p in arm(1.0, 1.25, 0.40).iter().chain(arm(-1.0, 1.35, -0.62).iter()) {
-            self.draw_part(&upper, p, 0.0);
-        }
-    }
-
     fn draw_piece(&self, model: &M4, p: &GpuPiece) {
         let gl = &self.gl;
         gl.bind_vertex_array(Some(&p.vao));
         gl.uniform_matrix4fv_with_f32_array(self.u_model.as_ref(), false, model);
         gl.uniform3f(self.u_color.as_ref(), p.color[0], p.color[1], p.color[2]);
-        gl.uniform1f(self.u_unlit.as_ref(), 0.0);
+        gl.uniform1f(self.u_unlit.as_ref(), p.glow);
         gl.uniform1f(self.u_shiny.as_ref(), p.shiny);
         gl.uniform1f(self.u_mat.as_ref(), p.mat);
         gl.draw_elements_with_i32(GL::TRIANGLES, p.count, GL::UNSIGNED_INT, 0);
     }
 
-    /// The detailed carbine with its hands: the magazine comes out and goes back in during a reload while the left
-    /// hand goes to fetch it, and the trigger is pulled when it fires.
-    fn draw_carbine(&self, gun: &M4, recoil: f32, reload: f32, mag_out: f32) {
-        let c = &self.carbine;
-        for p in &c.body {
-            self.draw_piece(gun, p);
+    fn draw_pieces(&self, model: &M4, pieces: &[GpuPiece]) {
+        for p in pieces {
+            self.draw_piece(model, p);
         }
-        let mag = mul(gun, &mul(&translate(0.0, -0.24 * mag_out, 0.05 * mag_out), &around([0.0, -0.09, -0.045], &rot_x(0.3 * mag_out))));
-        for p in &c.mag {
-            self.draw_piece(&mag, p);
-        }
+    }
+
+    /// A gun with its hands: the magazine comes out and goes back in during a reload while the left hand goes to
+    /// fetch it, the trigger is pulled when it fires, and the pump, bolt or slide cycles after a shot.
+    fn draw_gun(&self, idx: usize, gun: &M4, recoil: f32, reload: f32, mag_out: f32, cycle: f32) {
+        use crate::gunmodel::Action;
+        let g = &self.guns[idx];
+        let s = &g.spec;
+        let at = |v: [f32; 3], k: f32| translate(v[0] * k, v[1] * k, v[2] * k);
+        self.draw_pieces(gun, &g.body);
+        let mag = mul(gun, &mul(&at(s.mag_out, mag_out), &around(s.mag_pivot, &rot_x(s.mag_tilt * mag_out))));
+        self.draw_pieces(&mag, &g.mag);
         let pull = ((recoil - 0.6) * 5.0).clamp(0.0, 1.0);
-        let trig = mul(gun, &around([0.0, -0.062, -0.031], &rot_x(-0.35 * pull)));
-        for p in &c.trigger {
-            self.draw_piece(&trig, p);
-        }
-        for p in &c.right_hand {
-            self.draw_piece(gun, p);
-        }
-        // the left hand lets go of the handguard, takes the magazine and comes back
+        self.draw_pieces(&mul(gun, &around(s.trigger_pivot, &rot_x(-0.35 * pull))), &g.trigger);
+
+        // the moving part: a pump slides back, a bolt lifts before it pulls back, a slide kicks back as it fires
+        let action = match s.action {
+            Action::Fixed => IDENTITY,
+            Action::Pump => translate(0.0, 0.0, 0.09 * cycle),
+            Action::Bolt => mul(&translate(0.0, 0.0, 0.075 * ((cycle - 0.35) / 0.65).max(0.0)), &rot_z((cycle * 2.5).min(1.0) * 1.1)),
+            Action::Slide => translate(0.0, 0.0, 0.032 * ((recoil - 0.45) / 0.55).clamp(0.0, 1.0).sqrt()),
+        };
+        self.draw_pieces(&mul(gun, &action), &g.action);
+
+        self.draw_pieces(&mul(gun, &at(s.right_at, 1.0)), &self.hands.right);
+        // the left hand lets go, takes the magazine and comes back; on a pump it rides the forend
         let ease = |a: f32, b: f32, x: f32| {
             let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
             t * t * (3.0 - 2.0 * t)
         };
         let go = ease(0.0, 0.2, reload) - ease(0.78, 1.0, reload);
-        let hand = mul(gun, &translate(0.0, -0.085 * go - 0.14 * mag_out, 0.23 * go + 0.05 * mag_out));
-        for p in &c.left_hand {
-            self.draw_piece(&hand, p);
+        let reach = if s.pistol_hold { [0.0, -0.07, 0.02] } else { [0.0, -0.085, 0.23] };
+        let mut hand = mul(gun, &mul(&at(s.left_at, 1.0), &mul(&at(reach, go), &at(s.mag_out, 0.6 * mag_out))));
+        if s.action == Action::Pump {
+            hand = mul(&hand, &action);
         }
+        self.draw_pieces(&hand, if s.pistol_hold { &self.hands.pistol_left } else { &self.hands.left });
     }
 
     fn draw_viewmodel(&self, g: &Game) {
@@ -1925,10 +1899,10 @@ impl Renderer {
         // a long gun needs more kick to read as one
         let kick = if w.pellets > 1 || w.scope { 0.09 } else { 0.05 };
 
-        let (parts, flash_z, sight_y) = weapon_parts(p.weapon, mag_out, cycle);
-        // the carbine has its own detailed model, with its own muzzle and sights
-        let carbine = p.weapon == 0;
-        let (flash_z, sight_y) = if carbine { (crate::gunmodel::MUZZLE_Z, crate::gunmodel::SIGHT_Y) } else { (flash_z, sight_y) };
+        let spec = self.guns[p.weapon].spec;
+        let (flash_z, hold) = (spec.muzzle_z, spec.hold);
+        // where the eye sits when aiming, above the gun's origin
+        let sight_y = spec.sight_y + hold[1];
 
         let ads = p.ads;
         let lerp = |a: f32, b: f32| a + (b - a) * ads;
@@ -1937,7 +1911,7 @@ impl Renderer {
         let gun = mul(
             &translate(
                 lerp(self.gun_offset.get().map_or(0.15, |o| o[0]) + bob_x, 0.0),
-                lerp(self.gun_offset.get().map_or(-0.17, |o| o[1]) + bob_y - 0.10 * dip - 0.35 * raise, -sight_y - if carbine { 0.0 } else { 0.004 }),
+                lerp(self.gun_offset.get().map_or(-0.17, |o| o[1]) + bob_y - 0.10 * dip - 0.35 * raise, -sight_y),
                 lerp(self.gun_offset.get().map_or(-0.38, |o| o[2]), -0.30) + kick * recoil,
             ),
             &mul(
@@ -1945,13 +1919,8 @@ impl Renderer {
                 &mul(&rot_x((0.07 * recoil - 0.25 * dip) * (1.0 - 0.5 * ads) + 0.8 * raise), &rot_z(0.5 * dip)),
             ),
         );
-        if carbine {
-            self.draw_carbine(&gun, recoil, reload, mag_out);
-        } else {
-            for part in &parts {
-                self.draw_part(&gun, part, 0.0);
-            }
-        }
+        let gun = mul(&gun, &translate(hold[0], hold[1], hold[2]));
+        self.draw_gun(p.weapon, &gun, recoil, reload, mag_out, cycle);
 
         if recoil > 0.55 && w.delay < 0.5 || recoil > 0.9 {
             // muzzle flash, spun a different amount each shot
@@ -1967,140 +1936,4 @@ impl Renderer {
             }
         }
     }
-}
-
-/// Trigger hand, pistol grip and guard, shared by every gun.
-fn grip_parts(v: &mut Vec<Part>) {
-    let grip_rot = around([0.0, -0.04, 0.075], &rot_x(-0.3));
-    v.extend([
-        part([-0.017, -0.15, 0.055], [0.017, -0.04, 0.095], POLYMER, 0.15).rot(grip_rot),
-        part([-0.005, -0.066, -0.04], [0.005, -0.058, 0.055], GUNMETAL, 0.4),
-        part([-0.005, -0.066, -0.045], [0.005, -0.04, -0.037], GUNMETAL, 0.4),
-        part([-0.003, -0.058, -0.01], [0.003, -0.04, -0.004], DARK, 0.5),
-        part([-0.022, -0.14, 0.045], [0.036, -0.05, 0.10], GLOVE, 0.05).rot(grip_rot),
-        part([-0.04, -0.14, 0.07], [0.04, -0.06, 0.5], SLEEVE, 0.0)
-            .rot(around([0.0, -0.1, 0.07], &mul(&rot_y(0.15), &rot_x(0.55)))),
-    ]);
-}
-
-/// Support hand under the front of the gun, from `z0` to `z1`, plus the arm running back from it.
-/// `slide` moves it along the gun (a pumping forend).
-fn support_hand(v: &mut Vec<Part>, z0: f32, z1: f32, slide: f32) {
-    let shift = translate(0.0, 0.0, slide);
-    let pivot = z0 + 0.08;
-    v.push(part([-0.036, -0.078, z0], [0.036, -0.024, z1], GLOVE, 0.05).rot(shift));
-    v.push(
-        part([-0.04, -0.085, pivot], [0.04, -0.02, 0.30], SLEEVE, 0.0)
-            .rot(mul(&shift, &around([0.0, -0.05, pivot], &mul(&rot_y(-0.45), &rot_x(0.35))))),
-    );
-}
-
-/// Parts for one gun in gun space (-z muzzle, +z stock, +y up), the z of its muzzle, and the height of
-/// its sights above the barrel axis, which is where the eye sits when aiming.
-fn weapon_parts(idx: usize, mag_out: f32, cycle: f32) -> (Vec<Part>, f32, f32) {
-    let mut v: Vec<Part> = Vec::new();
-    let mag_drop = translate(0.0, -0.2 * mag_out, 0.0);
-    let (flash_z, sight_y) = match idx {
-        // carbine
-        0 => {
-            let mag_rot = mul(&mag_drop, &around([0.0, -0.04, -0.035], &rot_x(0.18)));
-            v.extend([
-                // receiver and top rail
-                part([-0.03, -0.04, -0.14], [0.03, 0.03, 0.12], GUNMETAL, 0.6),
-                part([-0.026, 0.03, -0.16], [0.026, 0.052, 0.10], [0.36, 0.38, 0.42], 0.6),
-                part([-0.012, 0.052, -0.14], [0.012, 0.058, 0.08], DARK, 0.2),
-                part([0.03, 0.0, -0.03], [0.04, 0.02, 0.03], DARK, 0.3), // charging handle
-                // handguard with top rail, barrel and muzzle brake
-                part([-0.032, -0.032, -0.42], [0.032, 0.034, -0.14], POLYMER, 0.25),
-                part([-0.013, 0.034, -0.42], [0.013, 0.040, -0.14], DARK, 0.2),
-                part([-0.008, 0.002, -0.60], [0.008, 0.022, -0.42], [0.14, 0.14, 0.16], 0.8),
-                part([-0.013, -0.003, -0.65], [0.013, 0.027, -0.60], [0.12, 0.12, 0.13], 0.8),
-                // front post with ears, rear aperture
-                part([-0.003, 0.040, -0.435], [0.003, 0.085, -0.425], DARK, 0.3),
-                part([-0.015, 0.040, -0.438], [-0.009, 0.078, -0.422], DARK, 0.3),
-                part([0.009, 0.040, -0.438], [0.015, 0.078, -0.422], DARK, 0.3),
-                part([-0.02, 0.052, 0.05], [0.02, 0.058, 0.065], DARK, 0.3),
-                part([-0.02, 0.052, 0.05], [-0.013, 0.078, 0.065], DARK, 0.3),
-                part([0.013, 0.052, 0.05], [0.02, 0.078, 0.065], DARK, 0.3),
-                // stock
-                part([-0.022, -0.055, 0.12], [0.022, 0.02, 0.34], [0.26, 0.22, 0.17], 0.1),
-                part([-0.024, -0.062, 0.34], [0.024, 0.028, 0.355], [0.05, 0.05, 0.05], 0.05),
-                // curved magazine, drops out while reloading
-                part([-0.016, -0.17, -0.06], [0.016, -0.04, -0.01], [0.20, 0.21, 0.23], 0.3).rot(mag_rot),
-                part([-0.018, -0.18, -0.062], [0.018, -0.17, -0.008], DARK, 0.3).rot(mag_rot),
-            ]);
-            support_hand(&mut v, -0.34, -0.22, 0.0);
-            (-0.66, 0.070)
-        }
-        // SMG: short and boxy, suppressed, red dot, wire stock, long straight magazine
-        1 => {
-            v.extend([
-                part([-0.03, -0.04, -0.12], [0.03, 0.035, 0.10], GUNMETAL, 0.6),
-                part([-0.022, 0.035, -0.12], [0.022, 0.045, 0.08], DARK, 0.2),
-                part([-0.032, -0.032, -0.30], [0.032, 0.034, -0.12], POLYMER, 0.25),
-                part([-0.008, 0.002, -0.40], [0.008, 0.022, -0.30], [0.14, 0.14, 0.16], 0.8),
-                part([-0.018, -0.004, -0.52], [0.018, 0.03, -0.40], DARK, 0.5), // suppressor
-                // red dot: base, housing and lens
-                part([-0.015, 0.045, -0.02], [0.015, 0.055, 0.05], DARK, 0.3),
-                part([-0.02, 0.055, -0.02], [0.02, 0.085, 0.05], DARK, 0.4),
-                part([-0.016, 0.058, -0.024], [0.016, 0.082, -0.02], [0.75, 0.10, 0.10], 0.9),
-                // wire stock
-                part([-0.012, -0.03, 0.10], [-0.006, 0.01, 0.30], DARK, 0.3),
-                part([0.006, -0.03, 0.10], [0.012, 0.01, 0.30], DARK, 0.3),
-                part([-0.02, -0.05, 0.30], [0.02, 0.02, 0.315], DARK, 0.1),
-                // straight stick magazine
-                part([-0.015, -0.22, -0.06], [0.015, -0.04, -0.01], [0.20, 0.21, 0.23], 0.3).rot(mag_drop),
-                part([-0.017, -0.23, -0.062], [0.017, -0.22, -0.008], DARK, 0.3).rot(mag_drop),
-            ]);
-            support_hand(&mut v, -0.28, -0.16, 0.0);
-            (-0.54, 0.075)
-        }
-        // pump shotgun: long barrel over a tube magazine, wooden forend that racks back after each shot
-        2 => {
-            let pump = translate(0.0, 0.0, 0.09 * cycle);
-            v.extend([
-                part([-0.03, -0.045, -0.10], [0.03, 0.035, 0.12], GUNMETAL, 0.6),
-                part([-0.014, 0.0, -0.62], [0.014, 0.03, -0.10], GUNMETAL, 0.7),
-                part([-0.006, 0.03, -0.60], [0.006, 0.034, -0.10], DARK, 0.2), // rib
-                part([-0.003, 0.034, -0.62], [0.003, 0.048, -0.61], [0.9, 0.8, 0.4], 0.3), // bead
-                part([-0.012, -0.036, -0.55], [0.012, -0.012, -0.10], DARK, 0.6),
-                part([-0.015, -0.04, -0.57], [0.015, -0.008, -0.55], DARK, 0.5), // tube cap
-                part([-0.032, -0.06, -0.40], [0.032, -0.008, -0.22], WOOD, 0.25).rot(pump),
-                part([-0.024, -0.07, 0.12], [0.024, 0.02, 0.36], WOOD, 0.2),
-                part([-0.026, -0.075, 0.36], [0.026, 0.026, 0.375], [0.05, 0.05, 0.05], 0.05),
-            ]);
-            support_hand(&mut v, -0.38, -0.25, 0.09 * cycle);
-            (-0.64, 0.050)
-        }
-        // bolt-action sniper: heavy barrel, brake, big scope, bolt handle that cycles after a shot
-        _ => {
-            let bolt = translate(0.0, 0.0, 0.05 * cycle);
-            v.extend([
-                part([-0.03, -0.04, -0.10], [0.03, 0.03, 0.14], GUNMETAL, 0.6),
-                part([-0.028, -0.03, -0.45], [0.028, 0.03, -0.10], POLYMER, 0.25),
-                part([-0.011, 0.0, -0.78], [0.011, 0.026, -0.45], [0.16, 0.17, 0.19], 0.8),
-                part([-0.016, -0.004, -0.84], [0.016, 0.03, -0.78], DARK, 0.7), // muzzle brake
-                // scope with mounts and turret
-                part([-0.02, 0.05, -0.20], [0.02, 0.09, 0.08], DARK, 0.6),
-                part([-0.028, 0.045, -0.26], [0.028, 0.095, -0.20], DARK, 0.6),
-                part([-0.024, 0.047, 0.08], [0.024, 0.093, 0.14], DARK, 0.6),
-                part([-0.01, 0.03, -0.12], [0.01, 0.05, -0.08], GUNMETAL, 0.5),
-                part([-0.01, 0.03, 0.02], [0.01, 0.05, 0.06], GUNMETAL, 0.5),
-                part([-0.006, 0.09, -0.06], [0.006, 0.104, -0.04], GUNMETAL, 0.5),
-                // bolt handle
-                part([0.03, 0.004, 0.03], [0.075, 0.016, 0.045], GUNMETAL, 0.6).rot(bolt),
-                part([0.07, -0.012, 0.025], [0.087, 0.026, 0.05], DARK, 0.4).rot(bolt),
-                // stock with cheek riser and pad
-                part([-0.024, -0.075, 0.14], [0.024, 0.03, 0.36], [0.17, 0.19, 0.17], 0.1),
-                part([-0.02, 0.03, 0.20], [0.02, 0.05, 0.33], [0.17, 0.19, 0.17], 0.1),
-                part([-0.026, -0.08, 0.36], [0.026, 0.034, 0.375], [0.05, 0.05, 0.05], 0.05),
-                // short box magazine
-                part([-0.016, -0.09, -0.05], [0.016, -0.04, 0.03], DARK, 0.3).rot(mag_drop),
-            ]);
-            support_hand(&mut v, -0.36, -0.24, 0.0);
-            (-0.86, 0.070)
-        }
-    };
-    grip_parts(&mut v);
-    (v, flash_z, sight_y)
 }

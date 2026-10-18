@@ -725,12 +725,10 @@ mod tests {
     #[test]
     fn zombies_climb_the_stairs_to_a_player_on_an_upper_floor() {
         let (mut g, b) = lone_building(3, true);
-        g.mode = crate::sim::Mode::Zombies;
         g.player.hp = 1e6;
         // the player stands on the second floor at the east end, a zombie waits on the ground floor
         g.player.body.pos = [b.max[0] - 2.0, 3.3, 0.0];
-        let mut z = crate::sim::Bot::soldier([b.min[0] + 2.5, 0.0, 0.0], 0.0);
-        z.speed = 3.0;
+        let mut z = crate::sim::Bot::zombie([b.min[0] + 2.5, 0.0, 0.0], 0.0);
         z.hp = 1e6;
         g.bots.push(z);
         let mut top = 0.0f32;
