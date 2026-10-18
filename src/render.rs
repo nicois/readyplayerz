@@ -1799,7 +1799,14 @@ impl Renderer {
         // walkers surge forward in lurches instead of walking evenly
         let lurch = if runner { 0.0 } else { (ph * 0.5 + seed).sin().max(0.0).powi(2) * 0.16 * amp };
         let lean = if runner { 0.35 } else { 0.2 } + lurch;
-        let pelvis = mul(&mul(&base, &translate(ph.sin() * 0.04 * amp, -bob, 0.0)), &around([0.0, 0.94, 0.0], &mul(&rot_y(ph.sin() * 0.14 * amp), &mul(&rot_z(ph.sin() * 0.05 * amp), &rot_x(-0.08)))));
+        // climbing (see `sim::Climb`): how far through, and the edge's height above the feet and distance ahead, in
+        // the body's own measure. It hangs upright against the wall, then folds over the edge as it gets a knee onto it
+        let climb = b.climbing().map(|(s, up, ahead)| (s, up / sy, ahead / sx));
+        let over = climb.map_or(0.0, |(s, ..)| ((s - crate::sim::CLIMB_OVER) / (1.0 - crate::sim::CLIMB_OVER)).clamp(0.0, 1.0));
+        let lean = if climb.is_some() { (0.3 + 0.7 * (PI * over).sin().powf(0.7)) / 1.4 } else { lean };
+        // and it rolls from side to side with each heave, the arms taking turns
+        let sway = climb.map_or(0.0, |(s, ..)| 0.12 * (s * 4.0 * PI).sin() * (1.0 - over));
+        let pelvis = mul(&mul(&base, &translate(ph.sin() * 0.04 * amp, -bob, 0.0)), &around([0.0, 0.94, 0.0], &mul(&rot_y(ph.sin() * 0.14 * amp), &mul(&rot_z(ph.sin() * 0.05 * amp + sway), &rot_x(-0.08)))));
         // never quite the same twice: a few sines at odd rates, for the arms and spine to wander by
         let wander = |rate: f32, k: f32| {
             let t = g.time * rate + seed * k;
@@ -1811,7 +1818,9 @@ impl Renderer {
         let spine = mul(&pelvis, &around([0.0, 0.98, 0.0], &rot_x(-(lean * 0.6 + 0.12 * strike) + 0.55 * flinch)));
         let chest = mul(&spine, &around([0.0, 1.16, 0.0], &mul(&rot_y(-ph.sin() * 0.3 * amp + 0.12 * wander(0.9, 1.0)), &mul(&rot_z((ph * 0.5).sin() * 0.04 * amp + 0.05 * wander(1.1, 2.0) - 0.6 * jr / 0.5), &rot_x(-(lean * 0.8 + 0.2 * strike) - 0.7 * jf / 0.5)))));
         let roll = (ph * 0.35 + seed).sin() * 0.28 - 0.4 * jr / 0.15;
-        let head = mul(&chest, &around([0.0, 1.54, 0.0], &mul(&rot_y((ph * 0.3 + seed).sin() * 0.3 * (1.0 - strike) + (g.time * 6.0 + seed).sin().powi(15) * 0.18), &mul(&rot_z(roll), &rot_x((if runner { 0.3 } else { 0.15 }) + 0.7 * flinch + 4.0 * ju)))));
+        // on the wall it looks up at where it is going
+        let look_up = if climb.is_some() { 0.25 * (1.0 - over) } else { 0.0 };
+        let head = mul(&chest, &around([0.0, 1.54, 0.0], &mul(&rot_y((ph * 0.3 + seed).sin() * 0.3 * (1.0 - strike) + (g.time * 6.0 + seed).sin().powi(15) * 0.18), &mul(&rot_z(roll), &rot_x((if runner { 0.3 } else { 0.15 }) + 0.7 * flinch + 4.0 * ju + look_up)))));
         let mouth = 0.2 + 0.5 * strike + 0.1 * (ph * 0.8).sin().abs();
         let jaw = mul(&head, &around(body::head_to_rest([0.0, 1.60, 0.03]), &rot_x(-mouth)));
         // the eyes and teeth are placed on the face as modelled, which the body shrinks onto its neck
@@ -1831,6 +1840,21 @@ impl Renderer {
             let kk = if side > 0.0 && !runner { 0.6 } else { 1.0 };
             let a = (if runner { 0.95 } else if brute { 0.45 } else { 0.55 }) * amp * kk;
             let (hip_a, knee_a) = (a * phi.sin(), 0.06 + (if runner { 1.0 } else { 0.55 }) * amp * kk * phi.cos().max(0.0));
+            let (hip_a, knee_a) = match climb {
+                Some((s, ..)) => {
+                    // the feet scrabble at the wall in front, out of step, while it hauls; then one knee comes up onto
+                    // the top, the other leg after it, and both straighten as it stands
+                    let t = g.time * 9.0 + side * PI + seed;
+                    let tuck = (0.9 + 0.3 * t.sin(), 1.0 + 0.4 * (t + 0.8).sin());
+                    let tuck = if s < crate::sim::CLIMB_GRAB { (0.3, 0.6) } else { tuck };
+                    let lag = if side < 0.0 { 0.0 } else { 0.25 };
+                    let k = (PI * ((over - lag) / (0.8 - lag * 0.6)).clamp(0.0, 1.0)).sin();
+                    let up = (1.7 * k, 2.1 * k);
+                    let w = ((over - lag) / 0.15).clamp(0.0, 1.0);
+                    (tuck.0 + (up.0 - tuck.0) * w, tuck.1 + (up.1 - tuck.1) * w)
+                }
+                None => (hip_a, knee_a),
+            };
             let hip = mul(&pelvis, &around([0.0, 0.92, 0.0], &rot_x(hip_a)));
             let knee = mul(&hip, &around([0.0, 0.50, 0.0], &rot_x(-knee_a)));
             let ankle = mul(&knee, &around([0.0, 0.09, 0.0], &rot_x(-(hip_a - knee_a) * 0.7)));
@@ -1850,12 +1874,30 @@ impl Renderer {
             // the arms wander up and down and out from the body on their own, never in step
             let sh_a = (sh_a + 0.22 * wander(1.3, 5.0 + side)) * (1.0 - 0.75 * dying) + 0.9 * flinch;
             let el_a = el_a + 0.25 * wander(1.7, 9.0 + side);
-            // climbing, both hands reach up over its head onto the ledge
-            let (sh_a, el_a) = if b.climbing() { (2.7 + 0.15 * wander(3.0, side), 0.3) } else { (sh_a, el_a) };
             let splay = 0.12 + 0.1 * wander(0.8, 13.0 + side);
+            // climbing, the hands hold the edge while the body moves under them, elbows out: the arm is bent to
+            // reach it from the shoulder, which leans forward with the back (it is `lean` * 1.4 and the pelvis's tilt)
+            let (sh_a, el_a, wr_a, splay) = match climb {
+                Some((s, up, ahead)) => {
+                    let tilt = 0.08 + lean * 1.4;
+                    let (sy0, sf) = (0.94 + 0.47 * tilt.cos(), 0.47 * tilt.sin());
+                    let (f, h) = (ahead + 0.15 - sf, up - sy0);
+                    let (l1, l2) = (0.28, 0.38);
+                    let d = f.hypot(h).clamp(0.12, l1 + l2 - 0.001);
+                    let bend = PI - ((l1 * l1 + l2 * l2 - d * d) / (2.0 * l1 * l2)).clamp(-1.0, 1.0).acos();
+                    let open = ((l1 * l1 + d * d - l2 * l2) / (2.0 * l1 * d)).clamp(-1.0, 1.0).acos();
+                    let hold = (f.atan2(-h) - open + tilt, bend, 0.9 - bend * 0.5);
+                    // it reaches up as it hops for the edge, and lets go once a knee is up on it
+                    let first = if side < 0.0 { 0.0 } else { 0.4 };
+                    let on = ((s / crate::sim::CLIMB_GRAB - first) * 2.0).clamp(0.0, 1.0) * (1.0 - ((over - 0.45) / 0.35).clamp(0.0, 1.0));
+                    let mix = |a: f32, b: f32| a + (b - a) * on;
+                    (mix(sh_a, hold.0), mix(el_a, hold.1), mix(0.35, hold.2), mix(splay, 0.35 + 0.08 * wander(2.0, side)))
+                }
+                None => (sh_a, el_a, 0.35, splay),
+            };
             let sh = mul(&chest, &around([side * body::ARM_X, 1.41, 0.0], &mul(&rot_z(side * splay), &rot_x(sh_a))));
             let el = mul(&sh, &around([0.0, 1.13, 0.0], &rot_x(el_a)));
-            let wr = mul(&el, &around([0.0, 0.87, 0.0], &rot_x(0.35)));
+            let wr = mul(&el, &around([0.0, 0.87, 0.0], &rot_x(wr_a)));
             let down = around([side * body::ARM_X, body::SHOULDER_Y, 0.0], &rot_z(-side * body::ARM_ANGLE));
             bones[body::SHOULDER + k] = mul(&sh, &down);
             bones[body::ELBOW + k] = mul(&el, &down);

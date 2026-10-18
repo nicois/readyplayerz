@@ -362,9 +362,19 @@ impl Bot {
         let (p, s) = (self.body.pos, self.scale);
         Aabb { min: [p[0] - 0.32 * s, p[1], p[2] - 0.32 * s], max: [p[0] + 0.32 * s, p[1] + 1.4 * s, p[2] + 0.32 * s] }
     }
-    /// Pulling itself up onto a ledge: hands up on it, and no swinging at anyone.
-    pub fn climbing(&self) -> bool {
-        self.climb.is_some()
+    /// Dev view: a zombie standing at `at` facing `yaw`, `s` of the way up whatever ledge is in front of it, if any.
+    pub fn climbing_at(at: V3, yaw: f32, s: f32, world: &Grid) -> Option<Bot> {
+        let mut c = find_ledge(at, yaw, BOT_REACH, BOT_CLIMB_PACE, true, world)?;
+        c.t = s * c.time;
+        let mut b = Bot::zombie(c.at().0, 0.3);
+        b.face = yaw;
+        b.climb = Some(c);
+        Some(b)
+    }
+
+    /// Pulling itself up onto a ledge, and no swinging at anyone: how it is going (see `Climb::pose`).
+    pub fn climbing(&self) -> Option<(f32, f32, f32)> {
+        self.climb.as_ref().map(Climb::pose)
     }
 
     pub fn head_box(&self) -> Aabb {
@@ -468,36 +478,81 @@ const LEDGE_REACH: f32 = 1.6;
 const LEDGE_LOW: f32 = 0.25;
 /// How long a pull up takes: so long and so much more a metre of it. Zombies are slower about it.
 const CLIMB_PACE: (f32, f32) = (0.2, 0.15);
-const BOT_CLIMB_PACE: (f32, f32) = (0.4, 0.3);
+const BOT_CLIMB_PACE: (f32, f32) = (0.5, 0.35);
 /// Zombies climb from the ground whatever the player can get onto by jumping and pulling up.
 const BOT_REACH: f32 = crate::nav::LEDGE + 0.1;
 
 /// A pull up onto a ledge: the body rises beside the face to the top, then moves in over it.
 #[derive(Clone, Copy)]
 pub struct Climb {
+    /// where the climb began, and where the body goes up from, at the foot of the face
+    start: V3,
     from: V3,
     to: V3,
     t: f32,
     time: f32,
+    /// which way the ledge is, and how far ahead of `from` its edge
+    yaw: f32,
+    edge: f32,
+    /// a zombie hauls itself up in heaves (see `CLIMB_GRAB` on); the player's own pull up is one smooth rise
+    heave: bool,
+}
+
+/// How a zombie's climb goes, as fractions of it: a hop to get its hands on the edge, two heaves that bring its
+/// hips up level with the top, then a knee onto it and over.
+pub const CLIMB_GRAB: f32 = 0.12;
+pub const CLIMB_OVER: f32 = 0.62;
+/// How far below the top the feet hang with the arms pushed straight down on the edge.
+pub const CLIMB_HANG: f32 = 0.85;
+
+fn ease(x: f32) -> f32 {
+    let x = x.clamp(0.0, 1.0);
+    x * x * (3.0 - 2.0 * x)
 }
 
 impl Climb {
     /// Where the body is `t` seconds in, and whether it is done.
     fn at(&self) -> (V3, bool) {
-        let ease = |x: f32| {
-            let x = x.clamp(0.0, 1.0);
-            x * x * (3.0 - 2.0 * x)
-        };
         let s = self.t / self.time;
-        let (up, over) = (ease(s / 0.7), ease((s - 0.7) / 0.3));
         let (a, b) = (self.from, self.to);
+        let (up, over) = if self.heave {
+            // hopping high enough to get its hands onto the edge in front of it
+            let grab = (b[1] - 1.85).clamp(a[1], (b[1] - CLIMB_HANG).max(a[1]));
+            let hang = (b[1] - CLIMB_HANG).max(grab);
+            let y = if s < CLIMB_GRAB {
+                a[1] + (grab - a[1]) * ease(s / CLIMB_GRAB)
+            } else if s < CLIMB_OVER {
+                // two pulls, each stalling as the arms get tired before the next
+                let x = (s - CLIMB_GRAB) / (CLIMB_OVER - CLIMB_GRAB);
+                grab + (hang - grab) * (x - (4.0 * PI * x).sin() / (4.0 * PI))
+            } else {
+                hang + (b[1] - hang) * ease((s - CLIMB_OVER) / (1.0 - CLIMB_OVER) / 0.45)
+            };
+            // the knee goes up onto the top as the hips rise (drawn), and the body moves in only once it is up
+            ((y - a[1]) / (b[1] - a[1]).max(1e-4), ease(((s - CLIMB_OVER) / (1.0 - CLIMB_OVER) - 0.4) / 0.6))
+        } else {
+            (ease(s / 0.7), ease((s - 0.7) / 0.3))
+        };
+        // in to the wall with the hop, then over the edge
+        let i = ease(s / CLIMB_GRAB);
+        let a = [self.start[0] + (a[0] - self.start[0]) * i, a[1], self.start[2] + (a[2] - self.start[2]) * i];
         ([a[0] + (b[0] - a[0]) * over, a[1] + (b[1] - a[1]) * up, a[2] + (b[2] - a[2]) * over], s >= 1.0)
+    }
+
+    /// For drawing a zombie's climb: how far through it is (0 to 1), how high the top is above the feet, and how
+    /// far ahead its edge is.
+    pub fn pose(&self) -> (f32, f32, f32) {
+        // measured along the climb from the foot of the face, so while it hops in the edge is further off
+        let (p, _) = self.at();
+        let f = [self.yaw.sin(), -self.yaw.cos()];
+        let gone = (p[0] - self.from[0]) * f[0] + (p[2] - self.from[2]) * f[1];
+        ((self.t / self.time).min(1.0), self.to[1] - p[1], self.edge - gone)
     }
 }
 
 /// A ledge in front of a body at `pos` facing `yaw` that it can pull itself up onto: the top of anything within a
 /// metre or so ahead, between a hop and `reach` above the feet, with room to rise beside it and stand on it.
-fn find_ledge(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), world: &Grid) -> Option<Climb> {
+fn find_ledge(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), heave: bool, world: &Grid) -> Option<Climb> {
     let f = [yaw.sin(), 0.0, -yaw.cos()];
     let free = |p: V3| {
         let b = aabb_at(p, HW, H);
@@ -529,7 +584,17 @@ fn find_ledge(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), world: &Grid) -> 
                 free([pos[0] + (c[0] - pos[0]) * s, top, pos[2] + (c[1] - pos[2]) * s])
             });
             if top <= pos[1] + reach + 0.05 && clear {
-                return Some(Climb { from: pos, to: [c[0], top, c[1]], t: 0.0, time: pace.0 + pace.1 * (top - pos[1]) });
+                let time = pace.0 + pace.1 * (top - pos[1]);
+                // the face is somewhere between this ray and the last one, which missed it
+                let edge = (d - 0.1).max(HW);
+                // a zombie hops in to the foot of the wall first, so it goes up against it with its hands on the edge
+                // instead of rising straight up from a metre out; just under the top, the face is found exactly
+                let face = world.raycast([pos[0], top - 0.15, pos[2]], f, d + 0.1);
+                let face = if face <= d + 0.05 { face } else { edge };
+                let step = if heave { (face - HW - 0.03).max(0.0) } else { 0.0 };
+                let from = [pos[0] + f[0] * step, pos[1], pos[2] + f[2] * step];
+                let (from, edge) = if free(from) { (from, face - step) } else { (pos, edge) };
+                return Some(Climb { start: pos, from, to: [c[0], top, c[1]], t: 0.0, time, yaw, edge, heave });
             }
         }
     }
@@ -1116,7 +1181,7 @@ impl Game {
         let (was_ground, fall, was_y) = (p.body.on_ground, -p.body.vel[1], p.body.pos[1]);
         // space in the air near a ledge pulls the player up onto it, the gun lowered while the hands are busy
         if p.climb.is_none() && !p.body.on_ground && inp.jump {
-            p.climb = find_ledge(p.body.pos, p.yaw, LEDGE_REACH, CLIMB_PACE, world);
+            p.climb = find_ledge(p.body.pos, p.yaw, LEDGE_REACH, CLIMB_PACE, false, world);
             if p.climb.is_some() {
                 self.events.push([ev::JUMP, 0.0, 0.0]);
             }
@@ -1216,7 +1281,9 @@ impl Game {
             }
             // it faces where it is going, and swings round to the player once it is close enough to strike
             let to_player = dx.atan2(-dz);
-            b.face = if b.body.vel[0].hypot(b.body.vel[2]) > 0.4 {
+            b.face = if let Some(c) = &b.climb {
+                c.yaw
+            } else if b.body.vel[0].hypot(b.body.vel[2]) > 0.4 {
                 let going = b.body.vel[0].atan2(-b.body.vel[2]);
                 let turn = (to_player - going + 3.0 * PI).rem_euclid(2.0 * PI) - PI;
                 going + turn * ((4.0 - dist) / 2.0).clamp(0.0, 1.0)
@@ -1337,7 +1404,7 @@ impl Game {
                 let ledge = next.filter(|to| !b.direct && to[1] - b.body.pos[1] > 0.65);
                 if let Some(to) = ledge.filter(|to| (to[0] - b.body.pos[0]).hypot(to[2] - b.body.pos[2]) < 1.5) {
                     let yaw = (to[0] - b.body.pos[0]).atan2(-(to[2] - b.body.pos[2]));
-                    b.climb = find_ledge(b.body.pos, yaw, BOT_REACH, BOT_CLIMB_PACE, world);
+                    b.climb = find_ledge(b.body.pos, yaw, BOT_REACH, BOT_CLIMB_PACE, true, world);
                 }
                 if b.climb.is_none() && blocked && b.body.on_ground {
                     b.body.vel[1] = JUMP;

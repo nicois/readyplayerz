@@ -504,11 +504,12 @@ const slots = [0, primaries].map((w, i) => {
 });
 const shownCarried = [0, primaries];
 
-// dev flags: ?demo runs the game behind the menu (for screenshots where pointer lock isn't available),
+// dev flags: ?seed=n makes the map from n, ?demo runs the game behind the menu (for screenshots where pointer lock isn't available),
 // ?calm removes the bots, ?at=x,z,yaw[,y,pitch] puts the player somewhere, ?primary=1-8 picks the primary,
 // ?sidearm=1-3 the sidearm, ?slot=2 holds the sidearm, ?clean hides the menu, ?screen=loadout|pick|pick2|settings
 // opens a menu screen (pick2 is the sidearm's picker)
 const params = new URLSearchParams(location.search);
+if (params.has("seed")) client.set_seed(Number(params.get("seed")));
 if (params.has("demo")) client.set_paused(false);
 if (params.has("calm")) client.remove_bots();
 if (params.has("primary")) client.pick(Number(params.get("primary")) - 1);
@@ -533,6 +534,12 @@ if (params.has("at")) {
 }
 if (params.has("gun")) { const [x, y, z, yaw = 0.05] = params.get("gun").split(",").map(Number); client.set_gun_offset(x, y, z, yaw); }
 if (params.has("show")) client.show_zombies(Number(params.get("show")) || 3, Number(params.get("dist")) || 2.8, Number(params.get("side")) || 0);
+// ?climb=s[,side,back] freezes a zombie s (0 to 1) of the way up the first ledge ahead, seen from side metres to its
+// right and back behind it
+if (params.has("climb")) {
+  const [s, side = 3, back = 3] = params.get("climb").split(",").map(Number);
+  if (!client.show_climb(s, side, back)) console.log("no ledge to climb ahead");
+}
 const locked = () => document.pointerLockElement === canvas;
 // ending the game stays on the menu, ready to pick a loadout and start again
 $("end").addEventListener("click", () => {

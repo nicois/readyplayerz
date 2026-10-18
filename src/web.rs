@@ -43,6 +43,13 @@ impl Client {
         self.acc = 0.0;
     }
 
+    /// Dev view: a fresh game on the map made from `seed`, so a picture can be taken in the same place again.
+    pub fn set_seed(&mut self, seed: u32) -> Result<(), JsValue> {
+        self.seed = seed;
+        self.game = Game::new(seed);
+        Ok(self.renderer.upload_world(&self.game)?)
+    }
+
     pub fn resize(&mut self, width: u32, height: u32) {
         self.renderer.width = width;
         self.renderer.height = height;
@@ -106,6 +113,25 @@ impl Client {
             z.kind = (i % 3) as u8;
             self.game.bots.push(z);
         }
+    }
+
+    /// Dev view: replaces the bots with one zombie frozen `s` of the way through climbing the first ledge on the
+    /// ground straight ahead of the player, and looks at it from `side` metres to its right (left if negative) and
+    /// `back` behind it. False if there is none.
+    pub fn show_climb(&mut self, s: f32, side: f32, back: f32) -> bool {
+        let p = &mut self.game.player;
+        let (at, yaw, f) = (p.body.pos, p.yaw, p.forward());
+        let found = (4..120).find_map(|k| {
+            let d = k as f32 * 0.25;
+            crate::sim::Bot::climbing_at([at[0] + f[0] * d, 0.01, at[2] + f[2] * d], yaw, s, &self.game.world).map(|b| (b, d))
+        });
+        self.game.bots.clear();
+        let Some((b, d)) = found else { return false };
+        let c = [at[0] + f[0] * d, at[2] + f[2] * d];
+        p.body.pos = [c[0] - f[2] * side - f[0] * back, p.body.pos[1], c[1] + f[0] * side - f[2] * back];
+        p.yaw = yaw - side.atan2(back);
+        self.game.bots.push(b);
+        true
     }
 
     /// Dev view: puts the gun somewhere else in the picture, to look at it.
