@@ -1,7 +1,7 @@
 // Synthesized sound effects. Everything is built from noise and oscillators, so there are no audio files.
 // The sim reports what happened as [code, a, b] triples; `play` turns them into sound.
 
-const SHOT = 1, ENEMY_SHOT = 2, HIT = 3, HEAD = 4, KILL = 5, HURT = 6, RELOAD = 7, EQUIP = 8, STEP = 9, JUMP = 10, LAND = 11, DEATH = 12;
+const SHOT = 1, ENEMY_SHOT = 2, HIT = 3, HEAD = 4, KILL = 5, HURT = 6, RELOAD = 7, EQUIP = 8, STEP = 9, JUMP = 10, LAND = 11, DEATH = 12, GROWL = 13, WAVE = 14;
 
 // per gun: crack (highpass noise: freq, gain, seconds), thump (sine: from, to, seconds, gain), tail (lowpass noise), reverb send
 const GUNS = [
@@ -176,6 +176,48 @@ export class Sound {
     this.noise(d, t, 0.2, "lowpass", 800 * k, 150, vol * 0.4);
   }
 
+  // a low, wavering groan with some breath in it, softer and duller the further away it is
+  growl(dist, pan) {
+    const ctx = this.ctx, t = ctx.currentTime, vol = 0.9 / (1 + dist * 0.12), dur = 0.9 + Math.random() * 0.5;
+    const d = this.bus(pan, Math.min(0.5, 0.15 + dist * 0.01));
+    const f0 = 70 + Math.random() * 40;
+    const o = ctx.createOscillator();
+    o.type = "sawtooth";
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(f0 * 0.6, t + dur);
+    const lfo = ctx.createOscillator(), lg = ctx.createGain();
+    lfo.frequency.value = 5 + Math.random() * 3;
+    lg.gain.value = f0 * 0.08;
+    lfo.connect(lg);
+    lg.connect(o.frequency);
+    const f = ctx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.setValueAtTime(500 / (1 + dist * 0.03), t);
+    f.frequency.exponentialRampToValueAtTime(220, t + dur);
+    f.Q.value = 5;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.5 * vol, t + 0.15);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(f);
+    f.connect(g);
+    g.connect(d);
+    o.start(t);
+    lfo.start(t);
+    o.stop(t + dur + 0.05);
+    lfo.stop(t + dur + 0.05);
+    this.noise(d, t, dur, "bandpass", 700, 300, 0.25 * vol, 2);
+  }
+
+  // a low horn when a wave begins
+  wave() {
+    const t = this.ctx.currentTime, d = this.bus(0, 0.5);
+    this.tone(d, t, "sawtooth", 110, 108, 1.1, 0.18);
+    this.tone(d, t + 0.05, "sawtooth", 165, 162, 1.0, 0.1);
+    this.tone(d, t + 1.2, "sawtooth", 82, 80, 1.4, 0.2);
+    this.noise(d, t, 1.2, "lowpass", 300, 100, 0.2);
+  }
+
   hit() {
     this.tone(this.bus(0, 0), this.ctx.currentTime, "sine", 1700, 1500, 0.045, 0.22);
   }
@@ -279,6 +321,8 @@ export class Sound {
         case JUMP: this.jump(); break;
         case LAND: this.land(a); break;
         case DEATH: this.death(); break;
+        case GROWL: this.growl(a, b); break;
+        case WAVE: this.wave(); break;
       }
     }
   }

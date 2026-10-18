@@ -11,28 +11,59 @@ const UNREACHED: u32 = u32::MAX;
 /// How far from the player to look for an open cell when they are standing on top of something.
 const GOAL_SEARCH: i32 = 6;
 
+/// Tallest rise between neighbouring cells a bot can walk or hop up. A stair cell rises about half a metre.
+const CLIMB: f32 = 0.65;
+/// Furthest it will step down on its own.
+const DROP: f32 = 1.3;
+/// Body height a standing spot needs clear above it.
+const HEADROOM: f32 = 1.8;
+
+/// One standable spot: the middle of a cell at some height.
 pub struct Nav {
     half: f32,
     n: usize,
-    open: Vec<bool>,
+    /// heights of the spots in each cell: `spots[start[c]..start[c + 1]]`
+    start: Vec<u32>,
+    spots: Vec<f32>,
     /// path cost to the goal, 10 per straight step and 14 per diagonal
     cost: Vec<u32>,
     goal: Option<usize>,
 }
 
 impl Nav {
-    /// A cell is blocked if any wall stands on any part of it, however low.
+    /// Every cell gets a spot at the ground and on top of each wall in it, provided a body fits standing there.
+    /// So floors, stairs, roofs and crates are all places a bot can go.
     pub fn new(world: &Grid, half: f32) -> Nav {
         let n = (2.0 * half / CELL).ceil() as usize;
-        let mut open = vec![true; n * n];
+        let mut start = Vec::with_capacity(n * n + 1);
+        let mut spots = Vec::new();
+        let mut spans: Vec<(f32, f32)> = Vec::new();
         for z in 0..n {
             for x in 0..n {
+                start.push(spots.len() as u32);
                 let (x0, z0) = (-half + x as f32 * CELL, -half + z as f32 * CELL);
-                let cell = Aabb { min: [x0, 0.0, z0], max: [x0 + CELL, 0.1, z0 + CELL] };
-                open[z * n + x] = !world.find(&cell, |w| overlaps(&cell, w));
+                let cell = Aabb { min: [x0, -1.0, z0], max: [x0 + CELL, 200.0, z0 + CELL] };
+                spans.clear();
+                world.find(&cell, |w| {
+                    if overlaps(&cell, w) {
+                        spans.push((w.min[1], w.max[1]));
+                    }
+                    false
+                });
+                let mut tops: Vec<f32> = spans.iter().map(|s| s.1).filter(|t| *t > 0.0).collect();
+                tops.push(0.0);
+                tops.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                tops.dedup_by(|a, b| (*a - *b).abs() < 0.01);
+                for h in tops {
+                    if !spans.iter().any(|(lo, hi)| *lo < h + HEADROOM && *hi > h + 0.02) {
+                        spots.push(h);
+                    }
+                }
             }
         }
-        Nav { half, n, open, cost: vec![UNREACHED; n * n], goal: None }
+        start.push(spots.len() as u32);
+        let total = spots.len();
+        Nav { half, n, start, spots, cost: vec![UNREACHED; total], goal: None }
     }
 
     fn cell_of(&self, x: f32, z: f32) -> Option<(i32, i32)> {
@@ -45,36 +76,73 @@ impl Nav {
         c.1 as usize * self.n + c.0 as usize
     }
 
-    fn is_open(&self, c: (i32, i32)) -> bool {
+    /// Indices of the spots in a cell (none outside the map).
+    fn in_cell(&self, c: (i32, i32)) -> std::ops::Range<usize> {
         let n = self.n as i32;
-        c.0 >= 0 && c.1 >= 0 && c.0 < n && c.1 < n && self.open[self.at(c)]
+        if c.0 < 0 || c.1 < 0 || c.0 >= n || c.1 >= n {
+            return 0..0;
+        }
+        let i = self.at(c);
+        self.start[i] as usize..self.start[i + 1] as usize
+    }
+
+    fn cell_at(&self, spot: usize) -> (i32, i32) {
+        let i = self.start.partition_point(|s| *s as usize <= spot) - 1;
+        ((i % self.n) as i32, (i / self.n) as i32)
     }
 
     fn center(&self, c: (i32, i32)) -> [f32; 2] {
         [-self.half + (c.0 as f32 + 0.5) * CELL, -self.half + (c.1 as f32 + 0.5) * CELL]
     }
 
-    /// Points the field at `p`. Does nothing if they are still in the same cell as last time.
-    pub fn set_goal(&mut self, p: V3) {
-        let Some(here) = self.cell_of(p[0], p[2]) else {
-            return;
-        };
-        // on top of a wall: aim for the nearest open cell around it
-        let mut goal = self.is_open(here).then_some(here);
-        let mut best = f32::INFINITY;
-        if goal.is_none() {
-            for dz in -GOAL_SEARCH..=GOAL_SEARCH {
-                for dx in -GOAL_SEARCH..=GOAL_SEARCH {
-                    let c = (here.0 + dx, here.1 + dz);
-                    let d = (dx * dx + dz * dz) as f32;
-                    if d < best && self.is_open(c) {
-                        best = d;
-                        goal = Some(c);
+    fn can_step(&self, from: f32, to: f32) -> bool {
+        to - from <= CLIMB && from - to <= DROP
+    }
+
+    /// The spot at `c2` a bot standing at `h` in `c` can walk to, if any. Diagonals need both
+    /// cells beside them to be passable too, so nobody cuts a corner through a wall.
+    fn move_to(&self, c: (i32, i32), h: f32, d: (i32, i32)) -> Option<usize> {
+        let c2 = (c.0 + d.0, c.1 + d.1);
+        let best = |cell: (i32, i32), from: f32| self.in_cell(cell).filter(|&s| self.can_step(from, self.spots[s])).min_by(|a, b| (self.spots[*a] - from).abs().partial_cmp(&(self.spots[*b] - from).abs()).unwrap());
+        let to = best(c2, h)?;
+        if d.0 != 0 && d.1 != 0 {
+            let t = self.spots[to];
+            for side in [(c.0 + d.0, c.1), (c.0, c.1 + d.1)] {
+                if !self.in_cell(side).any(|s| self.can_step(h, self.spots[s]) && self.can_step(self.spots[s], t)) {
+                    return None;
+                }
+            }
+        }
+        Some(to)
+    }
+
+    /// The spot in or near the cell of `p` that is closest to where `p` stands.
+    fn nearest_spot(&self, p: V3, radius: i32) -> Option<usize> {
+        let here = self.cell_of(p[0], p[2])?;
+        let mut best = (f32::INFINITY, None);
+        for dz in -radius..=radius {
+            for dx in -radius..=radius {
+                for s in self.in_cell((here.0 + dx, here.1 + dz)) {
+                    let dy = self.spots[s] - p[1];
+                    let score = (dx * dx + dz * dz) as f32 + 4.0 * dy * dy;
+                    if score < best.0 {
+                        best = (score, Some(s));
                     }
                 }
             }
         }
-        let goal = goal.map(|c| self.at(c));
+        best.1
+    }
+
+    /// The spot a body at `p` is standing on: the one in its cell closest to its feet.
+    fn spot_of(&self, p: V3) -> Option<usize> {
+        let c = self.cell_of(p[0], p[2])?;
+        self.in_cell(c).min_by(|a, b| (self.spots[*a] - p[1]).abs().partial_cmp(&(self.spots[*b] - p[1]).abs()).unwrap())
+    }
+
+    /// Points the field at `p`, at whatever height it is standing. Does nothing if they are still on the same spot.
+    pub fn set_goal(&mut self, p: V3) {
+        let goal = self.nearest_spot(p, GOAL_SEARCH);
         if goal == self.goal {
             return;
         }
@@ -90,42 +158,68 @@ impl Nav {
             if d > self.cost[i] {
                 continue;
             }
-            let c = ((i % self.n) as i32, (i / self.n) as i32);
+            let (c, h) = (self.cell_at(i), self.spots[i]);
             for (dx, dz) in NEIGHBOURS {
-                let to = (c.0 + dx, c.1 + dz);
-                if !self.is_open(to) || (dx != 0 && dz != 0 && !(self.is_open((c.0 + dx, c.1)) && self.is_open((c.0, c.1 + dz)))) {
-                    continue;
-                }
-                let nd = d + if dx != 0 && dz != 0 { 14 } else { 10 };
-                let j = self.at(to);
-                if nd < self.cost[j] {
-                    self.cost[j] = nd;
-                    heap.push(Reverse((nd, j)));
+                // walk the field backwards: find the spots that can step onto this one
+                let from = (c.0 + dx, c.1 + dz);
+                for j in self.in_cell(from) {
+                    if self.move_to(from, self.spots[j], (-dx, -dz)) != Some(i) || !self.can_step(self.spots[j], h) {
+                        continue;
+                    }
+                    let nd = d + if dx != 0 && dz != 0 { 14 } else { 10 };
+                    if nd < self.cost[j] {
+                        self.cost[j] = nd;
+                        heap.push(Reverse((nd, j)));
+                    }
                 }
             }
         }
     }
 
-    /// Centre of the neighbouring cell that is closest to the goal, or None if `p` is not on the field
-    /// (inside a wall, unreachable) or is already in the goal cell.
-    pub fn next(&self, p: V3) -> Option<[f32; 2]> {
+    /// Middle of the cell `p` is in, if there is somewhere to stand in it.
+    pub fn snap(&self, p: V3) -> Option<[f32; 2]> {
         let c = self.cell_of(p[0], p[2])?;
-        let here = self.cost[self.at(c)];
-        if !self.is_open(c) || here == UNREACHED || here == 0 {
+        (!self.in_cell(c).is_empty()).then(|| self.center(c))
+    }
+
+    /// True if there is ground to stand on in the cell under `p`.
+    pub fn open_at(&self, p: V3) -> bool {
+        self.cell_of(p[0], p[2]).is_some_and(|c| self.in_cell(c).any(|s| self.spots[s] == 0.0))
+    }
+
+    /// Ground spots, and how many of them have a route to the goal.
+    pub fn coverage(&self) -> (usize, usize) {
+        let ground: Vec<usize> = (0..self.spots.len()).filter(|&s| self.spots[s] == 0.0).collect();
+        let reached = ground.iter().filter(|&&s| self.cost[s] != UNREACHED).count();
+        (ground.len(), reached)
+    }
+
+    /// True if `p` stands on a spot that has a route to the goal.
+    pub fn reachable(&self, p: V3) -> bool {
+        self.spot_of(p).is_some_and(|s| self.cost[s] != UNREACHED)
+    }
+
+    /// Where to step next from `p` on the way to the goal, as a point (x, height, z), or None if `p` is not
+    /// on the field (inside a wall, unreachable) or is already at the goal.
+    pub fn next(&self, p: V3) -> Option<V3> {
+        let s = self.spot_of(p)?;
+        let here = self.cost[s];
+        if here == UNREACHED || here == 0 {
             return None;
         }
+        let (c, h) = (self.cell_at(s), self.spots[s]);
         let mut best = (here, None);
-        for (dx, dz) in NEIGHBOURS {
-            let to = (c.0 + dx, c.1 + dz);
-            if !self.is_open(to) || (dx != 0 && dz != 0 && !(self.is_open((c.0 + dx, c.1)) && self.is_open((c.0, c.1 + dz)))) {
-                continue;
-            }
-            let cost = self.cost[self.at(to)];
-            if cost < best.0 {
-                best = (cost, Some(to));
+        for d in NEIGHBOURS {
+            if let Some(to) = self.move_to(c, h, d) {
+                if self.cost[to] < best.0 {
+                    best = (self.cost[to], Some(to));
+                }
             }
         }
-        best.1.map(|to| self.center(to))
+        best.1.map(|to| {
+            let m = self.center(self.cell_at(to));
+            [m[0], self.spots[to], m[1]]
+        })
     }
 }
 
@@ -150,7 +244,7 @@ mod tests {
             let Some(to) = nav.next(p) else {
                 break;
             };
-            p = [to[0], 0.0, to[1]];
+            p = [to[0], to[1], to[2]];
             let cell = Aabb { min: [p[0] - 0.4, 0.0, p[2] - 0.4], max: [p[0] + 0.4, 0.1, p[2] + 0.4] };
             assert!(!nav_world.find(&cell, |w| overlaps(&cell, w)), "stepped into a wall at {p:?}");
         }

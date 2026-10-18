@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<base href="../">
+<script>window.MODE = "zombies";</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arena</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #12182a; overflow: hidden; font: 14px/1.4 ui-monospace, Menlo, monospace; color: #e8ecff; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+  #cross { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; }
+  #cross::before, #cross::after { content: ""; position: absolute; background: #fff; opacity: .85; }
+  #cross::before { left: 10px; top: 0; width: 2px; height: 22px; }
+  #cross::after { top: 10px; left: 0; height: 2px; width: 22px; }
+  #cross { transition: transform .05s; }
+  #cross.kill { transform: rotate(45deg) scale(2); filter: drop-shadow(0 0 6px #ff3030); }
+  #cross.hit { transform: rotate(45deg) scale(1.3); filter: drop-shadow(0 0 4px #ff5a5a); }
+  #flash { position: absolute; inset: 0; background: radial-gradient(transparent 45%, rgba(255,40,40,.6)); opacity: 0; }
+  #stats { position: absolute; left: 20px; bottom: 18px; font-size: 22px; letter-spacing: .04em; text-shadow: 0 1px 3px #000; }
+  #stats small { display: block; font-size: 13px; opacity: .7; }
+  #ammo { position: absolute; right: 22px; bottom: 18px; font-size: 34px; text-shadow: 0 1px 3px #000; text-align: right; }
+  #ammo small { display: block; font-size: 13px; opacity: .7; }
+  #score { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); font-size: 18px; text-shadow: 0 1px 3px #000; }
+  #dead { position: absolute; top: 40%; width: 100%; text-align: center; font-size: 28px; display: none; text-shadow: 0 2px 6px #000; }
+  #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10,14,28,.72); cursor: pointer; }
+  #menu div { text-align: center; max-width: 440px; padding: 0 20px; }
+  #menu h1 { margin: 0 0 6px; font-size: 40px; letter-spacing: .12em; }
+  #menu p { margin: 4px 0; opacity: .8; }
+  #menu .go { margin-top: 18px; font-size: 18px; opacity: 1; }
+  #err { color: #ff8a8a; }
+  #bar { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; gap: 6px; }
+  .slot { min-width: 74px; padding: 5px 8px; text-align: center; background: rgba(10,14,28,.45); border: 1px solid rgba(255,255,255,.18); border-radius: 4px; opacity: .6; text-shadow: 0 1px 3px #000; }
+  .slot b { display: block; font-size: 11px; font-weight: normal; opacity: .6; }
+  .slot.on { opacity: 1; border-color: #ffd36a; background: rgba(40,34,10,.55); }
+  #scope { position: absolute; inset: 0; display: none; background: radial-gradient(circle at center, transparent 0, transparent 30vmin, #000 30.4vmin); }
+  #scope::before, #scope::after { content: ""; position: absolute; background: #000; }
+  #scope::before { left: 50%; top: calc(50% - 30vmin); width: 2px; height: 60vmin; margin-left: -1px; }
+  #scope::after { top: 50%; left: calc(50% - 30vmin); height: 2px; width: 60vmin; margin-top: -1px; }
+  #scope i { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: #ff3b3b; }
+  #map { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(8,10,14,.86); }
+  #map canvas { position: static; width: min(92vh, 92vw); height: min(92vh, 92vw); border: 1px solid rgba(255,255,255,.3); }
+  #map small { position: absolute; bottom: 10px; opacity: .6; }
+  #loadout { display: flex; gap: 10px; justify-content: center; margin: 18px 0 4px; }
+  .card { width: 118px; padding: 10px 8px; text-align: center; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.2); border-radius: 6px; cursor: pointer; }
+  .card:hover { background: rgba(255,255,255,.12); }
+  .card.on { border-color: #ffd36a; background: rgba(255,211,106,.14); }
+  .card h3 { margin: 0 0 6px; font-size: 15px; letter-spacing: .06em; }
+  .card small { display: block; font-size: 12px; opacity: .75; text-align: left; }
+  #menu div.wide { max-width: 640px; }
+  #menu #loadout, #menu .card { max-width: none; padding-left: 8px; padding-right: 8px; }
+  #menu #loadout { padding: 0; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="flash"></div>
+  <div id="cross"></div>
+  <div id="scope"><i></i></div>
+  <div id="score"></div>
+  <div id="dead"></div>
+  <div id="stats"><span id="hp">100</span> HP<small id="kd"></small></div>
+  <div id="ammo"><span id="am">30</span> / <span id="mg">30</span><small id="rl"></small></div>
+  <div id="bar"></div>
+</div>
+<div id="map"><canvas id="mapcv" width="720" height="720"></canvas><small>Tab to close</small></div>
+<div id="menu"><div class="wide">
+  <h1>ARENA</h1>
+  <p>WASD move &middot; Shift sprint &middot; Space jump</p>
+  <p>Mouse aim &middot; Click shoot &middot; Right-click aim down sights &middot; R reload</p>
+  <p>1-4 or mouse wheel switch gun &middot; Tab map &middot; M <span id="mute">sound on</span></p>
+  <div id="loadout"></div>
+  <p id="tagline">Headshots hurt. Red boxes shoot back.</p>
+  <p class="go" id="go">Click to play</p>
+  <p id="err"></p>
+</div></div>
+<script type="module">
+import init, { Client } from "./pkg/arena.js";
+import { Sound } from "./audio.js";
+
+const canvas = document.getElementById("c");
+const menu = document.getElementById("menu");
+const err = document.getElementById("err");
+const $ = id => document.getElementById(id);
+
+function size() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(innerWidth * dpr);
+  canvas.height = Math.floor(innerHeight * dpr);
+  return [canvas.width, canvas.height];
+}
+
+let client;
+try {
+  await init();
+  size();
+  client = new Client(canvas, window.MODE || "soldiers");
+} catch (e) {
+  err.textContent = String(e);
+  throw e;
+}
+addEventListener("resize", () => client.resize(...size()));
+
+const zombies = window.MODE === "zombies";
+if (zombies) {
+  document.title = "Zombies";
+  document.querySelector("#menu h1").textContent = "ZOMBIES";
+  $("tagline").textContent = "Survive the waves. They don't stop. Health comes back if you stay clear for a while.";
+}
+const names = client.weapon_names();
+const stats = client.weapon_stats();
+const sound = new Sound(Array.from({ length: names.length }, (_, i) => stats[i * 4 + 3]));
+const cards = [], slots = [];
+names.forEach((name, i) => {
+  const [dmg, rpm, mag, rel] = stats.slice(i * 4, i * 4 + 4);
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `<h3>${i + 1} &middot; ${name}</h3><small>${dmg} dmg</small><small>${Math.round(rpm)} rpm</small><small>${mag} rounds</small><small>${rel.toFixed(1)}s reload</small>`;
+  card.addEventListener("click", () => client.select_weapon(i));
+  $("loadout").appendChild(card);
+  cards.push(card);
+  const slot = document.createElement("div");
+  slot.className = "slot";
+  slot.innerHTML = `${name}<b>${i + 1}</b>`;
+  $("bar").appendChild(slot);
+  slots.push(slot);
+});
+// clicking a card picks the gun and the click then falls through to start playing
+
+// dev flags: ?demo runs the game behind the menu (for screenshots where pointer lock isn't available),
+// ?calm removes the bots, ?at=x,z,yaw[,y] puts the player somewhere
+const params = new URLSearchParams(location.search);
+if (params.has("demo")) client.set_paused(false);
+if (params.has("calm")) client.remove_bots();
+
+if (params.has("at")) {
+  const [x, z, yaw = 0, y = 0] = params.get("at").split(",").map(Number);
+  client.teleport(x, y, z, yaw);
+}
+if (params.has("show")) client.show_zombies(Number(params.get("show")) || 3, Number(params.get("dist")) || 2.8, Number(params.get("side")) || 0);
+const locked = () => document.pointerLockElement === canvas;
+menu.addEventListener("click", () => { sound.start(); canvas.requestPointerLock(); });
+document.addEventListener("pointerlockchange", () => {
+  menu.style.display = locked() ? "none" : "flex";
+  client.set_paused(!locked());
+  if (!locked()) { client.release_all(); sound.cancel(); }
+});
+// the whole arena from above: ground markings first, then walls from low to tall so tall things sit on top
+const S = 3.6;
+let mapBase = null;
+const rgb = (r, g, b, k = 1) => `rgb(${Math.min(255, r * k * 255) | 0},${Math.min(255, g * k * 255) | 0},${Math.min(255, b * k * 255) | 0})`;
+function buildMap() {
+  const off = document.createElement("canvas");
+  off.width = off.height = 200 * S;
+  const c = off.getContext("2d");
+  c.fillStyle = rgb(0.23, 0.22, 0.19);
+  c.fillRect(0, 0, off.width, off.height);
+  const px = v => (v + 100) * S;
+  const d = client.decal_data();
+  for (let i = 0; i < d.length; i += 7) {
+    c.fillStyle = rgb(d[i + 4], d[i + 5], d[i + 6]);
+    c.fillRect(px(d[i]), px(d[i + 1]), (d[i + 2] - d[i]) * S, (d[i + 3] - d[i + 1]) * S);
+  }
+  const w = client.map_data();
+  const order = [];
+  for (let i = 0; i < w.length; i += 8) order.push(i);
+  order.sort((a, b) => w[a + 4] - w[b + 4]);
+  for (const i of order) {
+    c.fillStyle = rgb(w[i + 5], w[i + 6], w[i + 7], 0.7 + 0.5 * Math.min(w[i + 4] / 12, 1));
+    c.fillRect(px(w[i]), px(w[i + 1]), Math.max(1, (w[i + 2] - w[i]) * S), Math.max(1, (w[i + 3] - w[i + 1]) * S));
+  }
+  c.font = "bold 13px ui-monospace, Menlo, monospace";
+  c.textAlign = "center";
+  for (const [name, x, z] of [["CLOCK TOWER", 0, 14], ["NORTH YARD", 0, -90], ["CRANE", 0, -58], ["CHURCH", 0, 52], ["HOUSES", -62, 66], ["RADIO HILL", 75, 0], ["TRENCHES", -73, 0], ["WATER TOWER", -78, 34], ["FORTRESS", -79, -99], ["OIL DEPOT", 81, -99], ["GAS STATION", 60, 94], ["SUBSTATION", -79, 94]]) {
+    c.fillStyle = "#000a";
+    c.fillText(name, px(x) + 1, px(z) + 1);
+    c.fillStyle = "#fff";
+    c.fillText(name, px(x), px(z));
+  }
+  return off;
+}
+let showMap = false;
+let lastPos = [0, 0, 0];
+function drawMap() {
+  const c = $("mapcv").getContext("2d");
+  c.drawImage(mapBase, 0, 0);
+  const [x, z, yaw] = lastPos;
+  c.save();
+  c.translate((x + 100) * S, (z + 100) * S);
+  c.rotate(yaw);
+  c.fillStyle = "#ffd36a";
+  c.strokeStyle = "#000";
+  c.beginPath();
+  c.moveTo(0, -11);
+  c.lineTo(7, 8);
+  c.lineTo(-7, 8);
+  c.closePath();
+  c.fill();
+  c.stroke();
+  c.restore();
+}
+addEventListener("keydown", e => {
+  if (e.code === "Tab") {
+    e.preventDefault();
+    if (e.repeat) return;
+    showMap = !showMap;
+    if (showMap && !mapBase) mapBase = buildMap();
+    $("map").style.display = showMap ? "flex" : "none";
+    return;
+  }
+  if (e.repeat) return;
+  if (e.code === "KeyM") $("mute").textContent = sound.toggleMute() ? "sound off" : "sound on";
+  if (locked()) { client.key(e.code, true); if (e.code === "Space") e.preventDefault(); }
+});
+addEventListener("keyup", e => client.key(e.code, false));
+addEventListener("mousemove", e => { if (locked()) client.mouse_move(e.movementX, e.movementY); });
+addEventListener("mousedown", e => { if (locked()) client.mouse_button(e.button, true); });
+addEventListener("mouseup", e => client.mouse_button(e.button, false));
+addEventListener("contextmenu", e => e.preventDefault());
+addEventListener("wheel", e => { if (locked() && e.deltaY) client.cycle_weapon(e.deltaY > 0 ? 1 : -1); }, { passive: true });
+
+function loop(t) {
+  client.frame(t);
+  sound.play(client.take_events());
+  const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped, killt, px, pz, pyaw, wave, left] = client.hud();
+  lastPos = [px, pz, pyaw];
+  if (showMap) drawMap();
+  $("hp").textContent = Math.ceil(hp);
+  $("am").textContent = ammo;
+  $("mg").textContent = mag;
+  slots.forEach((el, i) => el.classList.toggle("on", i === weapon));
+  cards.forEach((el, i) => el.classList.toggle("on", i === weapon));
+  const scopeOn = scoped && ads > 0.85;
+  $("scope").style.display = scopeOn ? "block" : "none";
+  $("cross").style.display = scopeOn || ads > 0.5 ? "none" : "block";
+  $("rl").textContent = reloading ? "reloading..." : "";
+  $("kd").textContent = `${kills} kills / ${deaths} deaths`;
+  $("score").textContent = zombies ? (left > 0 ? `Wave ${wave} \u00b7 ${left} left` : wave === 0 ? "Get ready..." : `Wave ${wave} cleared`) : `${kills} kills`;
+  $("flash").style.opacity = flash;
+  $("cross").classList.toggle("hit", hit > 0.5);
+  $("cross").classList.toggle("kill", killt > 0.4);
+  const dead = $("dead");
+  dead.style.display = respawn > 0 ? "block" : "none";
+  dead.textContent = zombies ? `Overrun on wave ${wave}. Restarting in ${respawn.toFixed(1)}` : `You died. Respawning in ${respawn.toFixed(1)}`;
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

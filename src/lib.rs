@@ -1,4 +1,6 @@
+pub mod body;
 pub mod grid;
+pub mod map;
 pub mod nav;
 pub mod sim;
 
