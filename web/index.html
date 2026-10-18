@@ -3,7 +3,40 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Zombies</title>
+<title>Ready Player Z – Free Zombie Survival FPS in Your Browser</title>
+<meta name="description" content="Ready Player Z is a free first-person zombie survival shooter that runs right in your browser. Pick a loadout, hold out against endless waves, no download or sign-up.">
+<link rel="canonical" href="https://readyplayerz.com/">
+<meta name="theme-color" content="#12182a">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2312182a'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23ffd36a' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%23ffd36a'/%3E%3C/svg%3E">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Ready Player Z">
+<meta property="og:url" content="https://readyplayerz.com/">
+<meta property="og:title" content="Ready Player Z – Zombie Survival FPS in Your Browser">
+<meta property="og:description" content="A free first-person zombie shooter that runs in your browser. Pick a loadout and survive the waves.">
+<meta property="og:image" content="https://readyplayerz.com/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Ready Player Z – Zombie Survival FPS in Your Browser">
+<meta name="twitter:description" content="A free first-person zombie shooter that runs in your browser. Pick a loadout and survive the waves.">
+<meta name="twitter:image" content="https://readyplayerz.com/og.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "VideoGame",
+  "name": "Ready Player Z",
+  "url": "https://readyplayerz.com/",
+  "description": "A free first-person zombie survival shooter that runs in your browser.",
+  "genre": ["First-person shooter", "Survival", "Zombie"],
+  "gamePlatform": "Web browser",
+  "applicationCategory": "Game",
+  "operatingSystem": "Windows, macOS, Linux",
+  "playMode": "SinglePlayer",
+  "isAccessibleForFree": true,
+  "image": "https://readyplayerz.com/og.png",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
 <style>
   html, body { margin: 0; height: 100%; background: #12182a; overflow: hidden; font: 14px/1.4 ui-monospace, Menlo, monospace; color: #e8ecff; }
   canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
@@ -113,6 +146,13 @@
   #loading .fill { width: 0; height: 100%; background: #ffd36a; transition: width .2s; }
   #loading p { margin: 12px 0 0; font-size: 13px; opacity: .7; }
   #loading p.err { color: #ff8a8a; opacity: 1; max-width: 480px; text-align: center; }
+  /* instead of loading: why the game can't run here (a phone, or a browser missing something it needs) */
+  #loading.blocked { padding: 0 16px; text-align: center; }
+  #loading.blocked .track, #loading.blocked #lstatus { display: none; }
+  #loading h2 { margin: 0 0 10px; font-size: 18px; color: #ffd36a; }
+  #loading .why { max-width: min(440px, 100%); margin: 0; font-size: 14px; line-height: 1.6; opacity: .85; }
+  #loading .why + .why { margin-top: 10px; }
+  #loading .anyway { margin-top: 22px; padding: 8px 16px; font: inherit; color: inherit; background: none; border: 1px solid rgba(255,255,255,.3); border-radius: 4px; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -171,7 +211,14 @@
     </dl>
   </section>
 </div>
-<div id="loading"><h1>ZOMBIES</h1><div class="track"><div class="fill" id="lfill"></div></div><p id="lstatus">Loading...</p></div>
+<div id="loading"><h1>ZOMBIES</h1><div class="track"><div class="fill" id="lfill"></div></div><p id="lstatus">Loading...</p>
+  <noscript><h2>JavaScript is off</h2><p class="why">Ready Player Z is a zombie survival shooter that runs in your browser. Turn JavaScript on to play.</p></noscript>
+</div>
+<script nomodule>
+  // browsers too old for module scripts never run the game below
+  document.getElementById("loading").className = "blocked";
+  document.getElementById("loading").insertAdjacentHTML("beforeend", "<h2>Your browser is too old</h2><p class='why'>Ready Player Z needs a recent browser. Try the latest Chrome, Edge, Firefox or Safari on a computer.</p>");
+</script>
 <script type="module">
 import init, { Client } from "./pkg/arena.js";
 import { Sound } from "./audio.js";
@@ -220,6 +267,62 @@ async function download(url) {
   return new Blob(chunks).arrayBuffer();
 }
 
+const el = (tag, cls, html) => {
+  const e = document.createElement(tag);
+  e.className = cls;
+  e.innerHTML = html;
+  return e;
+};
+
+// swaps the loading bar for why the game can't run here; with `anyway`, a button that loads it regardless
+function blocked(title, lines, anyway) {
+  const l = $("loading");
+  l.className = "blocked";
+  l.append(el("h2", "", title), ...lines.map(t => el("p", "why", t)));
+  if (!anyway) return new Promise(() => {});
+  const b = el("button", "anyway", "Try anyway");
+  l.append(b);
+  return new Promise(r => b.addEventListener("click", () => {
+    l.className = "";
+    l.querySelectorAll("h2, .why, .anyway").forEach(e => e.remove());
+    r();
+  }));
+}
+
+// what the game can't do without: WebAssembly, WebGL2 (a context really made, since some GPUs are blocked)
+// and pointer lock for mouse look
+function missing() {
+  const gone = [];
+  if (typeof WebAssembly !== "object") gone.push("WebAssembly");
+  let gl = null;
+  try { gl = document.createElement("canvas").getContext("webgl2"); } catch {}
+  if (!gl) gone.push("WebGL 2");
+  else gl.getExtension("WEBGL_lose_context")?.loseContext();
+  if (!("requestPointerLock" in Element.prototype)) gone.push("pointer lock");
+  return gone;
+}
+
+// a phone or tablet: touch only, no mouse. An iPad says it's a Mac but has touch points
+const ua = navigator.userAgent;
+const mobile = navigator.userAgentData?.mobile
+  || /Android|iPhone|iPad|iPod|Mobile/i.test(ua)
+  || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+const touchOnly = matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches;
+
+const gone = missing();
+if (gone.length) {
+  await blocked("Your browser can't run this", [
+    `Ready Player Z needs ${gone.join(", ").replace(/, ([^,]*)$/, " and $1")}, which this browser doesn't have or has turned off.`,
+    "Try the latest Chrome, Edge, Firefox or Safari on a computer. If you already are, check that hardware acceleration is on in the browser's settings.",
+  ]);
+}
+if (mobile || touchOnly) {
+  await blocked("Play on a computer", [
+    "Ready Player Z is a first-person shooter played with a keyboard and mouse, so it doesn't work on phones or tablets yet.",
+    "Open readyplayerz.com on a desktop or laptop to play.",
+  ], true);
+}
+
 let client;
 try {
   loading(0, "Downloading");
@@ -239,13 +342,6 @@ try {
   throw e;
 }
 addEventListener("resize", () => client.resize(...size()));
-
-const el = (tag, cls, html) => {
-  const e = document.createElement(tag);
-  e.className = cls;
-  e.innerHTML = html;
-  return e;
-};
 // a row of buttons where one is on; picking one stays on the menu, so the change can be seen behind it
 function segmented(parent, labels, pick) {
   const buttons = labels.map((label, i) => {
