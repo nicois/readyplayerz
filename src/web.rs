@@ -12,6 +12,7 @@ pub struct Client {
     renderer: Renderer,
     acc: f32,
     last: f64,
+    paused: bool,
 }
 
 #[wasm_bindgen]
@@ -25,7 +26,7 @@ impl Client {
             .dyn_into::<WebGl2RenderingContext>()?;
         let renderer = Renderer::new(gl, canvas.width(), canvas.height())?;
         let seed = (js_sys::Math::random() * 4_000_000_000.0) as u32;
-        Ok(Client { game: Game::new(seed), renderer, acc: 0.0, last: 0.0 })
+        Ok(Client { game: Game::new(seed), renderer, acc: 0.0, last: 0.0, paused: true })
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -57,6 +58,16 @@ impl Client {
         let n = WEAPON_COUNT as i32;
         let next = (self.game.player.weapon as i32 + dir).rem_euclid(n);
         self.game.select(next as usize);
+    }
+
+    /// The menu is up: keep drawing, stop the simulation.
+    pub fn set_paused(&mut self, paused: bool) {
+        self.paused = paused;
+    }
+
+    /// Sound events since the last call, flattened as code, a, b triples (see `sim::ev`).
+    pub fn take_events(&mut self) -> Vec<f32> {
+        std::mem::take(&mut self.game.events).into_iter().flatten().collect()
     }
 
     pub fn select_weapon(&mut self, i: usize) {
@@ -97,7 +108,7 @@ impl Client {
     pub fn frame(&mut self, now_ms: f64) {
         let dt = if self.last == 0.0 { 0.0 } else { ((now_ms - self.last) / 1000.0).min(0.1) as f32 };
         self.last = now_ms;
-        self.acc += dt;
+        self.acc += if self.paused { 0.0 } else { dt };
         let mut steps = 0;
         while self.acc >= STEP && steps < 6 {
             self.game.tick(STEP);
@@ -111,7 +122,7 @@ impl Client {
     }
 
     /// health, ammo, magazine size, reloading, kills, deaths, hit marker, damage flash, respawn countdown,
-    /// weapon index, aim amount, scoped
+    /// weapon index, aim amount, scoped, kill marker
     pub fn hud(&self) -> Vec<f32> {
         let p = &self.game.player;
         vec![
@@ -127,6 +138,7 @@ impl Client {
             p.weapon as f32,
             p.ads,
             if p.gun().scope { 1.0 } else { 0.0 },
+            p.kill_t,
         ]
     }
 }

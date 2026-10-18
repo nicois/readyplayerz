@@ -1,6 +1,6 @@
 //! WebGL2 renderer: flat-shaded boxes and lines, one shader.
 
-use crate::sim::{Game, V3};
+use crate::sim::{Bot, Game, V3};
 use js_sys::Float32Array;
 use web_sys::{
     WebGl2RenderingContext as GL, WebGlProgram, WebGlShader, WebGlUniformLocation, WebGlVertexArrayObject,
@@ -337,9 +337,16 @@ impl Renderer {
         for (i, w) in g.walls.iter().enumerate() {
             self.draw_box(w.min, w.max, WALL_COLORS[i % WALL_COLORS.len()], 0.0);
         }
-        for b in g.bots.iter().filter(|b| b.alive) {
-            self.draw_box(b.body_box().min, b.body_box().max, [0.85, 0.25, 0.30], 0.0);
-            self.draw_box(b.head_box().min, b.head_box().max, [0.95, 0.75, 0.55], 0.0);
+        for (i, b) in g.bots.iter().enumerate().filter(|(_, b)| b.alive) {
+            self.draw_soldier(g, i, b);
+        }
+        for d in &g.debris {
+            // pieces shrink away at the end of their life
+            let k = (d.life / if d.glow { d.max_life } else { 0.6 }).min(1.0);
+            let h = [d.half[0] * k, d.half[1] * k, d.half[2] * k];
+            let spin = mul(&rot_y(d.rot[1]), &mul(&rot_x(d.rot[0]), &rot_z(d.rot[2])));
+            let model = mul(&translate(d.pos[0], d.pos[1], d.pos[2]), &mul(&spin, &box_model([-h[0], -h[1], -h[2]], h)));
+            self.draw_model(&model, d.color, if d.glow { 1.0 } else { 0.0 }, 0.1);
         }
         for t in &g.tracers {
             let c = if t.enemy { [1.0, 0.35, 0.3] } else { [1.0, 0.95, 0.6] };
@@ -353,6 +360,75 @@ impl Renderer {
         gl.uniform3f(self.u_eye.as_ref(), 0.0, 0.0, 0.0);
         if !(p.gun().scope && p.ads > 0.6) {
             self.draw_viewmodel(g);
+        }
+    }
+
+    /// An enemy built from the same cube: legs that swing with speed, vest, helmet and a rifle held across the chest.
+    fn draw_soldier(&self, g: &Game, i: usize, b: &Bot) {
+        let p = b.body.pos;
+        let yaw = (g.player.body.pos[0] - p[0]).atan2(-(g.player.body.pos[2] - p[2]));
+        let base = mul(&translate(p[0], p[1], p[2]), &rot_y(-yaw));
+        let speed = (b.body.vel[0].powi(2) + b.body.vel[2].powi(2)).sqrt();
+        let amp = if b.body.on_ground { (speed / 3.0).min(1.0) } else { 0.0 };
+        let ph = g.time * 9.0 + b.phase;
+        let swing = if b.body.on_ground { ph.sin() * 0.7 * amp } else { 0.5 };
+        let upper = mul(&base, &translate(0.0, (ph * 2.0).cos().abs() * 0.03 * amp, 0.0));
+
+        let t = (i % 3) as f32 * 0.035;
+        let shirt = [0.22 + t, 0.24, 0.27 - t];
+        let pants = [0.15, 0.16 + t, 0.18];
+        let vest = [0.13, 0.14, 0.17];
+        let red = [0.78, 0.14, 0.17];
+        let skin = [0.80, 0.60, 0.46];
+        let helmet = [0.11, 0.12, 0.14];
+        let glove = [0.08, 0.08, 0.09];
+        let steel = [0.10, 0.10, 0.11];
+
+        // ground shadow
+        self.draw_box([p[0] - 0.4, p[1] + 0.01, p[2] - 0.4], [p[0] + 0.4, p[1] + 0.02, p[2] + 0.4], [0.03, 0.04, 0.08], 1.0);
+
+        for (side, angle) in [(-1.0f32, swing), (1.0, -swing)] {
+            let hip = around([side * 0.115, 0.88, 0.0], &rot_x(angle));
+            let (a, c) = (side * 0.03, side * 0.20);
+            let (x0, x1) = (a.min(c), a.max(c));
+            self.draw_part(&base, &part([x0, 0.0, -0.09], [x1, 0.88, 0.09], pants, 0.05).rot(hip), 0.0);
+            self.draw_part(&base, &part([x0 - 0.01, 0.0, -0.17], [x1 + 0.01, 0.10, 0.10], steel, 0.2).rot(hip), 0.0);
+            self.draw_part(&base, &part([x0 - 0.005, 0.40, -0.10], [x1 + 0.005, 0.52, -0.085], vest, 0.1).rot(hip), 0.0); // knee pad
+        }
+
+        // arms reach forward to the rifle: right hand on the grip, left on the handguard
+        let arm = |side: f32, up: f32, turn: f32| {
+            let pivot = [side * 0.31, 1.31, 0.0];
+            let r = around(pivot, &mul(&rot_y(turn), &rot_x(up)));
+            [
+                part([side * 0.31 - 0.055, 0.84, -0.055], [side * 0.31 + 0.055, 1.31, 0.055], shirt, 0.05).rot(r),
+                part([side * 0.31 - 0.05, 0.75, -0.05], [side * 0.31 + 0.05, 0.85, 0.05], glove, 0.05).rot(r),
+            ]
+        };
+        let parts = [
+            // torso, vest with chest plate and belt
+            part([-0.24, 0.85, -0.13], [0.24, 1.38, 0.13], shirt, 0.05),
+            part([-0.27, 0.95, -0.155], [0.27, 1.36, 0.155], vest, 0.15),
+            part([-0.15, 1.05, -0.175], [0.15, 1.29, -0.155], red, 0.3),
+            part([-0.26, 0.82, -0.145], [0.26, 0.90, 0.145], steel, 0.2),
+            part([-0.27, 1.34, -0.07], [-0.20, 1.40, 0.07], vest, 0.1), // shoulder pads
+            part([0.20, 1.34, -0.07], [0.27, 1.40, 0.07], vest, 0.1),
+            // neck, head, helmet, visor
+            part([-0.05, 1.38, -0.05], [0.05, 1.47, 0.05], skin, 0.05),
+            part([-0.11, 1.45, -0.115], [0.11, 1.66, 0.115], skin, 0.1),
+            part([-0.135, 1.60, -0.15], [0.135, 1.78, 0.14], helmet, 0.45),
+            part([-0.10, 1.51, -0.13], [0.10, 1.60, -0.115], [0.02, 0.03, 0.05], 0.9),
+            // rifle
+            part([0.055, 1.10, -0.18], [0.105, 1.19, 0.12], steel, 0.4),
+            part([0.072, 1.14, -0.60], [0.088, 1.17, -0.18], [0.14, 0.14, 0.16], 0.6),
+            part([0.065, 1.00, -0.12], [0.095, 1.10, -0.06], steel, 0.3),
+            part([0.06, 1.08, 0.12], [0.10, 1.17, 0.26], [0.09, 0.09, 0.10], 0.1),
+        ];
+        for p in &parts {
+            self.draw_part(&upper, p, 0.0);
+        }
+        for p in arm(1.0, 1.25, 0.40).iter().chain(arm(-1.0, 1.35, -0.62).iter()) {
+            self.draw_part(&upper, p, 0.0);
         }
     }
 

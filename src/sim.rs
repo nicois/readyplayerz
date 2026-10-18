@@ -17,6 +17,30 @@ const BOT_COUNT: usize = 6;
 pub const EQUIP_TIME: f32 = 0.35;
 pub const WEAPON_COUNT: usize = 4;
 
+/// Things that happened this tick that a client may want to play a sound for.
+/// Each event is `[code, a, b]` in `Game::events`.
+pub mod ev {
+    /// a = weapon
+    pub const SHOT: f32 = 1.0;
+    /// a = distance, b = pan (-1 left, 1 right)
+    pub const ENEMY_SHOT: f32 = 2.0;
+    // hit, headshot and kill are ordered so the loudest one in a volley wins
+    pub const HIT: f32 = 3.0;
+    pub const HEAD: f32 = 4.0;
+    pub const KILL: f32 = 5.0;
+    /// a = damage
+    pub const HURT: f32 = 6.0;
+    /// a = weapon
+    pub const RELOAD: f32 = 7.0;
+    pub const EQUIP: f32 = 8.0;
+    /// a = horizontal speed
+    pub const STEP: f32 = 9.0;
+    pub const JUMP: f32 = 10.0;
+    /// a = impact speed
+    pub const LAND: f32 = 11.0;
+    pub const DEATH: f32 = 12.0;
+}
+
 /// Everything that differs between guns. Angles are radians, times are seconds.
 pub struct Weapon {
     pub name: &'static str,
@@ -149,6 +173,10 @@ pub struct Player {
     pub respawn_t: f32,
     pub hit_marker: f32,
     pub damage_flash: f32,
+    /// 1 right after a kill, fading out
+    pub kill_t: f32,
+    /// distance walked since the last footstep
+    stride: f32,
 }
 
 impl Player {
@@ -184,11 +212,11 @@ pub struct Bot {
 impl Bot {
     pub fn body_box(&self) -> Aabb {
         let p = self.body.pos;
-        Aabb { min: [p[0] - HW, p[1], p[2] - HW], max: [p[0] + HW, p[1] + 1.4, p[2] + HW] }
+        Aabb { min: [p[0] - 0.32, p[1], p[2] - 0.32], max: [p[0] + 0.32, p[1] + 1.4, p[2] + 0.32] }
     }
     pub fn head_box(&self) -> Aabb {
         let p = self.body.pos;
-        Aabb { min: [p[0] - 0.25, p[1] + 1.4, p[2] - 0.25], max: [p[0] + 0.25, p[1] + H, p[2] + 0.25] }
+        Aabb { min: [p[0] - 0.17, p[1] + 1.4, p[2] - 0.17], max: [p[0] + 0.17, p[1] + H, p[2] + 0.17] }
     }
 }
 
@@ -199,8 +227,26 @@ pub struct Tracer {
     pub enemy: bool,
 }
 
+/// A chunk of a dead soldier, or a spark. Purely cosmetic.
+pub struct Debris {
+    pub pos: V3,
+    pub vel: V3,
+    pub rot: V3,
+    pub spin: V3,
+    pub half: V3,
+    pub color: [f32; 3],
+    pub life: f32,
+    pub max_life: f32,
+    /// sparks are drawn unlit and fall lighter
+    pub glow: bool,
+}
+
+const MAX_DEBRIS: usize = 300;
+
 pub struct Game {
     pub walls: Vec<Aabb>,
+    pub debris: Vec<Debris>,
+    pub events: Vec<[f32; 3]>,
     pub player: Player,
     pub bots: Vec<Bot>,
     pub tracers: Vec<Tracer>,
@@ -321,6 +367,8 @@ impl Game {
     pub fn new(seed: u32) -> Game {
         let mut g = Game {
             walls: build_walls(),
+            debris: Vec::new(),
+            events: Vec::new(),
             player: Player {
                 body: Body::default(),
                 yaw: 0.0,
@@ -338,6 +386,8 @@ impl Game {
                 respawn_t: 0.0,
                 hit_marker: 0.0,
                 damage_flash: 0.0,
+                kill_t: 0.0,
+                stride: 0.0,
             },
             bots: Vec::new(),
             tracers: Vec::new(),
@@ -383,6 +433,7 @@ impl Game {
         p.reload_t = 0.0;
         p.equip_t = EQUIP_TIME;
         p.ads = 0.0;
+        self.events.push([ev::EQUIP, 0.0, 0.0]);
     }
 
     fn bot_spawn(&mut self) -> V3 {
@@ -407,7 +458,9 @@ impl Game {
         }
         self.player.hp -= dmg;
         self.player.damage_flash = 1.0;
+        self.events.push([ev::HURT, dmg, 0.0]);
         if self.player.hp <= 0.0 {
+            self.events.push([ev::DEATH, 0.0, 0.0]);
             self.player.deaths += 1;
             self.player.respawn_t = 2.0;
         }
@@ -434,6 +487,97 @@ impl Game {
         (best, target)
     }
 
+    /// Blows a soldier apart into the pieces it was drawn from, plus sparks. `dir` is the way the shot was going.
+    fn burst(&mut self, at: V3, dir: V3, head: bool, power: f32) {
+        // height of the centre, half extents, colour, extra upward kick
+        const CHUNKS: [(f32, V3, [f32; 3], f32); 12] = [
+            (1.70, [0.13, 0.08, 0.13], [0.11, 0.12, 0.14], 3.0), // helmet
+            (1.55, [0.10, 0.10, 0.10], [0.80, 0.60, 0.46], 1.0), // head
+            (1.25, [0.22, 0.12, 0.12], [0.24, 0.26, 0.28], 0.0), // torso
+            (1.05, [0.24, 0.10, 0.13], [0.13, 0.14, 0.17], 0.0), // vest
+            (1.20, [0.14, 0.10, 0.03], [0.78, 0.14, 0.17], 1.0), // chest plate
+            (1.15, [0.05, 0.20, 0.05], [0.24, 0.26, 0.28], 0.5), // arms
+            (1.15, [0.05, 0.20, 0.05], [0.24, 0.26, 0.28], 0.5),
+            (0.60, [0.07, 0.28, 0.08], [0.15, 0.17, 0.18], 0.0), // legs
+            (0.60, [0.07, 0.28, 0.08], [0.15, 0.17, 0.18], 0.0),
+            (0.08, [0.09, 0.06, 0.13], [0.10, 0.10, 0.11], 0.0), // boots
+            (0.08, [0.09, 0.06, 0.13], [0.10, 0.10, 0.11], 0.0),
+            (1.15, [0.03, 0.04, 0.22], [0.10, 0.10, 0.11], 1.5), // rifle
+        ];
+        let push = [dir[0], 0.0, dir[2]];
+        for (i, (h, half, color, lift)) in CHUNKS.iter().enumerate() {
+            let k = (4.0 + 3.0 * power) * self.rng.range(0.6, 1.2);
+            let pop = if head && i < 2 { 4.0 } else { 0.0 };
+            let vel = [
+                push[0] * k + self.rng.range(-2.5, 2.5) * power * 0.6,
+                (2.5 + lift + pop + self.rng.range(0.0, 3.0)) * (0.8 + 0.3 * power),
+                push[2] * k + self.rng.range(-2.5, 2.5) * power * 0.6,
+            ];
+            let life = self.rng.range(4.0, 5.5);
+            let (r, s) = (&mut self.rng, 12.0);
+            let rot = [r.range(0.0, 6.28), r.range(0.0, 6.28), r.range(0.0, 6.28)];
+            let spin = [r.range(-s, s), r.range(-s, s), r.range(-s, s)];
+            let pos = [at[0] + r.range(-0.1, 0.1), at[1] + h, at[2] + r.range(-0.1, 0.1)];
+            self.debris.push(Debris { pos, vel, rot, spin, half: *half, color: *color, life, max_life: life, glow: false });
+        }
+        for _ in 0..18 {
+            let r = &mut self.rng;
+            let a = r.range(0.0, std::f32::consts::TAU);
+            let sp = r.range(3.0, 9.0) * power;
+            let vel = [a.cos() * sp + dir[0] * 3.0, r.range(1.0, 7.0), a.sin() * sp + dir[2] * 3.0];
+            let color = if r.f() < 0.5 { [1.0, 0.75, 0.25] } else { [1.0, 0.45, 0.15] };
+            let life = r.range(0.35, 0.85);
+            let pos = [at[0], at[1] + 1.1, at[2]];
+            self.debris.push(Debris { pos, vel, rot: [0.0; 3], spin: [0.0; 3], half: [0.035; 3], color, life, max_life: life, glow: true });
+        }
+        if self.debris.len() > MAX_DEBRIS {
+            let extra = self.debris.len() - MAX_DEBRIS;
+            self.debris.drain(..extra);
+        }
+    }
+
+    fn tick_debris(&mut self, dt: f32, walls: &[Aabb]) {
+        for d in &mut self.debris {
+            d.life -= dt;
+            d.vel[1] -= GRAVITY * if d.glow { 0.5 } else { 1.0 } * dt;
+            let r = d.half[0].max(d.half[1]).max(d.half[2]);
+            let mut grounded = false;
+            for axis in 0..3 {
+                let old = d.pos[axis];
+                d.pos[axis] += d.vel[axis] * dt;
+                let floor = axis == 1 && d.pos[1] < r;
+                let probe = Aabb { min: [d.pos[0] - r, d.pos[1] - r, d.pos[2] - r], max: [d.pos[0] + r, d.pos[1] + r, d.pos[2] + r] };
+                if floor || walls.iter().any(|w| overlaps(&probe, w)) {
+                    if floor {
+                        d.pos[1] = r.max(old);
+                    } else {
+                        d.pos[axis] = old;
+                    }
+                    if axis == 1 && d.vel[1] < 0.0 {
+                        grounded = true;
+                    }
+                    d.vel[axis] *= -0.35;
+                }
+            }
+            if grounded {
+                if d.vel[1].abs() < 1.2 {
+                    d.vel[1] = 0.0;
+                }
+                let drag = (1.0 - 6.0 * dt).max(0.0);
+                for i in [0, 2] {
+                    d.vel[i] *= drag;
+                }
+                for s in &mut d.spin {
+                    *s *= drag;
+                }
+            }
+            for i in 0..3 {
+                d.rot[i] += d.spin[i] * dt;
+            }
+        }
+        self.debris.retain(|d| d.life > 0.0);
+    }
+
     fn player_fire(&mut self) {
         let w = self.player.gun();
         let eye = self.player.eye();
@@ -442,6 +586,8 @@ impl Game {
         self.player.ammo[self.player.weapon] -= 1;
         self.player.cooldown = w.delay;
         self.player.armed = false;
+        self.events.push([ev::SHOT, self.player.weapon as f32, 0.0]);
+        let mut outcome = 0.0f32;
 
         let (sy, cy) = self.player.yaw.sin_cos();
         let right = [cy, 0.0, sy];
@@ -473,13 +619,23 @@ impl Game {
                 let bot = &mut self.bots[i];
                 bot.hp -= if head { w.head_dmg } else { w.body_dmg };
                 self.player.hit_marker = 1.0;
+                outcome = outcome.max(if head { ev::HEAD } else { ev::HIT });
                 if bot.hp <= 0.0 {
                     bot.alive = false;
                     bot.respawn_t = 3.0;
+                    let at = bot.body.pos;
                     self.player.kills += 1;
+                    self.player.kill_t = 1.0;
+                    let power = (w.body_dmg * w.pellets as f32 / 34.0).sqrt().clamp(0.8, 1.8);
+                    self.burst(at, dir, head, power);
+                    outcome = ev::KILL;
                 }
             }
             self.tracers.push(Tracer { a: muzzle, b: along(eye, dir, dist), life: 0.06, enemy: false });
+        }
+
+        if outcome > 0.0 {
+            self.events.push([outcome, 0.0, 0.0]);
         }
 
         // recoil kicks the aim up and a little sideways, applied after the shot is traced
@@ -494,6 +650,7 @@ impl Game {
         let walls = self.walls.clone();
         self.tick_player(dt, &walls);
         self.tick_bots(dt, &walls);
+        self.tick_debris(dt, &walls);
         for t in &mut self.tracers {
             t.life -= dt;
         }
@@ -507,6 +664,7 @@ impl Game {
         let p = &mut self.player;
         p.hit_marker = (p.hit_marker - dt * 5.0).max(0.0);
         p.damage_flash = (p.damage_flash - dt * 2.0).max(0.0);
+        p.kill_t = (p.kill_t - dt * 2.5).max(0.0);
         p.cooldown = (p.cooldown - dt).max(0.0);
 
         if !p.alive() {
@@ -537,7 +695,21 @@ impl Game {
             wz /= l;
         }
         let speed = if inp.sprint { SPRINT } else { WALK } * w.speed * (1.0 - 0.4 * p.ads);
+        let (was_ground, fall) = (p.body.on_ground, -p.body.vel[1]);
         step_body(&mut p.body, [wx * speed, wz * speed], inp.jump, dt, walls);
+        let run = (p.body.vel[0].powi(2) + p.body.vel[2].powi(2)).sqrt();
+        if was_ground && !p.body.on_ground && p.body.vel[1] > 0.0 {
+            self.events.push([ev::JUMP, 0.0, 0.0]);
+        } else if !was_ground && p.body.on_ground && fall > 5.0 {
+            self.events.push([ev::LAND, fall, 0.0]);
+        }
+        if p.body.on_ground && run > 1.5 {
+            p.stride += run * dt;
+            if p.stride > 2.1 {
+                p.stride -= 2.1;
+                self.events.push([ev::STEP, run, 0.0]);
+            }
+        }
 
         if !inp.fire {
             p.armed = true;
@@ -550,6 +722,7 @@ impl Game {
             }
         } else if (inp.reload && ammo < w.mag) || ammo == 0 {
             p.reload_t = w.reload;
+            self.events.push([ev::RELOAD, p.weapon as f32, 0.0]);
         } else if inp.fire && p.cooldown <= 0.0 && p.equip_t <= 0.0 && (w.auto || p.armed) {
             self.player_fire();
         }
@@ -562,6 +735,8 @@ impl Game {
         let time = self.time;
         let mut dmg = 0.0;
         let mut shots = Vec::new();
+        let mut heard = Vec::new();
+        let (psy, pcy) = self.player.yaw.sin_cos();
 
         for i in 0..self.bots.len() {
             if !self.bots[i].alive {
@@ -603,6 +778,8 @@ impl Game {
                     let hit = self.rng.f() < 0.3;
                     let end = if hit { target_eye } else { along(target_eye, [self.rng.range(-1.0, 1.0), self.rng.range(-0.5, 0.5), self.rng.range(-1.0, 1.0)], 1.0) };
                     shots.push(Tracer { a: eye, b: end, life: 0.08, enemy: true });
+                    // pan by how far to the player's right the shooter is
+                    heard.push([ev::ENEMY_SHOT, d, -(dir[0] * pcy + dir[2] * psy)]);
                     if hit {
                         dmg += 8.0;
                     }
@@ -610,6 +787,7 @@ impl Game {
             }
         }
         self.tracers.extend(shots);
+        self.events.extend(heard);
         if dmg > 0.0 {
             self.hurt_player(dmg);
         }
@@ -719,5 +897,43 @@ mod tests {
         g.input.fire = true;
         idle(&mut g, EQUIP_TIME * 0.5);
         assert_eq!(g.player.ammo[1], WEAPONS[1].mag);
+    }
+
+    #[test]
+    fn a_kill_blows_the_soldier_apart_and_the_pieces_settle_and_vanish() {
+        let mut g = Game::new(1);
+        bot_ahead(&mut g);
+        g.select(3);
+        g.player.cooldown = 0.0;
+        g.player_fire();
+        assert!(!g.bots[0].alive);
+        assert!(g.debris.len() >= 12, "only {} pieces", g.debris.len());
+        assert!(g.player.kill_t > 0.9);
+        g.bots.clear();
+        for _ in 0..(1.0 / STEP) as usize {
+            g.tick(STEP);
+            assert!(g.debris.iter().all(|d| d.pos[1] > -0.01), "a piece fell through the floor");
+        }
+        idle(&mut g, 7.0);
+        assert!(g.debris.is_empty());
+    }
+
+    #[test]
+    fn actions_emit_sound_events() {
+        let mut g = Game::new(1);
+        bot_ahead(&mut g);
+        g.player.cooldown = 0.0;
+        g.player_fire();
+        let codes: Vec<f32> = g.events.iter().map(|e| e[0]).collect();
+        assert!(codes.contains(&ev::SHOT) && codes.contains(&ev::HIT), "{codes:?}");
+        g.events.clear();
+        g.select(1);
+        assert_eq!(g.events[0][0], ev::EQUIP);
+        g.events.clear();
+        g.bots.clear();
+        g.player.body.pos = [5.0, 0.0, 16.0]; // clear of the low cover in front of the spawn
+        g.input.w = true;
+        idle(&mut g, 1.5);
+        assert!(g.events.iter().any(|e| e[0] == ev::STEP), "no footsteps while running");
     }
 }

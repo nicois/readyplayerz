@@ -13,6 +13,7 @@
   #cross::before { left: 10px; top: 0; width: 2px; height: 22px; }
   #cross::after { top: 10px; left: 0; height: 2px; width: 22px; }
   #cross { transition: transform .05s; }
+  #cross.kill { transform: rotate(45deg) scale(2); filter: drop-shadow(0 0 6px #ff3030); }
   #cross.hit { transform: rotate(45deg) scale(1.3); filter: drop-shadow(0 0 4px #ff5a5a); }
   #flash { position: absolute; inset: 0; background: radial-gradient(transparent 45%, rgba(255,40,40,.6)); opacity: 0; }
   #stats { position: absolute; left: 20px; bottom: 18px; font-size: 22px; letter-spacing: .04em; text-shadow: 0 1px 3px #000; }
@@ -43,6 +44,8 @@
   .card h3 { margin: 0 0 6px; font-size: 15px; letter-spacing: .06em; }
   .card small { display: block; font-size: 12px; opacity: .75; text-align: left; }
   #menu div.wide { max-width: 640px; }
+  #menu #loadout, #menu .card { max-width: none; padding-left: 8px; padding-right: 8px; }
+  #menu #loadout { padding: 0; }
 </style>
 </head>
 <body>
@@ -61,7 +64,7 @@
   <h1>ARENA</h1>
   <p>WASD move &middot; Shift sprint &middot; Space jump</p>
   <p>Mouse aim &middot; Click shoot &middot; Right-click aim down sights &middot; R reload</p>
-  <p>1-4 or mouse wheel switch gun</p>
+  <p>1-4 or mouse wheel switch gun &middot; M <span id="mute">sound on</span></p>
   <div id="loadout"></div>
   <p>Headshots hurt. Red boxes shoot back.</p>
   <p class="go" id="go">Click to play</p>
@@ -69,6 +72,7 @@
 </div></div>
 <script type="module">
 import init, { Client } from "./pkg/arena.js";
+import { Sound } from "./audio.js";
 
 const canvas = document.getElementById("c");
 const menu = document.getElementById("menu");
@@ -95,12 +99,13 @@ addEventListener("resize", () => client.resize(...size()));
 
 const names = client.weapon_names();
 const stats = client.weapon_stats();
+const sound = new Sound(Array.from({ length: names.length }, (_, i) => stats[i * 4 + 3]));
 const cards = [], slots = [];
 names.forEach((name, i) => {
   const [dmg, rpm, mag, rel] = stats.slice(i * 4, i * 4 + 4);
   const card = document.createElement("div");
   card.className = "card";
-  card.innerHTML = `<h3>${i + 1} &middot; ${name}</h3><small>${dmg} dmg</small><small>${Math.round(rpm)} rpm</small><small>${mag} rounds</small><small>${rel}s reload</small>`;
+  card.innerHTML = `<h3>${i + 1} &middot; ${name}</h3><small>${dmg} dmg</small><small>${Math.round(rpm)} rpm</small><small>${mag} rounds</small><small>${rel.toFixed(1)}s reload</small>`;
   card.addEventListener("click", () => client.select_weapon(i));
   $("loadout").appendChild(card);
   cards.push(card);
@@ -112,14 +117,18 @@ names.forEach((name, i) => {
 });
 // clicking a card picks the gun and the click then falls through to start playing
 
+// ?demo runs the game behind the menu, for screenshots and tests where pointer lock isn't available
+if (new URLSearchParams(location.search).has("demo")) client.set_paused(false);
 const locked = () => document.pointerLockElement === canvas;
-menu.addEventListener("click", () => canvas.requestPointerLock());
+menu.addEventListener("click", () => { sound.start(); canvas.requestPointerLock(); });
 document.addEventListener("pointerlockchange", () => {
   menu.style.display = locked() ? "none" : "flex";
-  if (!locked()) client.release_all();
+  client.set_paused(!locked());
+  if (!locked()) { client.release_all(); sound.cancel(); }
 });
 addEventListener("keydown", e => {
   if (e.repeat) return;
+  if (e.code === "KeyM") $("mute").textContent = sound.toggleMute() ? "sound off" : "sound on";
   if (locked()) { client.key(e.code, true); if (e.code === "Space") e.preventDefault(); }
 });
 addEventListener("keyup", e => client.key(e.code, false));
@@ -131,7 +140,8 @@ addEventListener("wheel", e => { if (locked() && e.deltaY) client.cycle_weapon(e
 
 function loop(t) {
   client.frame(t);
-  const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped] = client.hud();
+  sound.play(client.take_events());
+  const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped, killt] = client.hud();
   $("hp").textContent = Math.ceil(hp);
   $("am").textContent = ammo;
   $("mg").textContent = mag;
@@ -145,6 +155,7 @@ function loop(t) {
   $("score").textContent = `${kills} kills`;
   $("flash").style.opacity = flash;
   $("cross").classList.toggle("hit", hit > 0.5);
+  $("cross").classList.toggle("kill", killt > 0.4);
   const dead = $("dead");
   dead.style.display = respawn > 0 ? "block" : "none";
   dead.textContent = `You died. Respawning in ${respawn.toFixed(1)}`;
