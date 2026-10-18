@@ -1,7 +1,10 @@
 // Synthesized sound effects. Everything is built from noise and oscillators, so there are no audio files.
 // The sim reports what happened as [code, a, b] triples; `play` turns them into sound.
 
-const SHOT = 1, HIT = 3, HEAD = 4, KILL = 5, HURT = 6, RELOAD = 7, EQUIP = 8, STEP = 9, JUMP = 10, LAND = 11, DEATH = 12, GROWL = 13, WAVE = 14;
+const SHOT = 1, HIT = 3, HEAD = 4, KILL = 5, HURT = 6, RELOAD = 7, EQUIP = 8, STEP = 9, JUMP = 10, LAND = 11, DEATH = 12, GROWL = 13, WAVE = 14, SNARL = 15;
+
+// the first three formants (Hz) of a man's vowels: oo, uh, aa, aw, and the a of "cat"
+const OO = [300, 870, 2240], UH = [640, 1190, 2390], AA = [730, 1090, 2440], AW = [570, 840, 2410], AE = [660, 1720, 2410];
 
 // per gun: crack (highpass noise: freq, gain, seconds), thump (sine: from, to, seconds, gain), tail (lowpass noise), reverb send
 const GUNS = [
@@ -19,6 +22,7 @@ export class Sound {
     this.ctx = null;
     this.timers = new Set();
     this.lastHurt = 0;
+    this.groans = []; // when each groan still sounding ends
     this.muted = false;
   }
 
@@ -169,37 +173,100 @@ export class Sound {
     }
   }
 
-  // a low, wavering groan with some breath in it, softer and duller the further away it is
-  growl(dist, pan) {
-    const ctx = this.ctx, t = ctx.currentTime, vol = 0.9 / (1 + dist * 0.12), dur = 0.9 + Math.random() * 0.5;
-    const d = this.bus(pan, Math.min(0.5, 0.15 + dist * 0.01));
-    const f0 = 70 + Math.random() * 40;
-    const o = ctx.createOscillator();
-    o.type = "sawtooth";
-    o.frequency.setValueAtTime(f0, t);
-    o.frequency.exponentialRampToValueAtTime(f0 * 0.6, t + dur);
-    const lfo = ctx.createOscillator(), lg = ctx.createGain();
-    lfo.frequency.value = 5 + Math.random() * 3;
-    lg.gain.value = f0 * 0.08;
-    lfo.connect(lg);
-    lg.connect(o.frequency);
-    const f = ctx.createBiquadFilter();
-    f.type = "lowpass";
-    f.frequency.setValueAtTime(500 / (1 + dist * 0.03), t);
-    f.frequency.exponentialRampToValueAtTime(220, t + dur);
-    f.Q.value = 5;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.5 * vol, t + 0.15);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(f);
-    f.connect(g);
-    g.connect(d);
-    o.start(t);
-    lfo.start(t);
-    o.stop(t + dur + 0.05);
-    lfo.stop(t + dur + 0.05);
-    this.noise(d, t, dur, "bandpass", 700, 300, 0.25 * vol, 2);
+  /**
+   * The vocal cords, written out sample by sample: one puff of air per pitch period, each a little late or
+   * early and a little louder or softer than the last (a sick, unsteady voice), with breath hissing through
+   * on every puff and creaky "fry" where beats get skipped. `o` has f0 / peak / f1 (pitch at the start, a
+   * third of the way in, and the end), dur, breath, creak and jitter.
+   */
+  throat(o) {
+    const sr = this.ctx.sampleRate, n = Math.ceil(o.dur * sr);
+    const buf = this.ctx.createBuffer(1, n, sr), d = buf.getChannelData(0);
+    const pitchAt = x => (x < 0.33 ? o.f0 + (o.peak - o.f0) * (x / 0.33) : o.peak + (o.f1 - o.peak) * ((x - 0.33) / 0.67));
+    const wob = 4 + Math.random() * 2;
+    let i = 0, prev = 0, peak = 0;
+    while (i < n) {
+      const x = i / n;
+      // the voice breaks into fry more as it runs out of air
+      const creaky = Math.random() < o.creak * (0.4 + x);
+      const f = pitchAt(x) * (1 + 0.03 * Math.sin(2 * Math.PI * wob * (i / sr)));
+      let period = (sr / f) * (1 + o.jitter * (Math.random() * 2 - 1));
+      if (creaky) period *= 1.8 + Math.random() * 1.2;
+      const len = Math.round(period), open = len * (creaky ? 0.3 : 0.6), rise = open * 0.7;
+      const amp = (creaky ? 1.3 : 1) * (1 - 0.35 * Math.random());
+      for (let k = 0; k < len && i < n; k++, i++) {
+        // the airflow through the cords: a smooth rise, a sharp close, then shut
+        const flow = k < rise ? 0.5 - 0.5 * Math.cos((Math.PI * k) / rise) : k < open ? Math.cos(((Math.PI / 2) * (k - rise)) / (open - rise)) : 0;
+        const air = amp * flow;
+        // the sound is the change in airflow; the breath comes through while the cords are open
+        const s = air - prev + o.breath * (0.15 + air) * (Math.random() * 2 - 1) * 0.25;
+        prev = air;
+        d[i] = s;
+        peak = Math.max(peak, Math.abs(s));
+      }
+    }
+    for (let j = 0; j < n; j++) d[j] /= peak || 1;
+    return buf;
+  }
+
+  /** A voice from `throat`, through a mouth sliding from vowels[0] to vowels[1]; `o.dist` dulls and quiets it. */
+  voice(o, pan) {
+    const ctx = this.ctx, t = ctx.currentTime, dur = o.dur;
+    const far = 1 + o.dist * 0.07;
+    const d = this.bus(pan, Math.min(0.55, 0.12 + o.dist * 0.012));
+    const src = ctx.createBufferSource();
+    src.buffer = this.throat(o);
+    const env = ctx.createGain(), loud = (o.gain * 5) / far;
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.exponentialRampToValueAtTime(loud, t + Math.min(0.15, dur * 0.2));
+    env.gain.setValueAtTime(loud, t + dur * 0.55);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    // the mouth: four formants, narrow like a real vocal tract, sliding between the two vowels
+    const [v0, v1] = o.vowels;
+    for (let k = 0; k < 4; k++) {
+      const f = ctx.createBiquadFilter(), a = ctx.createGain();
+      f.type = "bandpass";
+      f.Q.value = [6, 10, 14, 16][k];
+      f.frequency.setValueAtTime(k < 3 ? v0[k] : 3300, t);
+      f.frequency.linearRampToValueAtTime(k < 3 ? v1[k] : 3300, t + dur * 0.7);
+      a.gain.value = [1, 0.8, 0.45, 0.2][k];
+      src.connect(f);
+      f.connect(a);
+      a.connect(env);
+    }
+    // and further off, duller
+    const dull = ctx.createBiquadFilter();
+    dull.type = "lowpass";
+    dull.frequency.value = 6000 / far;
+    env.connect(dull);
+    dull.connect(d);
+    src.start(t);
+  }
+
+  // a groan as it comes: walkers moan, runners shriek and gasp, brutes rumble from deep in the chest
+  growl(dist, b) {
+    const kind = Math.round(b / 4), pan = b - kind * 4, r = () => Math.random();
+    if (this.groans.filter(g => g > this.ctx.currentTime).length >= 5) return; // a crowd blurs into a few voices
+    const v = kind === 1
+      ? { f0: 200 + r() * 40, peak: 280 + r() * 60, f1: 170, dur: 0.5 + r() * 0.4, vowels: [AA, AE], breath: 2.2, creak: 0.05, jitter: 0.06, gain: 0.85 }
+      : kind === 2
+        ? { f0: 80 + r() * 10, peak: 95 + r() * 10, f1: 62, dur: 1.5 + r() * 0.7, vowels: [OO, AW], breath: 1.2, creak: 0.35, jitter: 0.08, gain: 1.1 }
+        : { f0: 100 + r() * 20, peak: 115 + r() * 25, f1: 78, dur: 1.2 + r() * 0.9, vowels: r() < 0.5 ? [UH, AA] : [OO, UH], breath: 1.4, creak: 0.18, jitter: 0.06, gain: 1.0 };
+    v.dist = dist;
+    this.groans.push(this.ctx.currentTime + v.dur);
+    this.groans = this.groans.slice(-8);
+    this.voice(v, pan);
+  }
+
+  // the snarl as one swings at you: short, loud and right in your ear
+  snarl(kind, pan) {
+    const r = Math.random();
+    // mostly breath forced through a tight throat: a hissing "hhaaagh"
+    const v = kind === 2
+      ? { f0: 95, peak: 130, f1: 70, dur: 0.6, vowels: [AA, AW], breath: 3, creak: 0.3, jitter: 0.1, gain: 1.3 }
+      : { f0: 150 + r * 40, peak: 220 + r * 50, f1: 120, dur: 0.35 + r * 0.15, vowels: [AE, AA], breath: 3.5, creak: 0.15, jitter: 0.1, gain: 1.2 };
+    v.dist = 0;
+    this.voice(v, pan * 0.5);
   }
 
   // a low horn when a wave begins
@@ -315,6 +382,7 @@ export class Sound {
         case DEATH: this.death(); break;
         case GROWL: this.growl(a, b); break;
         case WAVE: this.wave(); break;
+        case SNARL: this.snarl(a, b); break;
       }
     }
   }

@@ -631,16 +631,17 @@ fn shotgun() -> Gun {
     }
     fibre.bx([-0.0013, sight_y - 0.003, -0.6135], [0.0013, sight_y, -0.6085], 0.0002);
 
-    // wooden stock from the back of the receiver, with a rubber pad
+    // wooden stock from the back of the receiver, with a rubber pad. It drops toward the butt, so aiming down the
+    // low ghost ring the comb sits well under the eye instead of running back into it
     let g = |x: f32, y: f32, z: f32| [x, y, z];
     wood.hex(
         [
             g(-0.016, -0.040, 0.072), g(0.016, -0.040, 0.072), g(-0.016, 0.026, 0.072), g(0.016, 0.026, 0.072),
-            g(-0.019, -0.086, 0.312), g(0.019, -0.086, 0.312), g(-0.019, 0.030, 0.312), g(0.019, 0.030, 0.312),
+            g(-0.019, -0.114, 0.312), g(0.019, -0.114, 0.312), g(-0.019, 0.002, 0.312), g(0.019, 0.002, 0.312),
         ],
         0.004,
     );
-    dark.bx([-0.0196, -0.088, 0.312], [0.0196, 0.032, 0.327], 0.003);
+    dark.bx([-0.0196, -0.116, 0.312], [0.0196, 0.004, 0.327], 0.003);
 
     // the pump: a grooved wooden forend round the tube, and the action bars running back into the receiver
     let (mut fore, mut bars, mut grooves) = (Mesh::default(), Mesh::default(), Mesh::default());

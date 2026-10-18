@@ -3,28 +3,28 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ready Player Z – Free Zombie Survival FPS in Your Browser</title>
-<meta name="description" content="Ready Player Z is a free first-person zombie survival shooter that runs right in your browser. Pick a loadout, hold out against endless waves, no download or sign-up.">
+<title>readyplayerz – Free Zombie Survival FPS in Your Browser</title>
+<meta name="description" content="readyplayerz is a free first-person zombie survival shooter that runs right in your browser. Pick a loadout, hold out against endless waves, no download or sign-up.">
 <link rel="canonical" href="https://readyplayerz.com/">
 <meta name="theme-color" content="#12182a">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2312182a'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23ffd36a' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%23ffd36a'/%3E%3C/svg%3E">
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Ready Player Z">
+<meta property="og:site_name" content="readyplayerz">
 <meta property="og:url" content="https://readyplayerz.com/">
-<meta property="og:title" content="Ready Player Z – Zombie Survival FPS in Your Browser">
+<meta property="og:title" content="readyplayerz – Zombie Survival FPS in Your Browser">
 <meta property="og:description" content="A free first-person zombie shooter that runs in your browser. Pick a loadout and survive the waves.">
 <meta property="og:image" content="https://readyplayerz.com/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Ready Player Z – Zombie Survival FPS in Your Browser">
+<meta name="twitter:title" content="readyplayerz – Zombie Survival FPS in Your Browser">
 <meta name="twitter:description" content="A free first-person zombie shooter that runs in your browser. Pick a loadout and survive the waves.">
 <meta name="twitter:image" content="https://readyplayerz.com/og.png">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "VideoGame",
-  "name": "Ready Player Z",
+  "name": "readyplayerz",
   "url": "https://readyplayerz.com/",
   "description": "A free first-person zombie survival shooter that runs in your browser.",
   "genre": ["First-person shooter", "Survival", "Zombie"],
@@ -141,7 +141,7 @@
   #dead small { display: block; margin-top: 10px; font-size: 15px; }
   #loading { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #12182a; transition: opacity .35s; }
   #loading.done { opacity: 0; pointer-events: none; }
-  #loading h1 { margin: 0 0 18px; font-size: 40px; letter-spacing: .12em; }
+  #loading h1 { margin: 0 0 18px; font-size: min(40px, 8vw); letter-spacing: .12em; }
   #loading .track { width: 260px; height: 4px; background: rgba(255,255,255,.12); border-radius: 2px; overflow: hidden; }
   #loading .fill { width: 0; height: 100%; background: #ffd36a; transition: width .2s; }
   #loading p { margin: 12px 0 0; font-size: 13px; opacity: .7; }
@@ -172,7 +172,7 @@
 <div id="map"><canvas id="mapcv" width="720" height="720"></canvas><small>Tab to close</small></div>
 <div id="menu">
   <section class="screen on" id="s-main">
-    <h1>ZOMBIES</h1>
+    <h1>readyplayerz</h1>
     <p class="sub">Survive the waves. They don't stop. Health comes back if you stay clear for a while.</p>
     <nav>
       <button class="item" id="play">Play</button>
@@ -197,6 +197,7 @@
     <header><button class="back">&lsaquo; Back</button><h2>Settings</h2></header>
     <div class="row"><b>Graphics</b><div class="seg" id="gfx"></div></div>
     <div class="row"><b>Sound</b><div class="seg" id="snd"></div></div>
+    <div class="row"><b>Music</b><div class="seg" id="mus"></div></div>
     <h4>Controls</h4>
     <dl id="keys">
       <dt>WASD</dt><dd>Move</dd>
@@ -204,24 +205,26 @@
       <dt>Mouse / click</dt><dd>Aim / shoot</dd>
       <dt>Right-click</dt><dd>Aim down sights</dd>
       <dt>R</dt><dd>Reload</dd>
-      <dt>1 / 2 / wheel</dt><dd>Primary / secondary / swap</dd>
+      <dt>1 or wheel up</dt><dd>Primary</dd>
+      <dt>2 or wheel down</dt><dd>Secondary</dd>
       <dt>Tab</dt><dd>Map</dd>
       <dt>M</dt><dd>Sound on and off</dd>
       <dt>Esc</dt><dd>Pause, and back in the menu</dd>
     </dl>
   </section>
 </div>
-<div id="loading"><h1>ZOMBIES</h1><div class="track"><div class="fill" id="lfill"></div></div><p id="lstatus">Loading...</p>
-  <noscript><h2>JavaScript is off</h2><p class="why">Ready Player Z is a zombie survival shooter that runs in your browser. Turn JavaScript on to play.</p></noscript>
+<div id="loading"><h1>readyplayerz</h1><div class="track"><div class="fill" id="lfill"></div></div><p id="lstatus">Loading...</p>
+  <noscript><h2>JavaScript is off</h2><p class="why">readyplayerz is a zombie survival shooter that runs in your browser. Turn JavaScript on to play.</p></noscript>
 </div>
 <script nomodule>
   // browsers too old for module scripts never run the game below
   document.getElementById("loading").className = "blocked";
-  document.getElementById("loading").insertAdjacentHTML("beforeend", "<h2>Your browser is too old</h2><p class='why'>Ready Player Z needs a recent browser. Try the latest Chrome, Edge, Firefox or Safari on a computer.</p>");
+  document.getElementById("loading").insertAdjacentHTML("beforeend", "<h2>Your browser is too old</h2><p class='why'>readyplayerz needs a recent browser. Try the latest Chrome, Edge, Firefox or Safari on a computer.</p>");
 </script>
 <script type="module">
 import init, { Client } from "./pkg/arena.js";
 import { Sound } from "./audio.js";
+import { Music } from "./music.js";
 
 const canvas = document.getElementById("c");
 const menu = document.getElementById("menu");
@@ -229,7 +232,7 @@ const err = document.getElementById("err");
 const $ = id => document.getElementById(id);
 
 // graphics quality, low / medium / high: how much of the screen's resolution to draw at (the renderer turns
-// multisampling, occlusion and soft shadows up with it). Always starts on low.
+// multisampling, occlusion and soft shadows up with it). Starts on medium.
 const QUALITY = ["Low", "Medium", "High"];
 const RES_SCALE = [0.5, 0.75, 1];
 let quality = 0;
@@ -312,13 +315,13 @@ const touchOnly = matchMedia("(pointer: coarse)").matches && !matchMedia("(any-p
 const gone = missing();
 if (gone.length) {
   await blocked("Your browser can't run this", [
-    `Ready Player Z needs ${gone.join(", ").replace(/, ([^,]*)$/, " and $1")}, which this browser doesn't have or has turned off.`,
+    `readyplayerz needs ${gone.join(", ").replace(/, ([^,]*)$/, " and $1")}, which this browser doesn't have or has turned off.`,
     "Try the latest Chrome, Edge, Firefox or Safari on a computer. If you already are, check that hardware acceleration is on in the browser's settings.",
   ]);
 }
 if (mobile || touchOnly) {
   await blocked("Play on a computer", [
-    "Ready Player Z is a first-person shooter played with a keyboard and mouse, so it doesn't work on phones or tablets yet.",
+    "readyplayerz is a first-person shooter played with a keyboard and mouse, so it doesn't work on phones or tablets yet.",
     "Open readyplayerz.com on a desktop or laptop to play.",
   ], true);
 }
@@ -343,22 +346,30 @@ try {
 }
 addEventListener("resize", () => client.resize(...size()));
 // a row of buttons where one is on; picking one stays on the menu, so the change can be seen behind it
-function segmented(parent, labels, pick) {
+// a row of buttons where one is picked. The pick is saved under `key` and comes back on the next visit,
+// otherwise it starts on `fallback`
+function segmented(parent, labels, pick, key, fallback = 0) {
   const buttons = labels.map((label, i) => {
     const b = el("button", "", label);
     b.addEventListener("click", () => set(i));
     parent.appendChild(b);
     return b;
   });
-  const set = i => { pick(i); buttons.forEach((b, j) => b.classList.toggle("on", j === i)); };
+  const set = i => {
+    pick(i);
+    buttons.forEach((b, j) => b.classList.toggle("on", j === i));
+    try { localStorage.setItem(key, labels[i]); } catch {}
+  };
+  let saved = -1;
+  try { saved = labels.indexOf(localStorage.getItem(key)); } catch {}
+  set(saved >= 0 ? saved : fallback);
   return set;
 }
 const setQuality = segmented($("gfx"), QUALITY, i => {
   quality = i;
   client.set_quality(i);
   client.resize(...size());
-});
-setQuality(0);
+}, "graphics", 1);
 
 const names = client.weapon_names();
 const classes = client.weapon_classes();
@@ -370,8 +381,14 @@ const guns = names.map((name, i) => {
   return { i, name, cls: classes[i], dmg, rpm, mag, reload, speed, acc: 1 / (1 + 60 * aim + 8 * hip) };
 });
 const sound = new Sound(guns.map(g => g.reload));
-const setSound = segmented($("snd"), ["On", "Off"], i => { if (sound.muted !== (i === 1)) sound.toggleMute(); });
-setSound(0);
+const setSound = segmented($("snd"), ["On", "Off"], i => { if (sound.muted !== (i === 1)) sound.toggleMute(); }, "sound");
+const music = new Music(sound);
+segmented($("mus"), ["On", "Off"], i => music.setOn(i === 0), "music");
+// audio can only start after a click or key press, so the theme begins on the first one in the menu
+const wake = () => { sound.start(); music.start(); };
+addEventListener("pointerdown", wake);
+addEventListener("keydown", wake);
+document.addEventListener("visibilitychange", () => (document.hidden ? music.stop() : music.on && music.start()));
 
 // the stat bars: how good a gun is at each (higher is better, drawn against the best of all guns) and how to print it
 const STATS = [
@@ -487,6 +504,7 @@ if (params.has("calm")) client.remove_bots();
 if (params.has("primary")) client.pick_primary(Number(params.get("primary")) - 1);
 if (params.has("slot")) client.key("Digit" + params.get("slot"), true);
 if (params.has("clean")) menu.style.visibility = "hidden";
+if (params.has("ads")) client.mouse_button(2, true); // holds aim, to look at the sights
 
 if (params.has("at")) {
   const [x, z, yaw = 0, y = 0] = params.get("at").split(",").map(Number);
@@ -505,6 +523,7 @@ $("play").addEventListener("click", () => { sound.start(); canvas.requestPointer
 document.addEventListener("pointerlockchange", () => {
   menu.style.display = locked() ? "none" : "flex";
   client.set_paused(!locked());
+  music.setInPlay(locked());
   if (!locked()) { client.release_all(); sound.cancel(); show("s-main"); }
 });
 // the whole arena from above: ground markings first, then walls from low to tall so tall things sit on top

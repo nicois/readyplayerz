@@ -45,6 +45,8 @@ const SPAWN_WALK: f32 = 70.0;
 /// it comes in again at a spawn point.
 const STUCK_FAR: f32 = 20.0;
 const STUCK_T: f32 = 5.0;
+/// How far off a zombie's groans carry.
+const HEAR_GROWL: f32 = 60.0;
 /// The tallest ledge a walking body climbs without jumping, so stairs and terraces work.
 const STEP_UP: f32 = 0.4;
 /// Bots further than this from the player just glide along their route instead of simulating a body.
@@ -77,10 +79,12 @@ pub mod ev {
     /// a = impact speed
     pub const LAND: f32 = 11.0;
     pub const DEATH: f32 = 12.0;
-    /// a = distance, b = pan
+    /// a = distance, b = 4 × kind + pan (pan is in -1..1, so the kind is `round(b / 4)`)
     pub const GROWL: f32 = 13.0;
     /// a = wave number
     pub const WAVE: f32 = 14.0;
+    /// a zombie swinging at the player: a = kind, b = pan
+    pub const SNARL: f32 = 15.0;
 }
 
 /// Everything that differs between guns. Angles are radians, times are seconds.
@@ -1013,6 +1017,16 @@ impl Game {
             let dist = (dx * dx + dz * dz).sqrt().max(0.001);
             let (nx, nz) = (dx / dist, dz / dist);
             b.hit_t = (b.hit_t - dt * 3.0).max(0.0);
+            // they groan as they come, runners most often, and more often still once they're close
+            let pan = -(nx * pcy + nz * psy);
+            b.growl_t -= dt;
+            if b.growl_t <= 0.0 {
+                let (lo, hi) = [(2.5, 6.0), (1.5, 4.0), (3.0, 7.0)][b.kind as usize];
+                b.growl_t = self.rng.range(lo, hi) * if dist < 10.0 { 0.6 } else { 1.0 };
+                if dist < HEAR_GROWL {
+                    heard.push([ev::GROWL, dist, b.kind as f32 * 4.0 + pan]);
+                }
+            }
             let (ax, az) = (b.body.pos[0] - b.anchor[0], b.body.pos[2] - b.anchor[2]);
             if ax * ax + az * az > 1.0 || dist < STUCK_FAR || !player_alive {
                 b.anchor = b.body.pos;
@@ -1090,17 +1104,11 @@ impl Game {
 
             b.swing_t = (b.swing_t - dt * 2.5).max(0.0);
             b.fire_t -= dt;
-            b.growl_t -= dt;
-            if b.growl_t <= 0.0 {
-                b.growl_t = self.rng.range(4.0, 9.0);
-                if dist < 45.0 {
-                    heard.push([ev::GROWL, dist, -(nx * pcy + nz * psy)]);
-                }
-            }
             if player_alive && dist < 1.7 && (target[1] - b.body.pos[1]).abs() < 1.6 && b.fire_t <= 0.0 {
                 b.fire_t = 0.9;
                 b.swing_t = 1.0;
                 dmg += if b.kind == 2 { 30.0 } else { 12.0 };
+                heard.push([ev::SNARL, b.kind as f32, pan]);
             }
         }
         self.events.extend(heard);
@@ -1311,6 +1319,20 @@ mod tests {
         g.input.w = true;
         idle(&mut g, 1.5);
         assert!(g.events.iter().any(|e| e[0] == ev::STEP), "no footsteps while running");
+    }
+
+    #[test]
+    fn zombies_groan_as_they_come_and_snarl_when_they_strike() {
+        for kind in 0..3 {
+            let mut g = arena();
+            bot_ahead_zombie(&mut g, kind);
+            g.events.clear();
+            idle(&mut g, 8.0);
+            let growl = g.events.iter().find(|e| e[0] == ev::GROWL).unwrap_or_else(|| panic!("kind {kind} never groaned"));
+            assert_eq!((growl[2] / 4.0).round() as u8, kind);
+            assert!((growl[2] - kind as f32 * 4.0).abs() <= 1.0, "pan out of range: {}", growl[2]);
+            assert!(g.events.iter().any(|e| e[0] == ev::SNARL && e[1] == kind as f32), "kind {kind} struck in silence");
+        }
     }
 
     #[test]

@@ -73,11 +73,9 @@ impl Client {
         }
     }
 
-    /// Mouse wheel: swaps between the primary and the pistol, whichever way it turns.
-    pub fn cycle_weapon(&mut self, _dir: i32) {
-        let p = &self.game.player;
-        let slot = if p.weapon == p.loadout[0] { 1 } else { 0 };
-        self.game.select_slot(slot);
+    /// Mouse wheel: down (`dir` > 0) picks the pistol, up picks the primary, so extra clicks keep the same gun.
+    pub fn cycle_weapon(&mut self, dir: i32) {
+        self.game.select_slot(if dir > 0 { 1 } else { 0 });
     }
 
     /// The menu is up: keep drawing, stop the simulation.
