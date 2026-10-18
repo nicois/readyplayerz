@@ -3,12 +3,16 @@
 //! west, and a landmark in each corner. Everything is boxes, so it is cheap to draw and to collide with.
 //!
 //! The layout is authored; the seed only varies colours, which houses are ruined, and the rubble.
+//!
+//! The second map, a suburb, is in `suburb`; both are built with the same kit of walls, floors and stairs.
 
 use crate::sim::{overlaps, Aabb, Rng, V3, HALF};
 use crate::terrain::Terrain;
 
-/// The maps there are, by number: 0 the ruined town.
-pub const MAPS: u8 = 1;
+mod suburb;
+
+/// The maps there are, by number: 0 the ruined town, 1 the suburb.
+pub const MAPS: u8 = 2;
 
 pub struct Map {
     /// half the side of the square arena, which runs from -half to half on x and z
@@ -49,6 +53,15 @@ const CONTAINERS: [Col; 6] = [
     [0.80, 0.42, 0.16],
 ];
 const CAR_COLORS: [Col; 4] = [[0.45, 0.14, 0.12], [0.20, 0.26, 0.34], [0.55, 0.52, 0.45], [0.18, 0.30, 0.22]];
+/// painted clapboard: white, pale blue, butter yellow, sage
+const SIDING: [Col; 4] = [[0.74, 0.73, 0.69], [0.52, 0.60, 0.66], [0.74, 0.67, 0.46], [0.50, 0.56, 0.45]];
+const SHINGLE: Col = [0.24, 0.24, 0.26];
+const TILE: Col = [0.42, 0.22, 0.17];
+const LEAF: Col = [0.17, 0.26, 0.12];
+const HEDGE: Col = [0.14, 0.22, 0.11];
+/// road paint and the lines on a sports field
+const LINE: Col = [0.80, 0.80, 0.76];
+const WATER: Col = [0.16, 0.24, 0.28];
 
 const PAVING: Col = [0.38, 0.37, 0.34];
 const ASPHALT: Col = [0.14, 0.14, 0.15];
@@ -61,21 +74,21 @@ pub const GROUND: Col = [0.23, 0.22, 0.19];
 /// What a surface of this colour is made of, which the renderer turns into a pattern:
 /// 0 plain, 1 concrete, 2 brick, 3 plaster, 4 painted metal, 5 wood, 6 dirt and asphalt, 7 paving, 8 grass.
 pub fn material(c: [f32; 3]) -> u8 {
-    if [CONCRETE, DARK_CONCRETE, STONE, ROOF].contains(&c) {
+    if [CONCRETE, DARK_CONCRETE, STONE, ROOF, SHINGLE].contains(&c) {
         1
-    } else if [BRICK, BRICK_LIGHT].contains(&c) {
+    } else if [BRICK, BRICK_LIGHT, TILE].contains(&c) {
         2
     } else if c == PLASTER {
         3
     } else if [RUST, STEEL, YELLOW].contains(&c) || CONTAINERS.contains(&c) || CAR_COLORS.contains(&c) {
         4
-    } else if c == WOOD {
+    } else if c == WOOD || SIDING.contains(&c) {
         5
     } else if [ASPHALT, DIRT, MUD, GROUND].contains(&c) {
         6
     } else if [PAVING, YARD].contains(&c) {
         7
-    } else if c == GRASS {
+    } else if [GRASS, LEAF, HEDGE].contains(&c) {
         8
     } else {
         0
@@ -787,6 +800,7 @@ impl B {
 /// Map number `map` (see `MAPS`) made from `seed`; anything out of range is the town.
 pub fn make(map: u8, seed: u32) -> Map {
     match map {
+        1 => suburb::build(seed),
         _ => build(seed),
     }
 }

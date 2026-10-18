@@ -50,7 +50,7 @@ impl Client {
         self.acc = 0.0;
     }
 
-    /// A fresh game on map number `map` (see `map::MAPS`), keeping the loadout picked so far.
+    /// A fresh game on map number `map` (0 the town, 1 the suburb), keeping the loadout picked so far.
     pub fn set_map(&mut self, map: u8) -> Result<(), JsValue> {
         self.map = map.min(crate::map::MAPS - 1);
         self.end_game();
