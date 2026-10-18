@@ -54,6 +54,11 @@ const STEP_UP: f32 = 0.4;
 /// How fast the eye catches up with the body after a step, per second: running up stairs it trails a little and
 /// rises steadily instead of jerking up each step.
 const STEP_EASE: f32 = 12.0;
+/// A landing hurts once it is as hard as a drop from this high, so a jump off a one-storey roof is free...
+const FALL_SAFE: f32 = 5.0;
+/// ...and costs this much health for every metre of drop past it: a jump off a two-storey roof about 20, the
+/// clock tower everything. It goes by how fast the body comes down, so any height anywhere is the same.
+const FALL_DMG: f32 = 7.0;
 /// Bots further than this from the player just glide along their route instead of simulating a body.
 const LOD_RADIUS: f32 = 40.0;
 /// Side of one cell of the wall grid.
@@ -1019,11 +1024,14 @@ impl Game {
             p.step_y = (p.step_y - (p.body.pos[1] - was_y)).clamp(-0.8, 0.8);
         }
         let run = (p.body.vel[0].powi(2) + p.body.vel[2].powi(2)).sqrt();
+        let mut crash = 0.0;
         if was_ground && !p.body.on_ground && p.body.vel[1] > 0.0 {
             self.events.push([ev::JUMP, 0.0, 0.0]);
         } else if !was_ground && p.body.on_ground && fall > 5.0 {
             self.events.push([ev::LAND, fall, 0.0]);
             p.land_t = p.land_t.max((fall / 12.0).min(1.0));
+            let drop = fall * fall / (2.0 * GRAVITY);
+            crash = (drop - FALL_SAFE).max(0.0) * FALL_DMG;
         }
         if p.body.on_ground && run > 1.5 {
             p.stride += run * dt;
@@ -1048,6 +1056,9 @@ impl Game {
             self.events.push([ev::RELOAD, p.weapon as f32, 0.0]);
         } else if inp.fire && p.cooldown <= 0.0 && p.equip_t <= 0.0 && (w.auto || p.armed) {
             self.player_fire();
+        }
+        if crash > 0.0 {
+            self.hurt_player(crash);
         }
     }
 
@@ -1212,6 +1223,21 @@ mod tests {
         g.input.w = true;
         idle(&mut g, 8.0);
         assert!(g.player.body.pos[2] > -HALF + HW - 0.01, "walked through the wall: {:?}", g.player.body.pos);
+    }
+
+    #[test]
+    fn long_falls_hurt_and_the_clock_tower_kills() {
+        // dropped from the top of a jump off: a one-storey roof, a two-storey one, the clock tower's balcony
+        let peak = JUMP * JUMP / (2.0 * GRAVITY);
+        for (from, lo, hi) in [(3.3 + peak, 100.0, 100.0), (6.6 + peak, 70.0, 85.0), (21.9 + peak, f32::MIN, 0.0)] {
+            let mut g = arena();
+            g.bots.clear();
+            g.player.body.pos = [0.0, from, 0.0];
+            g.player.body.on_ground = false;
+            idle(&mut g, 3.0);
+            let hp = g.player.hp;
+            assert!((lo..=hi).contains(&hp), "a fall from {from} left {hp} health");
+        }
     }
 
     #[test]
