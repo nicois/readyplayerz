@@ -1,7 +1,7 @@
 //! Which ground cells are open, and the cheapest way from any of them to the player, so bots can route around walls.
 
 use crate::grid::Grid;
-use crate::sim::{overlaps, Aabb, MAX_SLOPE, V3};
+use crate::sim::{find_vault, overlaps, Aabb, BOT_CLIMB_PACE, BOT_REACH, LEDGE_LOW, MAX_SLOPE, SQUEEZE, V3};
 
 /// Side of one nav cell. A body is 0.8 wide, so standing in the middle of an open cell it clears every blocked neighbour.
 const CELL: f32 = 1.0;
@@ -29,6 +29,9 @@ const NARROW_COST: u32 = 30;
 /// much as walking this many steps further, so stairs win where there are any.
 pub const LEDGE: f32 = 2.9;
 const LEDGE_COST: u32 = 40;
+/// Getting in or out through a window costs as much as walking this many steps further than the way through it, so
+/// a door near by is gone round to.
+const VAULT_COST: u32 = 50;
 /// Path cost out to which the field is kept while following the player: 140 m of walking.
 const FOLLOW: u32 = 1400;
 /// More than the dearest single step: a diagonal and a climb onto a narrow top.
@@ -58,6 +61,9 @@ pub struct Nav {
     into_start: Vec<u32>,
     into: Vec<u32>,
     into_cost: Vec<u8>,
+    /// the ways through a window (see `sim::find_vault`): from a spot by the wall to one on the far side, with what it
+    /// costs, in order of where they are from
+    through: Vec<(u32, u32, u8)>,
     /// the route search's queue, kept between searches so it isn't allocated each time
     buckets: Vec<Vec<u32>>,
 }
@@ -108,8 +114,8 @@ impl Nav {
         start.push(spots.len() as u32);
         solid_start.push(solid.len() as u32);
         let total = spots.len();
-        let mut nav = Nav { half, n, start, spots, narrow, solid_start, solid, ground, cost: vec![UNREACHED; total], goals: Vec::new(), reach: UNREACHED, into_start: Vec::new(), into: Vec::new(), into_cost: Vec::new(), buckets: Vec::new() };
-        nav.link();
+        let mut nav = Nav { half, n, start, spots, narrow, solid_start, solid, ground, cost: vec![UNREACHED; total], goals: Vec::new(), reach: UNREACHED, into_start: Vec::new(), into: Vec::new(), into_cost: Vec::new(), through: Vec::new(), buckets: Vec::new() };
+        nav.link(world);
         nav
     }
 
@@ -340,11 +346,51 @@ impl Nav {
         self.buckets = buckets;
     }
 
+    /// Where a bot on spot `from` in cell `c` comes down after getting through a window straight ahead of it in
+    /// direction `d`, if there is one: the first spot on along the way at the height of the floor it lands on, and
+    /// what going that way costs.
+    fn vault(&self, world: &Grid, c: (i32, i32), from: usize, d: (i32, i32)) -> Option<(usize, u32)> {
+        let h = self.spots[from];
+        // only where there is a wall with a sill and a head in it in the next cell, which is where a body walking on
+        // would bump into it, or in the cells either side of that, as it looks along the wall a little way
+        let n = self.n as i32;
+        let mut sill = false;
+        let mut head = false;
+        for k in -1..=1 {
+            let w = (c.0 + d.0 + k * d.1, c.1 + d.1 + k * d.0);
+            if w.0 < 0 || w.1 < 0 || w.0 >= n || w.1 >= n {
+                continue;
+            }
+            let i = self.at(w);
+            for &(lo, hi) in &self.solid[self.solid_start[i] as usize..self.solid_start[i + 1] as usize] {
+                sill |= hi > h + LEDGE_LOW && hi <= h + BOT_REACH;
+                head |= lo > h + LEDGE_LOW + SQUEEZE - 0.01 && lo < h + BOT_REACH + HEADROOM;
+            }
+        }
+        if !(sill && head) {
+            return None;
+        }
+        let m = self.center(c);
+        let to = find_vault([m[0], h, m[1]], (d.0 as f32).atan2(-d.1 as f32), BOT_REACH, BOT_CLIMB_PACE, true, world)?.end();
+        let land = (to[1] - world.raycast(to, [0.0, -1.0, 0.0], DROP + 0.5)).max(world.ground_at(to[0], to[2]));
+        if to[1] - land > DROP {
+            return None;
+        }
+        // past the wall: a cell whose middle is in it has no spot
+        let out = (to[0] - m[0]) * d.0 as f32 + (to[2] - m[1]) * d.1 as f32;
+        (1..=3).find_map(|k| {
+            let c2 = (c.0 + d.0 * k, c.1 + d.1 * k);
+            let s = self.in_cell(c2).find(|&s| (self.spots[s] - land).abs() < 0.3)?;
+            (k as f32 * CELL > out - 0.5).then_some((s, VAULT_COST + 10 * k as u32))
+        })
+    }
+
     /// Works out every step a bot can take, once, and files each under the spot it lands on, so a route search
     /// only has to read them off.
-    fn link(&mut self) {
+    fn link(&mut self, world: &Grid) {
         let n = self.n as i32;
         let mut steps: Vec<(u32, u32, u8)> = Vec::new();
+        let mut through = Vec::new();
         for z in 0..n {
             for x in 0..n {
                 for j in self.in_cell((x, z)) {
@@ -353,9 +399,16 @@ impl Nav {
                             steps.push((i as u32, j as u32, self.step_cost(j, i, d) as u8));
                         }
                     }
+                    for d in &NEIGHBOURS[..4] {
+                        if let Some((i, cost)) = self.vault(world, (x, z), j, *d) {
+                            steps.push((i as u32, j as u32, cost as u8));
+                            through.push((j as u32, i as u32, cost as u8));
+                        }
+                    }
                 }
             }
         }
+        self.through = through;
         steps.sort_unstable_by_key(|s| s.0);
         let mut start = vec![0u32; self.spots.len() + 1];
         for s in &steps {
@@ -379,12 +432,11 @@ impl Nav {
         let mut queue = vec![first];
         while let Some(s) = queue.pop() {
             let c = self.cell_at(s);
-            for d in NEIGHBOURS {
-                for to in self.moves(c, s, d) {
-                    if !seen[to] {
-                        seen[to] = true;
-                        queue.push(to);
-                    }
+            let through: Vec<usize> = self.through_from(s).map(|(to, _)| to).collect();
+            for to in NEIGHBOURS.iter().flat_map(|&d| self.moves(c, s, d)).chain(through) {
+                if !seen[to] {
+                    seen[to] = true;
+                    queue.push(to);
                 }
             }
         }
@@ -440,9 +492,21 @@ impl Nav {
         self.spot_of(p).map(|s| self.spots[s])
     }
 
+    /// The ways through a window from spot `s`: where to, and what it costs.
+    fn through_from(&self, s: usize) -> impl Iterator<Item = (usize, u32)> + '_ {
+        let a = self.through.partition_point(|t| (t.0 as usize) < s);
+        let b = self.through.partition_point(|t| (t.0 as usize) <= s);
+        self.through[a..b].iter().map(|t| (t.1 as usize, t.2 as u32))
+    }
+
     /// Where to step next from `p` on the way to the goal, as a point (x, height, z), or None if `p` is not
     /// on the field (inside a wall, unreachable) or is already at the goal.
     pub fn next(&self, p: V3) -> Option<V3> {
+        self.next_step(p).map(|(to, _)| to)
+    }
+
+    /// `next`, and whether the way there is through a window.
+    pub fn next_step(&self, p: V3) -> Option<(V3, bool)> {
         let s = self.spot_of(p)?;
         let here = self.cost[s];
         if here == UNREACHED || here == 0 {
@@ -450,17 +514,16 @@ impl Nav {
         }
         let c = self.cell_at(s);
         let mut best = (u32::MAX, None);
-        for d in NEIGHBOURS {
-            for to in self.moves(c, s, d) {
-                let total = self.cost[to].saturating_add(self.step_cost(s, to, d));
-                if self.cost[to] < here && total < best.0 {
-                    best = (total, Some(to));
-                }
+        let steps = NEIGHBOURS.iter().flat_map(|&d| self.moves(c, s, d).map(move |to| (to, self.step_cost(s, to, d), false)));
+        for (to, cost, through) in steps.chain(self.through_from(s).map(|(to, cost)| (to, cost, true))) {
+            let total = self.cost[to].saturating_add(cost);
+            if self.cost[to] < here && total < best.0 {
+                best = (total, Some((to, through)));
             }
         }
-        best.1.map(|to| {
+        best.1.map(|(to, through)| {
             let m = self.center(self.cell_at(to));
-            [m[0], self.spots[to], m[1]]
+            ([m[0], self.spots[to], m[1]], through)
         })
     }
 }
@@ -473,6 +536,26 @@ mod tests {
 
     fn wall(x0: f32, z0: f32, x1: f32, z1: f32) -> Aabb {
         Aabb { min: [x0, 0.0, z0], max: [x1, 3.0, z1] }
+    }
+
+    /// The ways through windows on map MAP (default the suburb) nearest the middle, to look at in the game.
+    #[test]
+    #[ignore]
+    fn windows() {
+        let map: u8 = std::env::var("MAP").ok().and_then(|s| s.parse().ok()).unwrap_or(1);
+        let m = crate::map::make(map, 1);
+        let world = Grid::new(m.walls, 4.0).with_ground(m.ground);
+        let nav = Nav::new(&world, m.half);
+        let at = |s: u32| {
+            let c = nav.center(nav.cell_at(s as usize));
+            [c[0], nav.spots[s as usize], c[1]]
+        };
+        let mut ways: Vec<(V3, V3)> = nav.through.iter().map(|t| (at(t.0), at(t.1))).collect();
+        ways.sort_by(|a, b| a.0[0].hypot(a.0[2]).total_cmp(&b.0[0].hypot(b.0[2])));
+        println!("{} ways through windows", ways.len());
+        for (a, b) in ways.iter().take(12) {
+            println!("{a:.1?} -> {b:.1?}");
+        }
     }
 
     #[test]

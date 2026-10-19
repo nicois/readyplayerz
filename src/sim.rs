@@ -378,7 +378,9 @@ impl Player {
     }
 
     pub fn eye(&self) -> V3 {
-        [self.body.pos[0], self.body.pos[1] + EYE + self.step_y, self.body.pos[2]]
+        // through a window, ducked down under its head
+        let duck = self.climb.as_ref().map_or(0.0, Climb::duck) * (EYE - 0.7);
+        [self.body.pos[0], self.body.pos[1] + EYE + self.step_y - duck, self.body.pos[2]]
     }
     /// Turns the view by a mouse movement, slower while aiming down sights that zoom.
     pub fn look(&mut self, dx: f32, dy: f32) {
@@ -418,7 +420,7 @@ pub struct Bot {
     /// never the same for two zombies in a game, as a dead one's place is taken by the next
     pub id: u32,
     /// a zombie seen over the network: how its climb is going (see `Bot::climbing`)
-    pub pose: Option<(f32, f32, f32)>,
+    pub pose: Option<Pose>,
     pub body: Body,
     pub hp: f32,
     pub alive: bool,
@@ -471,9 +473,10 @@ impl Bot {
         let (p, s) = (self.body.pos, self.scale);
         Aabb { min: [p[0] - 0.32 * s, p[1], p[2] - 0.32 * s], max: [p[0] + 0.32 * s, p[1] + 1.4 * s, p[2] + 0.32 * s] }
     }
-    /// Dev view: a zombie standing at `at` facing `yaw`, `s` of the way up whatever ledge is in front of it, if any.
+    /// Dev view: a zombie standing at `at` facing `yaw`, `s` of the way up whatever ledge is in front of it, or
+    /// through whatever window, if any.
     pub fn climbing_at(at: V3, yaw: f32, s: f32, world: &Grid) -> Option<Bot> {
-        let mut c = find_ledge(at, yaw, BOT_REACH, BOT_CLIMB_PACE, true, world)?;
+        let mut c = find_ledge(at, yaw, BOT_REACH, BOT_CLIMB_PACE, true, world).or_else(|| find_vault(at, yaw, BOT_REACH, BOT_CLIMB_PACE, true, world))?;
         c.t = s * c.time;
         let mut b = Bot::zombie(c.at().0, 0.3);
         b.face = yaw;
@@ -482,7 +485,7 @@ impl Bot {
     }
 
     /// Pulling itself up onto a ledge, and no swinging at anyone: how it is going (see `Climb::pose`).
-    pub fn climbing(&self) -> Option<(f32, f32, f32)> {
+    pub fn climbing(&self) -> Option<Pose> {
         self.climb.as_ref().map(Climb::pose).or(self.pose)
     }
 
@@ -643,14 +646,18 @@ pub const STRIKE_DOWN: f32 = 1.6;
 /// ground, onto a container but not a storey (3.3 m).
 const LEDGE_REACH: f32 = 1.6;
 /// A ledge lower than this is a step or a hop, not a climb.
-const LEDGE_LOW: f32 = 0.25;
+pub(crate) const LEDGE_LOW: f32 = 0.25;
 /// How long a pull up takes: so long and so much more a metre of it. Zombies are slower about it.
 const CLIMB_PACE: (f32, f32) = (0.2, 0.15);
-const BOT_CLIMB_PACE: (f32, f32) = (0.5, 0.35);
+pub(crate) const BOT_CLIMB_PACE: (f32, f32) = (0.5, 0.35);
 /// Zombies climb from the ground whatever the player can get onto by jumping and pulling up.
-const BOT_REACH: f32 = crate::nav::LEDGE + 0.1;
+pub(crate) const BOT_REACH: f32 = crate::nav::LEDGE + 0.1;
+/// The smallest hole a body gets through, on hands and knees: as wide as it is, and as tall as it is folded up. A
+/// window is one, a peephole or a slot under a fence is not.
+pub(crate) const SQUEEZE: f32 = 0.9;
 
-/// A pull up onto a ledge: the body rises beside the face to the top, then moves in over it.
+/// A pull up onto a ledge: the body rises beside the face to the top, then moves in over it. Or through a hole in
+/// it, as a window is (see `find_vault`), folded up small, onto the sill and out over it.
 #[derive(Clone, Copy)]
 pub struct Climb {
     /// where the climb began, and where the body goes up from, at the foot of the face
@@ -664,7 +671,12 @@ pub struct Climb {
     edge: f32,
     /// a zombie hauls itself up in heaves (see `CLIMB_GRAB` on); the player's own pull up is one smooth rise
     heave: bool,
+    /// through a hole, not up onto a top: `to` is on the far side of it, at the height of the sill
+    squeeze: bool,
 }
+
+/// How a zombie's climb is going, to draw it by: see `Climb::pose`.
+pub type Pose = (f32, f32, f32, f32);
 
 /// How a zombie's climb goes, as fractions of it: a hop to get its hands on the edge, two heaves that bring its
 /// hips up level with the top, then a knee onto it and over.
@@ -682,10 +694,12 @@ impl Climb {
     /// All of it as numbers, to send over the network (see `net::Own`).
     pub(crate) fn raw(&self) -> [f32; 14] {
         let [s, f, t] = [self.start, self.from, self.to];
-        [s[0], s[1], s[2], f[0], f[1], f[2], t[0], t[1], t[2], self.t, self.time, self.yaw, self.edge, self.heave as u8 as f32]
+        let kind = self.heave as u8 | (self.squeeze as u8) << 1;
+        [s[0], s[1], s[2], f[0], f[1], f[2], t[0], t[1], t[2], self.t, self.time, self.yaw, self.edge, kind as f32]
     }
     pub(crate) fn from_raw(r: &[f32; 14]) -> Climb {
-        Climb { start: [r[0], r[1], r[2]], from: [r[3], r[4], r[5]], to: [r[6], r[7], r[8]], t: r[9], time: r[10], yaw: r[11], edge: r[12], heave: r[13] > 0.5 }
+        let kind = r[13].round() as u8;
+        Climb { start: [r[0], r[1], r[2]], from: [r[3], r[4], r[5]], to: [r[6], r[7], r[8]], t: r[9], time: r[10], yaw: r[11], edge: r[12], heave: kind & 1 != 0, squeeze: kind & 2 != 0 }
     }
 
     /// Where the body is `t` seconds in, and whether it is done.
@@ -708,7 +722,9 @@ impl Climb {
             // the knee goes up onto the top as the hips rise (drawn), and the body moves in only once it is up
             ((y - a[1]) / (b[1] - a[1]).max(1e-4), ease(((s - CLIMB_OVER) / (1.0 - CLIMB_OVER) - 0.4) / 0.6))
         } else {
-            (ease(s / 0.7), ease((s - 0.7) / 0.3))
+            // through a hole there is further to go once up: a quick hop onto the sill, then the crawl over it
+            let k = if self.squeeze { 0.4 } else { 0.7 };
+            (ease(s / k), ease((s - k) / (1.0 - k)))
         };
         // in to the wall with the hop, then over the edge
         let i = ease(s / CLIMB_GRAB);
@@ -716,14 +732,26 @@ impl Climb {
         ([a[0] + (b[0] - a[0]) * over, a[1] + (b[1] - a[1]) * up, a[2] + (b[2] - a[2]) * over], s >= 1.0)
     }
 
-    /// For drawing a zombie's climb: how far through it is (0 to 1), how high the top is above the feet, and how
-    /// far ahead its edge is.
-    pub fn pose(&self) -> (f32, f32, f32) {
+    /// Where the body ends up.
+    pub(crate) fn end(&self) -> V3 {
+        self.to
+    }
+
+    /// How folded up the body is, 0 to 1: going through a hole it ducks as it gets up to it and stands up again only
+    /// once it is out the other side.
+    pub fn duck(&self) -> f32 {
+        let s = self.t / self.time;
+        if self.squeeze { ease(s / 0.3) * (1.0 - ease((s - 0.85) / 0.15)) } else { 0.0 }
+    }
+
+    /// For drawing a zombie's climb: how far through it is (0 to 1), how high the top is above the feet, how far
+    /// ahead its edge is, and how folded up it is.
+    pub fn pose(&self) -> Pose {
         // measured along the climb from the foot of the face, so while it hops in the edge is further off
         let (p, _) = self.at();
         let f = [self.yaw.sin(), -self.yaw.cos()];
         let gone = (p[0] - self.from[0]) * f[0] + (p[2] - self.from[2]) * f[1];
-        ((self.t / self.time).min(1.0), self.to[1] - p[1], self.edge - gone)
+        ((self.t / self.time).min(1.0), self.to[1] - p[1], self.edge - gone, self.duck())
     }
 }
 
@@ -774,8 +802,76 @@ fn find_ledge(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), heave: bool, worl
                 let step = if heave { (face - HW - 0.03).max(0.0) } else { 0.0 };
                 let from = [pos[0] + f[0] * step, pos[1], pos[2] + f[2] * step];
                 let (from, edge) = if free(from) { (from, face - step) } else { (pos, edge) };
-                return Some(Climb { start: pos, from, to: [c[0], top, c[1]], t: 0.0, time, yaw, edge, heave });
+                return Some(Climb { start: pos, from, to: [c[0], top, c[1]], t: 0.0, time, yaw, edge, heave, squeeze: false });
             }
+        }
+    }
+    None
+}
+
+/// A hole in front of a body at `pos` facing `yaw` that it can get through, as a window is: a sill above the floor
+/// within `reach` of the feet, and over it room for the body folded up (`SQUEEZE`) all the way through, until it is
+/// out the other side and can stand. Up to a little over a body's width either side, so it needn't be squarely in
+/// front. A peephole or a letterbox is too small for the body to fit through anywhere, and a gap with room to stand
+/// in is no hole but a ledge (see `find_ledge`).
+pub(crate) fn find_vault(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), heave: bool, world: &Grid) -> Option<Climb> {
+    let f = [yaw.sin(), 0.0, -yaw.cos()];
+    let fits = |p: V3, h: f32| {
+        let b = aabb_at(p, HW, h);
+        !world.find(&b, |w| overlaps(&b, w))
+    };
+    let along = |p: V3, s: f32, y: f32| [p[0] + f[0] * s, y, p[2] + f[2] * s];
+    // as far as the body gets walking on before it bumps into the wall
+    let near = (1..=12).map(|k| k as f32 * 0.1).find(|&s| !fits(along(pos, s, pos[1] + EPS), H))? - 0.1;
+    let floor = (pos[1] + 0.05 - world.raycast([pos[0], pos[1] + 0.05, pos[2]], [0.0, -1.0, 0.0], 3.0)).max(world.ground_at(pos[0], pos[2]));
+    // a hole has a head: something just ahead whose underside is over a sill in reach, too low to stand under. A
+    // plain wall has none, and so isn't looked along for one
+    let wide = aabb_at(along(pos, near + 2.0 * HW, floor), 1.0, reach + pos[1] - floor + H);
+    let head = |w: &Aabb| overlaps(&wide, w) && w.min[1] > floor + LEDGE_LOW + SQUEEZE - 0.01 && w.min[1] < pos[1] + reach + H;
+    if !world.find(&wide, head) {
+        return None;
+    }
+    for k in [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5, -6, 6] {
+        let o = k as f32 * 0.1;
+        let from = along([pos[0] - f[2] * o, pos[1], pos[2] + f[0] * o], near, pos[1]);
+        if !fits(from, SQUEEZE) {
+            continue;
+        }
+        // the sills there could be: the tops of whatever is just ahead, clear of the floor and in reach
+        let ahead = aabb_at(along(from, 2.0 * HW, floor), HW, reach + pos[1] - floor);
+        let mut sills = Vec::new();
+        world.find(&ahead, |w| {
+            if overlaps(&ahead, w) && w.max[1] > floor + LEDGE_LOW && w.max[1] <= pos[1] + reach {
+                sills.push(w.max[1] + EPS);
+            }
+            false
+        });
+        sills.sort_by(f32::total_cmp);
+        sills.dedup_by(|a, b| (*a - *b).abs() < 0.01);
+        for y in sills {
+            // over the sill, folded up, from a little way into the wall (`near` is up to a step short of it), until
+            // it can stand up again: out past the wall, or it was never in a hole at all...
+            let mut squeezed = false;
+            let mut out = None;
+            for i in 1..=11 {
+                let p = along(from, i as f32 * 0.2, y);
+                if !fits(p, SQUEEZE) {
+                    break;
+                }
+                if fits(p, H) {
+                    out = squeezed.then_some(p);
+                    break;
+                }
+                squeezed = true;
+            }
+            let Some(to) = out else { continue };
+            // ...having got up to it beside the wall
+            let rises = ((y - pos[1]).max(0.0) / 0.3).ceil() as usize;
+            if !(1..=rises).all(|i| fits([from[0], pos[1] + (y - pos[1]) * i as f32 / rises as f32, from[2]], SQUEEZE)) {
+                continue;
+            }
+            let time = pace.0 + pace.1 * ((y - pos[1]).max(0.0) + (to[0] - from[0]).hypot(to[2] - from[2]));
+            return Some(Climb { start: pos, from, to, t: 0.0, time, yaw, edge: HW + 0.05, heave, squeeze: true });
         }
     }
     None
@@ -797,7 +893,7 @@ fn scramble(pos: V3, to: V3, world: &Grid) -> Option<Climb> {
     let at = around.into_iter().find(|&p| fits(p) && !fits([p[0], p[1] - 0.05, p[2]]))?;
     let (dx, dz) = (at[0] - pos[0], at[2] - pos[2]);
     let time = BOT_CLIMB_PACE.0 + BOT_CLIMB_PACE.1 * (at[1] - pos[1]);
-    Some(Climb { start: pos, from: pos, to: at, t: 0.0, time, yaw: dx.atan2(-dz), edge: dx.hypot(dz).max(HW), heave: true })
+    Some(Climb { start: pos, from: pos, to: at, t: 0.0, time, yaw: dx.atan2(-dz), edge: dx.hypot(dz).max(HW), heave: true, squeeze: false })
 }
 
 /// How long a zombie stands at the foot of a climb its route goes up, finding no edge to get over, before it
@@ -1625,9 +1721,11 @@ impl Game {
         p.land_t = (p.land_t - dt * 3.0).max(0.0);
         let speed = if sprinting { SPRINT } else { WALK } * w.speed * (1.0 - 0.4 * p.ads);
         let (was_ground, fall, was_y) = (p.body.on_ground, -p.body.vel[1], p.body.pos[1]);
-        // space in the air near a ledge pulls the player up onto it, the gun lowered while the hands are busy
+        // space in the air near a ledge pulls the player up onto it, or near a window through it, the gun lowered
+        // while the hands are busy
         if p.climb.is_none() && !p.body.on_ground && inp.jump {
-            p.climb = find_ledge(p.body.pos, p.yaw, LEDGE_REACH, CLIMB_PACE, false, world);
+            p.climb = find_ledge(p.body.pos, p.yaw, LEDGE_REACH, CLIMB_PACE, false, world)
+                .or_else(|| find_vault(p.body.pos, p.yaw, LEDGE_REACH, CLIMB_PACE, false, world));
             if p.climb.is_some() {
                 self.events.push([ev::JUMP, 0.0, 0.0]);
             }
@@ -1764,7 +1862,7 @@ impl Game {
             if dist > LOD_RADIUS && player_alive {
                 // out of sight and out of reach: no physics, no shooting, just follow the route
                 b.climb = None;
-                if let Some(to) = self.nav.next(b.body.pos) {
+                if let Some((to, through)) = self.nav.next_step(b.body.pos) {
                     let (rx, rz) = (to[0] - b.body.pos[0], to[2] - b.body.pos[2]);
                     let l = (rx * rx + rz * rz).sqrt().max(1e-4);
                     let moved = (b.speed * dt).min(l);
@@ -1772,10 +1870,11 @@ impl Game {
                     let y = if to[1] > b.body.pos[1] || l - moved < 0.3 { to[1] } else { b.body.pos[1] };
                     let at = [b.body.pos[0] + rx / l * moved, y, b.body.pos[2] + rz / l * moved];
                     // a step that grazes a corner slides along one axis instead, and one under an overhang on the
-                    // way down off a ledge drops at once: pushed back to the middle, it would try the same step forever
+                    // way down off a ledge drops at once: pushed back to the middle, it would try the same step forever.
+                    // Through a window, it goes through
                     let clear = |at: V3| {
                         let probe = aabb_at(at, HW, H);
-                        !world.find(&probe, |w| overlaps(&probe, w))
+                        through || !world.find(&probe, |w| overlaps(&probe, w))
                     };
                     let tries = [at, [at[0], to[1], at[2]], [at[0], y, b.body.pos[2]], [b.body.pos[0], y, at[2]]];
                     if let Some(at) = tries.into_iter().find(|&t| clear(t)) {
@@ -1799,7 +1898,8 @@ impl Game {
             // followed by the route too: seen over the edge of a flight or a roof, they would only be clawed at
             // from below. So is someone the route leads away from: seen over a parapet from the top of a stair,
             // a straight line would step back down it, out of sight again, and up and down it would go for ever
-            let next = if b.climb.is_none() { self.nav.next(b.body.pos) } else { None };
+            let step = if b.climb.is_none() { self.nav.next_step(b.body.pos) } else { None };
+            let (next, through) = (step.map(|s| s.0), step.is_some_and(|s| s.1));
             if b.body.on_ground {
                 let to_player = [dx, target[1] - b.body.pos[1], dz];
                 let reach = len(to_player).max(0.001);
@@ -1858,7 +1958,12 @@ impl Game {
                 // knows metre cells, so where the edge can't be got over facing the way it goes (a narrow eave seen
                 // end on from a hedge under it), it tries the other ways round for an edge up to the same height. Or
                 // up onto what the route takes it to be on already: it may be beside the hedge the climb starts from
-                let ledge = next.filter(|to| !b.direct && to[1] - b.body.pos[1] > 0.65);
+                let ledge = next.filter(|to| !b.direct && !through && to[1] - b.body.pos[1] > 0.65);
+                // a route through a window: once at the wall, in through it
+                if let Some(to) = next.filter(|_| through && !b.direct && b.body.on_ground) {
+                    let yaw = (to[0] - b.body.pos[0]).atan2(-(to[2] - b.body.pos[2]));
+                    b.climb = find_vault(b.body.pos, yaw, BOT_REACH, BOT_CLIMB_PACE, true, world);
+                }
                 if let Some(to) = ledge.filter(|to| (to[0] - b.body.pos[0]).hypot(to[2] - b.body.pos[2]) < 1.5) {
                     let yaw = (to[0] - b.body.pos[0]).atan2(-(to[2] - b.body.pos[2]));
                     let on = self.nav.standing(b.body.pos).filter(|h| h - b.body.pos[1] > LEDGE_LOW);
@@ -1875,7 +1980,7 @@ impl Game {
                     // only slowly forgotten: a route can flicker between the climb and a step along the foot of it
                     b.balk_t = (b.balk_t - dt * 0.25).max(0.0);
                 }
-                if b.climb.is_none() && blocked && b.body.on_ground {
+                if b.climb.is_none() && blocked && b.body.on_ground && !through {
                     b.body.vel[1] = JUMP;
                 }
             }
@@ -2474,6 +2579,76 @@ mod tests {
         g.players[0].input.jump = true;
         idle(&mut g, 1.5);
         assert!(g.players[0].body.pos[2] > -2.1, "went through the wall to {:?}", g.players[0].body.pos);
+    }
+
+    /// A wall 0.4 thick across the way at z = -3.5, with a hole in it `w` wide and `tall` from a sill `sill` up.
+    fn hole_in(w: f32, sill: f32, tall: f32) -> Vec<Aabb> {
+        let (z0, z1) = (-3.7, -3.3);
+        let mut walls = map::perimeter();
+        walls.push(Aabb { min: [-4.0, 0.0, z0], max: [-w / 2.0, 3.5, z1] });
+        walls.push(Aabb { min: [w / 2.0, 0.0, z0], max: [4.0, 3.5, z1] });
+        walls.push(Aabb { min: [-w / 2.0, 0.0, z0], max: [w / 2.0, sill, z1] });
+        walls.push(Aabb { min: [-w / 2.0, sill + tall, z0], max: [w / 2.0, 5.0, z1] });
+        walls
+    }
+
+    /// Walking at a window with space held gets the player out through it, off to one side of it too, and down on
+    /// the far side; a hole too small for a body anywhere is only jumped at.
+    #[test]
+    fn a_window_is_climbed_through_but_not_a_peephole() {
+        let through = |w: f32, sill: f32, tall: f32, x: f32| {
+            let mut g = Game::with_walls(1, hole_in(w, sill, tall));
+            g.bots.clear();
+            g.players[0].body.pos = [x, 0.0, -2.0];
+            g.players[0].yaw = 0.0;
+            g.players[0].input.w = true;
+            g.players[0].input.jump = true;
+            let mut low = f32::INFINITY;
+            for _ in 0..(2.5 / STEP) as usize {
+                g.tick(STEP);
+                low = low.min(g.players[0].eye()[1] - g.players[0].body.pos[1]);
+            }
+            let p = g.players[0].body.pos;
+            assert!(p[2] > -3.3 || p[2] < -3.7 - HW, "left inside the wall at {p:?}");
+            (p[2] < -3.7, low)
+        };
+        for (w, sill, tall, x) in [(1.4, 0.9, 1.3, 0.0), (1.6, 1.0, 1.3, 0.3), (1.4, 1.0, 1.0, 0.0), (1.4, 1.5, 1.2, -0.2)] {
+            let (out, low) = through(w, sill, tall, x);
+            assert!(out, "didn't get through a {w} by {tall} window {sill} up");
+            assert!(low < tall - 0.2, "the eye didn't duck under the head of a {tall} tall window: {low}");
+        }
+        for (w, sill, tall) in [(0.5, 1.0, 0.5), (0.7, 1.0, 1.3), (1.4, 1.0, 0.7), (1.4, 3.1, 1.3)] {
+            assert!(!through(w, sill, tall, 0.0).0, "got through a {w} by {tall} hole {sill} up");
+        }
+    }
+
+    /// A room with no door, only a window, a player inside it and a zombie outside: the zombie climbs in through the
+    /// window, and never through a hole too small for it.
+    #[test]
+    fn zombies_climb_in_through_a_window_but_not_a_peephole() {
+        let room = |w: f32, tall: f32| {
+            let mut walls = hole_in(w, 1.0, tall);
+            walls.push(Aabb { min: [-4.0, 0.0, -10.0], max: [-3.6, 3.5, -3.3] });
+            walls.push(Aabb { min: [3.6, 0.0, -10.0], max: [4.0, 3.5, -3.3] });
+            walls.push(Aabb { min: [-4.0, 0.0, -10.4], max: [4.0, 3.5, -10.0] });
+            let mut g = Game::with_walls(1, walls);
+            g.bots.clear();
+            g.players[0].hp = 1e6;
+            g.players[0].body.pos = [0.0, 0.0, -7.0];
+            g.bots.push(Bot::zombie([3.0, 0.0, 6.0], 0.0));
+            let mut inside = false;
+            for _ in 0..(25.0 / STEP) as usize {
+                g.tick(STEP);
+                let z = g.bots[0].body.pos;
+                inside |= z[2] < -4.1 && z[0].abs() < 3.2;
+                if inside && g.bots[0].climb.is_none() && g.bots[0].body.on_ground {
+                    break;
+                }
+            }
+            inside
+        };
+        assert!(room(1.4, 1.3), "the zombie never got in through the window");
+        assert!(!room(0.6, 0.6), "the zombie got in through a peephole");
     }
 
     /// A container with no stairs, the player camped on top and a zombie on the ground 8 m off.
