@@ -598,6 +598,14 @@ struct GpuHands {
     pistol_left: Vec<GpuPiece>,
 }
 
+/// The grenade, in the hand and flying (see `gunmodel::HandGrenade`).
+struct GpuGrenade {
+    body: Vec<GpuPiece>,
+    spoon: Vec<GpuPiece>,
+    pin: Vec<GpuPiece>,
+    hand: Vec<GpuPiece>,
+}
+
 /// A zombie to draw this frame: its bones, how detailed it is, and what it looks like.
 struct SkinJob {
     bones: Vec<f32>,
@@ -651,6 +659,7 @@ pub struct Renderer {
     pub showcase: Cell<Option<(usize, f32)>>,
     guns: Vec<GpuGun>,
     hands: GpuHands,
+    grenade: GpuGrenade,
     u_view: Option<WebGlUniformLocation>,
     u_envrot: Option<WebGlUniformLocation>,
     u_eyew: Option<WebGlUniformLocation>,
@@ -1014,6 +1023,13 @@ impl Renderer {
             left: Self::upload_pieces(&gl, &h.left)?,
             pistol_left: Self::upload_pieces(&gl, &h.pistol_left)?,
         };
+        let n = crate::gunmodel::grenade();
+        let grenade = GpuGrenade {
+            body: Self::upload_pieces(&gl, &n.body)?,
+            spoon: Self::upload_pieces(&gl, &n.spoon)?,
+            pin: Self::upload_pieces(&gl, &n.pin)?,
+            hand: Self::upload_pieces(&gl, &n.hand)?,
+        };
         // the zombie body at two levels of detail, near and far. A finer one for close up (half the grid) looked
         // no different even a metre away, and took most of a second to build at every load
         let figures = [2.0, 4.0].iter().map(|s| Self::upload_figure(&gl, &crate::body::Figure::new(*s))).collect::<Result<Vec<_>, _>>()?;
@@ -1076,6 +1092,7 @@ impl Renderer {
             showcase: Cell::new(None),
             guns,
             hands,
+            grenade,
             u_view: u("u_view"),
             u_envrot: u("u_envrot"),
             u_eyew: u("u_eyew"),
@@ -1726,6 +1743,9 @@ impl Renderer {
         // the head bobs with the stride; shots still go from the true eye, and rolling around the line of sight
         // leaves the crosshair on it
         let (side, up, roll) = head_bob(p);
+        // a blast close by shakes the view
+        let k = p.shake * p.shake * 0.06;
+        let (side, up, roll) = (side + (g.time * 53.0).sin() * k, up + (g.time * 61.0).cos() * k, roll + (g.time * 47.0).sin() * k * 0.5);
         let (s, u) = view_axes(norm(fwd), roll);
         let eye = [eye[0] + s[0] * side + u[0] * up, eye[1] + s[1] * side + u[1] * up, eye[2] + s[2] * side + u[2] * up];
         let vp = mul(&perspective(fov, aspect, NEAR, FAR), &look_rolled(eye, fwd, roll));
@@ -1740,8 +1760,9 @@ impl Renderer {
             let h = [d.half[0] * k, d.half[1] * k, d.half[2] * k];
             let spin = mul(&rot_y(d.rot[1]), &mul(&rot_x(d.rot[0]), &rot_z(d.rot[2])));
             let model = mul(&translate(d.pos[0], d.pos[1], d.pos[2]), &mul(&spin, &scale(h[0], h[1], h[2])));
-            self.draw_mesh(&self.sphere_vao, self.sphere_count, &model, d.color, 0.0, 0.3, 0.0);
+            self.draw_mesh(&self.sphere_vao, self.sphere_count, &model, d.color, d.glow, 0.3, 0.0);
         }
+        self.draw_grenades(g);
         for t in &g.tracers {
             self.draw_lines(&[t.a[0], t.a[1], t.a[2], t.b[0], t.b[1], t.b[2]], [1.0, 0.95, 0.6], 1.0);
         }
@@ -1760,11 +1781,89 @@ impl Renderer {
         gl.uniform1f(self.u_view.as_ref(), 1.0);
         gl.uniform_matrix3fv_with_f32_array(self.u_envrot.as_ref(), false, &[s[0], s[1], s[2], u[0], u[1], u[2], -fwd[0], -fwd[1], -fwd[2]]);
         gl.uniform3f(self.u_eyew.as_ref(), eye[0], eye[1], eye[2]);
-        if !(p.gun().scope && p.ads > 0.6) {
+        // the grenade in hand instead of the gun; just after a throw the gun is still down out of sight while the
+        // hand follows through
+        self.draw_grenade_view(g);
+        if !p.aiming && !(p.gun().scope && p.ads > 0.6) {
             self.draw_viewmodel(g);
         }
         gl.uniform1f(self.u_view.as_ref(), 0.0);
         self.present(t);
+    }
+
+    /// Grenades out in the world: flying ones, the ones going off, and where the one in hand would fly.
+    fn draw_grenades(&self, g: &Game) {
+        for n in &g.grenades {
+            let spin = mul(&rot_y(n.rot[1]), &mul(&rot_x(n.rot[0]), &rot_z(n.rot[2])));
+            // the pin and the spoon are gone once it's thrown; drawn half again its size so it reads at a distance
+            let model = mul(&translate(n.pos[0], n.pos[1], n.pos[2]), &mul(&spin, &scale(1.5, 1.5, 1.5)));
+            self.draw_pieces(&model, &self.grenade.body);
+        }
+        for b in &g.blasts {
+            self.draw_blast(b);
+        }
+        let p = &g.player;
+        if p.aiming && p.alive() {
+            self.draw_arc(&p.arc, p.arc_axis);
+        }
+    }
+
+    /// Where a grenade about to be thrown would fly: a white line up to the first thing it hits, and a ring lying
+    /// on that, flat on the ground or against the wall.
+    fn draw_arc(&self, arc: &[V3], axis: usize) {
+        let Some(&end) = arc.last() else { return };
+        let mut pts = Vec::new();
+        // from the hand, low on the right of the view
+        for w in arc.windows(2) {
+            pts.extend_from_slice(&w[0]);
+            pts.extend_from_slice(&w[1]);
+        }
+        // just off the surface, so it isn't lost in it
+        let mut c = end;
+        if axis == 1 {
+            c[1] += 0.02;
+        }
+        let (u, v) = match axis {
+            0 => (1, 2),
+            2 => (0, 1),
+            _ => (0, 2),
+        };
+        let n = 24;
+        for i in 0..n {
+            for a in [i, i + 1] {
+                let t = a as f32 / n as f32 * std::f32::consts::TAU;
+                let mut p = c;
+                p[u] += t.cos() * 0.4;
+                p[v] += t.sin() * 0.4;
+                pts.extend_from_slice(&p);
+            }
+        }
+        self.draw_lines(&pts, [1.0, 1.0, 1.0], 1.0);
+    }
+
+    /// A grenade going off: a white-hot ball of puffs that swells in a blink, cools through orange to dark smoke,
+    /// rises and shrinks away.
+    fn draw_blast(&self, b: &crate::sim::Blast) {
+        let s = b.t / crate::sim::BLAST_T;
+        let swell = (b.t / 0.12).min(1.0).sqrt();
+        let size = swell * (1.0 - s).powf(0.6);
+        // hot to begin with, then cooling: glowing yellow, orange, red, and lit grey smoke
+        let heat = (1.0 - b.t / 0.45).clamp(0.0, 1.0);
+        let fire = [1.0, 0.45 + 0.5 * heat, 0.12 + 0.6 * heat * heat];
+        let smoke = [0.22, 0.21, 0.2];
+        let k = (b.t / 0.35).min(1.0);
+        let color = [0, 1, 2].map(|i| fire[i] + (smoke[i] - fire[i]) * k * k);
+        let glow = heat.powf(0.5);
+        // puffs around the middle, the same every time so the cloud doesn't flicker
+        for i in 0..7 {
+            let a = i as f32 * 2.4;
+            let (off, up) = if i == 0 { (0.0, 0.0) } else { (0.75, (i % 3) as f32 * 0.35 - 0.2) };
+            let r = (if i == 0 { 1.5 } else { 1.0 + 0.15 * (i % 2) as f32 }) * size;
+            let rise = 0.6 + 1.6 * s;
+            let c = [b.pos[0] + a.cos() * off * swell, b.pos[1] + rise + up * swell, b.pos[2] + a.sin() * off * swell];
+            let model = mul(&translate(c[0], c[1], c[2]), &scale(r, r * 0.9, r));
+            self.draw_mesh(&self.sphere_vao, self.sphere_count, &model, color, glow, 0.0, 0.0);
+        }
     }
 
     /// A zombie: a smooth skinned human body (see `body`) moved by a jointed skeleton, with clothes, hair and a face.
@@ -2046,6 +2145,34 @@ impl Renderer {
             hand = mul(&hand, &action);
         }
         self.draw_pieces(&hand, if s.pistol_hold { &self.hands.pistol_left } else { &self.hands.left });
+    }
+
+    /// The grenade in the right hand while aiming it, coming up from below as it's taken out; once it's thrown,
+    /// the empty hand following through forward and down out of the view.
+    fn draw_grenade_view(&self, g: &Game) {
+        let p = &g.player;
+        let follow = 1.0 - p.throw_t / crate::sim::THROW_TIME; // 0 the moment it leaves the hand
+        if !p.aiming && !(p.throw_t > 0.0 && follow < 0.4) {
+            return;
+        }
+        let speed = (p.body.vel[0].powi(2) + p.body.vel[2].powi(2)).sqrt();
+        let walk = if p.body.on_ground { (speed / 6.0).min(1.5) } else { 0.0 };
+        let th = p.gait / crate::sim::STRIDE * std::f32::consts::PI - 0.4;
+        let bob_x = th.sin() * 0.012 * walk;
+        let bob_y = -(2.0 * th).cos() * 0.007 * walk + (g.time * 1.5).sin() * 0.002;
+        // out from below, overshooting a touch as it settles
+        let up = if p.aiming { 1.0 - (1.0 - (p.aim_t / 0.2).min(1.0)).powi(3) } else { 1.0 };
+        let s = if p.aiming { 0.0 } else { follow / 0.4 };
+        let held = mul(
+            &translate(0.15 + bob_x - 0.10 * s, -0.095 + bob_y - 0.22 * (1.0 - up) + 0.05 * (s * std::f32::consts::PI).sin() - 0.2 * s * s, -0.31 - 0.30 * s),
+            &mul(&rot_y(0.45 - 0.6 * s), &mul(&rot_x(0.3 - 0.7 * (1.0 - up) - 1.3 * s), &rot_z(0.3 + 0.4 * (1.0 - up)))),
+        );
+        self.draw_pieces(&held, &self.grenade.hand);
+        if p.aiming {
+            self.draw_pieces(&held, &self.grenade.body);
+            self.draw_pieces(&held, &self.grenade.spoon);
+            self.draw_pieces(&held, &self.grenade.pin);
+        }
     }
 
     fn draw_viewmodel(&self, g: &Game) {

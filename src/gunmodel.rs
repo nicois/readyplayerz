@@ -1621,6 +1621,112 @@ fn pistol_left_hand() -> Vec<Piece> {
     vec![piece(glove, CLOTH, GLOVE, 0.12), piece(sleeve, CLOTH, SLEEVE, 0.0)]
 }
 
+// ---- grenade ----------------------------------------------------------------------------------
+
+/// A fragmentation grenade, in its own space about the middle of its body: +y is the fuze, and the spoon runs
+/// down the +z side, which faces the eye in the hand. Grouped by what comes away: the pin is pulled out first and
+/// the spoon flies off when it is thrown.
+pub struct HandGrenade {
+    pub body: Vec<Piece>,
+    pub spoon: Vec<Piece>,
+    pub pin: Vec<Piece>,
+    /// the right hand round it, palm on its right, fingers over the front and the thumb holding the spoon down
+    pub hand: Vec<Piece>,
+}
+
+/// The radius of the grenade's body.
+pub const GRENADE_R: f32 = 0.032;
+const OLIVE: [f32; 3] = [0.15, 0.17, 0.095];
+
+/// An M67: a smooth steel ball painted olive with a yellow band under the fuze, the fuze's neck and head, the
+/// striker's housing, the spoon bent over it and down the side, and a split pin with its pull ring.
+pub fn grenade() -> HandGrenade {
+    let r = GRENADE_R;
+    let ball = smooth(&|p| len(p) - r, [-0.036; 3], [0.036; 3], 0.0016);
+    // a thin shell standing proud of the paint, hollow so there is nothing to build inside the ball
+    let band = smooth(&|p| ((len(p) - r - 0.0002).abs() - 0.0005).max((p[1] - 0.021).abs() - 0.0018), [-0.036, 0.016, -0.036], [0.036, 0.026, 0.036], 0.0008);
+    let mut fuze = Mesh::default();
+    fuze.cyl([0.0, 0.026, 0.0], [0.0, 0.036, 0.0], 0.0118, 0.0112, 20);
+    fuze.cyl([0.0, 0.036, 0.0], [0.0, 0.0465, 0.0], 0.0094, 0.0090, 20);
+    fuze.bx([-0.0075, 0.034, 0.003], [0.0075, 0.0465, 0.0165], 0.0012);
+    let mut dark = Mesh::default();
+    // the threads where the fuze screws in
+    for k in 0..3 {
+        let y = 0.0275 + k as f32 * 0.003;
+        dark.cyl([0.0, y, 0.0], [0.0, y + 0.0012, 0.0], 0.0121, 0.0121, 20);
+    }
+
+    // the spoon: flat over the top of the fuze, down past the housing and bent round the body to below its middle
+    let mut spoon = Mesh::default();
+    spoon.bx([-0.0065, 0.0465, -0.007], [0.0065, 0.0485, 0.0195], 0.0006);
+    spoon.bx([-0.0065, 0.029, 0.0175], [0.0065, 0.0485, 0.0195], 0.0006);
+    for k in 0..6 {
+        let a = 0.55 + k as f32 * 0.27;
+        let w = 0.0065 - 0.0004 * k as f32;
+        spoon.bx_rot([-w, r + 0.0015, -0.0052], [w, r + 0.0033, 0.0052], 0.0006, [0.0; 3], a);
+    }
+
+    // the pin through the fuze head, and its ring hanging off the left
+    let mut pin = Mesh::default();
+    pin.cyl([-0.016, 0.040, 0.004], [0.013, 0.040, 0.004], 0.0011, 0.0011, 8);
+    let ring_at = [-0.019, 0.040, -0.008];
+    let ring = smooth(
+        &|p| {
+            let d = [p[1] - ring_at[1], p[2] - ring_at[2]];
+            let q = [(d[0] * d[0] + d[1] * d[1]).sqrt() - 0.0115, p[0] - ring_at[0]];
+            (q[0] * q[0] + q[1] * q[1]).sqrt() - 0.0013
+        },
+        [-0.023, 0.026, -0.022],
+        [-0.015, 0.054, 0.006],
+        0.0006,
+    );
+
+    HandGrenade {
+        body: vec![
+            piece(ball, POLYMER, OLIVE, 0.3),
+            piece(band, POLYMER, [0.62, 0.50, 0.08], 0.3),
+            piece(fuze, STEEL, [0.30, 0.30, 0.28], 0.7),
+            piece(dark, STEEL, [0.12, 0.12, 0.11], 0.5),
+        ],
+        spoon: vec![piece(spoon, POLYMER, [0.17, 0.19, 0.11], 0.45)],
+        pin: vec![piece(pin, STEEL, [0.45, 0.45, 0.43], 0.9), piece(ring, STEEL, [0.45, 0.45, 0.43], 0.9)],
+        hand: grenade_hand(),
+    }
+}
+
+fn grenade_hand_sdf(p: V) -> f32 {
+    let r = GRENADE_R;
+    // the palm against the right of the ball, and the wrist behind it
+    let mut d = ell(p, [0.041, -0.004, 0.006], [0.015, 0.038, 0.034]);
+    d = smin(d, cone(p, [0.044, -0.028, 0.024], [0.056, -0.066, 0.062], 0.024, 0.026), 0.02);
+    // four fingers from the knuckles at the front of the palm round the far side of the ball, the little one shortest
+    for (i, y) in [0.019f32, 0.002, -0.015, -0.030].iter().enumerate() {
+        let rr = (r * r - y * y).max(0.0).sqrt() + 0.0094;
+        let end = if i == 3 { 2.1 } else { 2.5 - 0.1 * i as f32 };
+        let pts: Vec<V> = (0..6).map(|k| -0.2 + (end + 0.2) * k as f32 / 5.0).map(|a: f32| [rr * a.cos(), *y, -rr * a.sin()]).collect();
+        d = smin(d, finger(p, &pts, 0.0096 - 0.0005 * i as f32, 0.85), 0.007);
+    }
+    // the thumb round the near side and up over the spoon
+    let thumb: Vec<V> = [(0.35f32, -0.020f32), (0.85, -0.010), (1.35, 0.000), (1.8, 0.008)]
+        .iter()
+        .map(|(a, y)| {
+            let rr = ((r + 0.0033).powi(2) - y * y).max(0.0).sqrt() + 0.0102;
+            [rr * a.cos(), *y, rr * a.sin()]
+        })
+        .collect();
+    smin(d, finger(p, &thumb, 0.0108, 0.88), 0.01)
+}
+
+fn grenade_sleeve_sdf(p: V) -> f32 {
+    cone(p, [0.060, -0.062, 0.058], [0.14, -0.20, 0.36], 0.031, 0.05)
+}
+
+fn grenade_hand() -> Vec<Piece> {
+    let glove = smooth(&grenade_hand_sdf, [-0.05, -0.08, -0.05], [0.08, 0.04, 0.09], 0.0024);
+    let sleeve = smooth(&grenade_sleeve_sdf, [0.0, -0.27, 0.0], [0.21, -0.02, 0.43], 0.004);
+    vec![piece(glove, CLOTH, GLOVE, 0.12), piece(sleeve, CLOTH, SLEEVE, 0.0)]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1666,5 +1772,23 @@ mod tests {
             assert!(l > lengths[i].0 && l < lengths[i].1, "{name} is {l} long");
             assert!((lo[2] - g.spec.muzzle_z).abs() < 0.01, "{name}'s muzzle is at {} but its front at {}", g.spec.muzzle_z, lo[2]);
         }
+    }
+
+    #[test]
+    fn the_grenade_is_built_the_size_of_one_with_its_fuze_on_top() {
+        let g = grenade();
+        let tris = check(&g.body) + check(&g.spoon) + check(&g.pin) + check(&g.hand);
+        let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+        for p in g.body.iter().chain(&g.spoon) {
+            for v in p.mesh.verts.chunks(6) {
+                for a in 0..3 {
+                    lo[a] = lo[a].min(v[a]);
+                    hi[a] = hi[a].max(v[a]);
+                }
+            }
+        }
+        println!("grenade: {tris} triangles, from {lo:?} to {hi:?}");
+        assert!((hi[0] - lo[0] - 2.0 * GRENADE_R).abs() < 0.004, "{} wide", hi[0] - lo[0]);
+        assert!(hi[1] > 0.045 && hi[1] < 0.05 && lo[1] < -0.03, "from {} to {} high", lo[1], hi[1]);
     }
 }

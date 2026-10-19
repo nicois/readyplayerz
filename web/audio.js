@@ -1,7 +1,7 @@
 // Synthesized sound effects. Everything is built from noise and oscillators, so there are no audio files.
 // The sim reports what happened as [code, a, b] triples; `play` turns them into sound.
 
-const SHOT = 1, HIT = 3, HEAD = 4, KILL = 5, HURT = 6, RELOAD = 7, EQUIP = 8, STEP = 9, JUMP = 10, LAND = 11, DEATH = 12, GROWL = 13, WAVE = 14, SNARL = 15;
+const SHOT = 1, HIT = 3, HEAD = 4, KILL = 5, HURT = 6, RELOAD = 7, EQUIP = 8, STEP = 9, JUMP = 10, LAND = 11, DEATH = 12, GROWL = 13, WAVE = 14, SNARL = 15, THROW = 16, BOUNCE = 17, BLAST = 18;
 
 // the first three formants (Hz) of a man's vowels: oo, uh, aa, aw, and the a of "cat"
 const OO = [300, 870, 2240], UH = [640, 1190, 2390], AA = [730, 1090, 2440], AW = [570, 840, 2410], AE = [660, 1720, 2410];
@@ -394,6 +394,29 @@ export class Sound {
     this.noise(d, t, 0.1, "lowpass", 400, 100, 0.25 * v);
   }
 
+  throw() {
+    const t = this.ctx.currentTime;
+    this.click(0.5, 1.3); // the pin
+    this.noise(this.bus(0, 0.05), t + 0.05, 0.22, "bandpass", 700, 1600, 0.12, 1.2);
+  }
+
+  // a grenade knocking against something: a dull metal tock, quieter further off
+  bounce(speed, dist) {
+    const t = this.ctx.currentTime, d = this.bus(0, 0.15), v = Math.min(speed / 10, 1) / (1 + dist / 12);
+    this.tone(d, t, "triangle", 520, 300, 0.06, 0.35 * v);
+    this.noise(d, t, 0.04, "bandpass", 2200, 1200, 0.25 * v, 3);
+  }
+
+  // a grenade going off: a crack, a deep boom felt more than heard, and a long rumble rolling round the houses.
+  // Far off it loses its top end and comes a little later
+  blast(dist, pan) {
+    const t = this.ctx.currentTime + Math.min(dist / 340, 0.25), near = 1 / (1 + dist / 25), d = this.bus(pan * 0.7, 0.55);
+    this.noise(d, t, 0.09, "highpass", 1800 * near + 300, 400, 0.9 * near);
+    this.tone(d, t, "sine", 110, 26, 0.9, 1.4 * near + 0.2);
+    this.noise(d, t, 0.5, "lowpass", 2500 * near + 400, 120, 1.0 * near + 0.15);
+    this.noise(d, t + 0.05, 1.8, "lowpass", 500, 50, 0.6 * near + 0.1);
+  }
+
   /** Plays a flat list of [code, a, b] triples from the sim. */
   play(events) {
     if (!this.ctx || this.ctx.state !== "running") return;
@@ -414,6 +437,9 @@ export class Sound {
         case GROWL: this.growl(a, b); break;
         case WAVE: this.wave(); break;
         case SNARL: this.snarl(a, b); break;
+        case THROW: this.throw(); break;
+        case BOUNCE: this.bounce(a, b); break;
+        case BLAST: this.blast(a, b); break;
       }
     }
   }

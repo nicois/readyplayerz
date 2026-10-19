@@ -84,6 +84,7 @@ impl Client {
             "Space" => i.jump = down,
             "ShiftLeft" | "ShiftRight" => i.sprint = down,
             "KeyR" => i.reload = down,
+            "KeyG" => i.throw = down,
             _ if down => {
                 // 1 primary, 2 sidearm; the loadout itself is picked in the menu
                 if let Some(n) = code.strip_prefix("Digit").and_then(|d| d.parse::<usize>().ok()) {
@@ -236,7 +237,7 @@ impl Client {
     /// health, ammo, magazine size, reloading, kills, deaths, hit marker, damage flash, respawn countdown,
     /// weapon index, aim amount, scoped, kill marker, x, z, yaw, wave, zombies left, carried primary,
     /// picked primary, game under way, the circle shots land in as a fraction of half the screen's height,
-    /// stamina, winded, carried sidearm, picked sidearm
+    /// stamina, winded, carried sidearm, picked sidearm, grenades, seconds to the next grenade (0 when full)
     pub fn hud(&self) -> Vec<f32> {
         let p = &self.game.player;
         vec![
@@ -266,6 +267,8 @@ impl Client {
             if p.winded { 1.0 } else { 0.0 },
             p.loadout[1] as f32,
             p.picked[1] as f32,
+            p.grenades as f32,
+            if p.grenades < crate::sim::MAX_GRENADES { crate::sim::GRENADE_EVERY - p.grenade_t } else { 0.0 },
         ]
     }
 }

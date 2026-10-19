@@ -97,7 +97,15 @@ pub mod ev {
     pub const WAVE: f32 = 14.0;
     /// a zombie swinging at the player: a = kind, b = pan
     pub const SNARL: f32 = 15.0;
+    pub const THROW: f32 = 16.0;
+    /// a grenade hitting something: a = impact speed, b = distance
+    pub const BOUNCE: f32 = 17.0;
+    /// a = distance, b = pan
+    pub const BLAST: f32 = 18.0;
 }
+
+mod grenade;
+pub use grenade::{Blast, Grenade, BLAST_T, GRENADES, GRENADE_EVERY, MAX_GRENADES, THROW_TIME};
 
 /// Everything that differs between guns. Angles are radians, times are seconds.
 pub struct Weapon {
@@ -213,6 +221,7 @@ pub struct Input {
     pub fire: bool,
     pub ads: bool,
     pub reload: bool,
+    pub throw: bool,
     pub look_dx: f32,
     pub look_dy: f32,
 }
@@ -277,6 +286,21 @@ pub struct Player {
     pub bloom: f32,
     /// seconds since the last shot, for the bloom to settle
     since_shot: f32,
+    pub grenades: u32,
+    /// seconds of play towards the next grenade
+    pub grenade_t: f32,
+    /// counts down while the hand is busy with a throw
+    pub throw_t: f32,
+    /// the grenade key is held with a grenade ready: the gun is down, and letting go throws it
+    pub aiming: bool,
+    /// seconds the grenade has been in hand while aiming, for it to be drawn coming up into view
+    pub aim_t: f32,
+    /// while aiming, where the grenade would fly to the first thing it hits, and the axis it hits that along
+    /// (see `Game::grenade_arc`)
+    pub arc: Vec<V3>,
+    pub arc_axis: usize,
+    /// 1 right after a blast close by, fading out: the view shakes
+    pub shake: f32,
 }
 
 impl Player {
@@ -403,6 +427,8 @@ pub struct Debris {
     pub half: V3,
     pub color: [f32; 3],
     pub life: f32,
+    /// 0 lit like anything else, 1 glowing: sparks
+    pub glow: f32,
 }
 
 const MAX_DEBRIS: usize = 300;
@@ -419,6 +445,8 @@ pub struct Game {
     spawns: Vec<V3>,
     nav: Nav,
     pub debris: Vec<Debris>,
+    pub grenades: Vec<Grenade>,
+    pub blasts: Vec<Blast>,
     pub events: Vec<[f32; 3]>,
     pub player: Player,
     /// the zombies, alive and fallen
@@ -875,6 +903,8 @@ impl Game {
             decals: map.decals,
             spawns,
             debris: Vec::new(),
+            grenades: Vec::new(),
+            blasts: Vec::new(),
             events: Vec::new(),
             player: Player {
                 body: Body::default(),
@@ -909,6 +939,14 @@ impl Game {
                 since_sprint: 99.0,
                 bloom: 0.0,
                 since_shot: 99.0,
+                grenades: GRENADES,
+                grenade_t: 0.0,
+                throw_t: 0.0,
+                aiming: false,
+                aim_t: 0.0,
+                arc: Vec::new(),
+                arc_axis: 1,
+                shake: 0.0,
             },
             bots: Vec::new(),
             wave: 0,
@@ -940,6 +978,13 @@ impl Game {
         p.winded = false;
         p.bloom = 0.0;
         p.ammo = full_ammo();
+        p.grenades = GRENADES;
+        p.grenade_t = 0.0;
+        p.throw_t = 0.0;
+        p.aiming = false;
+        p.aim_t = 0.0;
+        p.arc.clear();
+        p.shake = 0.0;
         p.loadout = p.picked;
         p.weapon = p.picked[0];
         p.reload_t = 0.0;
@@ -1064,8 +1109,12 @@ impl Game {
             let life = r.range(0.4, 0.9);
             let s = r.range(0.02, 0.04);
             let color = if r.f() < 0.5 { [0.45, 0.03, 0.04] } else { [0.30, 0.02, 0.03] };
-            self.debris.push(Debris { pos: at, vel, rot: [0.0; 3], spin: [0.0; 3], half: [s; 3], color, life });
+            self.debris.push(Debris { pos: at, vel, rot: [0.0; 3], spin: [0.0; 3], half: [s; 3], color, life, glow: 0.0 });
         }
+        self.trim_debris();
+    }
+
+    fn trim_debris(&mut self) {
         if self.debris.len() > MAX_DEBRIS {
             let extra = self.debris.len() - MAX_DEBRIS;
             self.debris.drain(..extra);
@@ -1196,6 +1245,7 @@ impl Game {
         self.nav.follow(self.player.body.pos);
         self.tick_player(dt, &world);
         self.tick_waves(dt);
+        self.tick_grenades(dt, &world);
         self.tick_bots(dt, &world);
         self.tick_debris(dt, &world);
         for t in &mut self.tracers {
@@ -1212,6 +1262,8 @@ impl Game {
         p.hit_marker = (p.hit_marker - dt * 5.0).max(0.0);
         p.damage_flash = (p.damage_flash - dt * 2.0).max(0.0);
         p.kill_t = (p.kill_t - dt * 2.5).max(0.0);
+        p.shake = (p.shake - dt * 1.8).max(0.0);
+        p.throw_t = (p.throw_t - dt).max(0.0);
         p.cooldown = (p.cooldown - dt).max(0.0);
         p.since_shot += dt;
         if p.since_shot > BLOOM_REST {
@@ -1316,8 +1368,12 @@ impl Game {
         if !inp.fire {
             p.armed = true;
         }
+        let on_grenade = self.tick_throw(dt, inp.throw);
+        let p = &mut self.player;
         let ammo = p.ammo[p.weapon];
-        if p.reload_t > 0.0 {
+        if on_grenade {
+            // the hand is on the grenade: no reloading or shooting
+        } else if p.reload_t > 0.0 {
             p.reload_t -= dt;
             if p.reload_t <= 0.0 {
                 p.ammo[p.weapon] = w.mag;
@@ -1564,11 +1620,11 @@ mod tests {
     use crate::map::block;
 
     /// An empty walled arena.
-    fn arena() -> Game {
+    pub(super) fn arena() -> Game {
         Game::with_walls(1, map::perimeter())
     }
 
-    fn idle(g: &mut Game, secs: f32) {
+    pub(super) fn idle(g: &mut Game, secs: f32) {
         for _ in 0..(secs / STEP) as usize {
             g.tick(STEP);
         }

@@ -166,7 +166,7 @@
   <div id="score"></div>
   <div id="dead"></div>
   <div id="stats"><span id="hp">100</span> HP<small id="kd"></small></div>
-  <div id="ammo"><span id="am">30</span> / <span id="mg">30</span><small id="rl"></small></div>
+  <div id="ammo"><span id="am">30</span> / <span id="mg">30</span><small id="rl"></small><small id="gr"></small></div>
   <div id="stamina"><div id="sfill"></div></div>
   <div id="bar"></div>
 </div>
@@ -205,6 +205,7 @@
       <dt>Mouse / click</dt><dd>Aim / shoot</dd>
       <dt>Right-click</dt><dd>Aim down sights</dd>
       <dt>R</dt><dd>Reload</dd>
+      <dt>G</dt><dd>Grenade: hold to aim, let go to throw</dd>
       <dt>1 or wheel up</dt><dd>Primary</dd>
       <dt>2 or wheel down</dt><dd>Secondary</dd>
       <dt>M</dt><dd>Sound on and off</dd>
@@ -566,6 +567,7 @@ if (params.has("ads")) client.mouse_button(2, true); // holds aim, to look at th
 if (params.has("run")) { client.key("KeyW", true); client.key("ShiftLeft", true); } // holds sprint, to look at the run
 if (params.has("fire")) client.mouse_button(0, true); // holds the trigger, to look at the actions cycling
 if (params.has("reload")) client.key("KeyR", true); // holds reload, so a gun reloads as soon as a shot is gone
+if (params.has("throw")) client.key("KeyG", true); // holds the grenade key, to look at the aiming arc
 // ?showcase=i&bg=0..1 draws gun i alone on a flat grey with nothing over it, to make the loadout's pictures from
 if (params.has("showcase")) {
   client.showcase(Number(params.get("showcase")), Number(params.get("bg") || 0));
@@ -644,7 +646,7 @@ function loop(t) {
       m.className = kind;
     }
   }
-  const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped, killt, px, pz, pyaw, wave, left, carried, picked, inPlay, spread, stamina, winded, carried2, picked2] = client.hud();
+  const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped, killt, px, pz, pyaw, wave, left, carried, picked, inPlay, spread, stamina, winded, carried2, picked2, grenades, nextGrenade] = client.hud();
   $("hp").textContent = Math.ceil(hp);
   $("am").textContent = ammo;
   $("mg").textContent = mag;
@@ -667,6 +669,7 @@ function loop(t) {
   $("stamina").classList.toggle("winded", winded > 0);
   $("ring").style.setProperty("--d", `${Math.max(14, spread * innerHeight)}px`);
   $("rl").textContent = reloading ? "reloading..." : "";
+  $("gr").textContent = `${grenades} grenade${grenades === 1 ? "" : "s"} [G]` + (nextGrenade > 0 ? ` · +1 in ${Math.ceil(nextGrenade)}s` : "");
   $("kd").textContent = `${kills} kills / ${deaths} deaths`;
   $("score").textContent = left > 0 ? `Wave ${wave} \u00b7 ${left} left` : wave === 0 ? "Get ready..." : `Wave ${wave} cleared`;
   $("flash").style.opacity = flash;
