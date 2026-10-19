@@ -330,7 +330,7 @@ impl Client {
     /// weapon index, aim amount, scoped, kill marker, x, z, yaw, wave, zombies left, carried primary,
     /// picked primary, game under way, the circle shots land in as a fraction of half the screen's height,
     /// stamina, winded, carried sidearm, picked sidearm, grenades, seconds to the next grenade (0 when full),
-    /// down (waiting for the next wave), players still standing, players in all
+    /// down (waiting for the next wave), players still standing, players in all, reserve
     pub fn hud(&self) -> Vec<f32> {
         let g = self.game();
         let p = g.me();
@@ -366,6 +366,7 @@ impl Client {
             if p.alive() { 0.0 } else { 1.0 },
             g.players.iter().filter(|p| p.alive()).count() as f32,
             g.players.len() as f32,
+            p.reserve[p.weapon] as f32,
         ]
     }
 

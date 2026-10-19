@@ -42,6 +42,10 @@ pub const HALF: f32 = 100.0;
 const MAX_ZOMBIES: u32 = 24;
 /// Zombies come in at least this far from the player, as the crow flies...
 const SPAWN_NEAR: f32 = 30.0;
+/// An ammo box comes in at least this far from the player, as the crow flies.
+const BOX_NEAR: f32 = 10.0;
+/// No two ammo boxes closer than this, as the crow flies.
+const BOX_GAP: f32 = 1.0;
 /// ...and, where the map allows, no further than this to walk.
 const SPAWN_WALK: f32 = 70.0;
 /// A zombie this far off that hasn't got a metre further in `STUCK_T` seconds is caught on something:
@@ -104,6 +108,8 @@ pub mod ev {
     pub const BLAST: f32 = 18.0;
     /// someone else's shot: a = distance, b = 4 × weapon + pan (as for GROWL)
     pub const FAR_SHOT: f32 = 19.0;
+    /// an ammo box goes into the reserves
+    pub const PICKUP: f32 = 20.0;
 }
 
 mod grenade;
@@ -270,6 +276,8 @@ pub struct Player {
     pub in_play: bool,
     /// rounds left per weapon
     pub ammo: [u32; WEAPON_COUNT],
+    /// rounds kept back of the magazine, per weapon, up to twice its size
+    pub reserve: [u32; WEAPON_COUNT],
     pub reload_t: f32,
     pub cooldown: f32,
     /// counts down after switching guns
@@ -343,6 +351,7 @@ impl Player {
             picked: [0, PISTOL],
             in_play: false,
             ammo: full_ammo(),
+            reserve: full_reserve(),
             reload_t: 0.0,
             cooldown: 0.0,
             equip_t: 0.0,
@@ -414,6 +423,10 @@ impl Player {
 
 fn full_ammo() -> [u32; WEAPON_COUNT] {
     std::array::from_fn(|i| WEAPONS[i].mag)
+}
+
+fn full_reserve() -> [u32; WEAPON_COUNT] {
+    std::array::from_fn(|i| 2 * WEAPONS[i].mag)
 }
 
 pub struct Bot {
@@ -554,6 +567,8 @@ pub struct Game {
     /// one surface kind per wall, see `map::material`
     pub mats: Vec<u8>,
     pub decals: Vec<(Aabb, [f32; 3])>,
+    /// the ammo boxes on the ground: one for every zombie of the wave, so far as the map allows
+    pub boxes: Vec<V3>,
     spawns: Vec<V3>,
     nav: Nav,
     pub debris: Vec<Debris>,
@@ -1133,6 +1148,7 @@ impl Game {
 
     fn reset_waves(&mut self) {
         self.bots.clear();
+        self.boxes.clear();
         self.wave = 0;
         self.to_spawn = 0;
         self.wave_t = 3.0;
@@ -1202,6 +1218,47 @@ impl Game {
         }
     }
 
+    /// Top up the ammo boxes to one per zombie of this wave, so far as the map allows it.
+    fn top_up_boxes(&mut self) {
+        while self.boxes.len() < self.to_spawn as usize {
+            match self.ammo_box_pos() {
+                Some(at) => self.boxes.push(at),
+                None => break,
+            }
+        }
+    }
+
+    /// Where an ammo box goes: on open ground the player can walk to, clear of the player and of the other boxes.
+    fn ammo_box_pos(&mut self) -> Option<V3> {
+        let p = self.players[self.local].body.pos;
+        for _ in 0..40 {
+            let at = if self.spawns.is_empty() {
+                // no spawn points (a bare test arena): anywhere open
+                let reach = self.half - 2.0;
+                let (x, z) = (self.rng.range(-reach, reach), self.rng.range(-reach, reach));
+                let probe = aabb_at([x, 0.0, z], HW, H);
+                if self.world.find(&probe, |w| overlaps(&probe, w)) {
+                    continue;
+                }
+                [x, 0.0, z]
+            } else {
+                self.spawns[(self.rng.next() as usize) % self.spawns.len()]
+            };
+            if !self.nav.reachable(at) {
+                continue;
+            }
+            let d = ((at[0] - p[0]).powi(2) + (at[2] - p[2]).powi(2)).sqrt();
+            if d < BOX_NEAR {
+                continue;
+            }
+            if self.boxes.iter().any(|b| ((b[0] - at[0]).powi(2) + (b[2] - at[2]).powi(2)) < BOX_GAP * BOX_GAP) {
+                continue;
+            }
+            return Some(at);
+        }
+        None
+    }
+
     /// A new wave starts a few seconds after the last zombie of the old one dies, and arrives a few at a time.
     fn tick_waves(&mut self, dt: f32) {
         let alive = self.bots.iter().filter(|b| b.alive).count() as u32;
@@ -1210,6 +1267,10 @@ impl Game {
             if self.wave_t <= 0.0 {
                 self.wave += 1;
                 self.to_spawn = 6 + 3 * self.wave;
+                // solo only: the boxes are not in the network snapshots
+                if self.role == Role::Solo {
+                    self.top_up_boxes();
+                }
                 self.spawn_t = 0.0;
                 self.wave_t = 5.0;
                 self.events.push([ev::WAVE, self.wave as f32, 0.0]);
@@ -1256,6 +1317,7 @@ impl Game {
             colors: map.colors,
             mats: map.mats,
             decals: map.decals,
+            boxes: Vec::new(),
             spawns,
             debris: Vec::new(),
             grenades: Vec::new(),
@@ -1329,6 +1391,7 @@ impl Game {
         p.aim_t = 0.0;
         p.arc.clear();
         p.shake = 0.0;
+        p.reserve = full_reserve();
         p.loadout = p.picked;
         p.weapon = p.picked[0];
         p.reload_t = 0.0;
@@ -1639,6 +1702,7 @@ impl Game {
             let inp = p.input;
             (p.input.look_dx, p.input.look_dy) = (0.0, 0.0);
             self.step_player(0, inp, dt);
+            self.tick_boxes();
         }
         if self.role != Role::Mirror {
             let goals = self.standing();
@@ -1737,18 +1801,45 @@ impl Game {
         } else if p.reload_t > 0.0 {
             p.reload_t -= dt;
             if p.reload_t <= 0.0 {
-                p.ammo[p.weapon] = w.mag;
+                // rounds come from the reserve, and only as many as it has
+                let n = (w.mag - p.ammo[p.weapon]).min(p.reserve[p.weapon]);
+                p.ammo[p.weapon] += n;
+                p.reserve[p.weapon] -= n;
             }
-        } else if (inp.reload && ammo < w.mag) || ammo == 0 {
+        } else if (inp.reload || ammo == 0) && ammo < w.mag && p.reserve[p.weapon] > 0 {
             p.reload_t = w.reload;
             self.events.push([ev::RELOAD, p.weapon as f32, 0.0]);
-        } else if inp.fire && p.cooldown <= 0.0 && p.equip_t <= 0.0 && (w.auto || p.armed) {
+        } else if inp.fire && ammo > 0 && p.cooldown <= 0.0 && p.equip_t <= 0.0 && (w.auto || p.armed) {
             let seen = (self.role == Role::Server).then(|| inp.seen.round().max(0.0) as u32);
             self.player_fire(pi, seen);
         }
         if crash > 0.0 {
             self.hurt_player(pi, crash);
         }
+    }
+
+    /// Walk over an ammo box and a magazine of its rounds goes into the reserves, so far as they are not full.
+    fn tick_boxes(&mut self) {
+        if !self.players[self.local].alive() {
+            return;
+        }
+        let full = full_reserve();
+        if self.players[self.local].reserve == full {
+            return;
+        }
+        let body = aabb_at(self.players[self.local].body.pos, HW, H);
+        let mut kept = Vec::new();
+        for at in std::mem::take(&mut self.boxes) {
+            if !overlaps(&body, &aabb_at(at, 0.35, 0.7)) {
+                kept.push(at);
+            } else {
+                for i in 0..WEAPON_COUNT {
+                    self.players[self.local].reserve[i] = (self.players[self.local].reserve[i] + WEAPONS[i].mag).min(full[i]);
+                }
+                self.events.push([ev::PICKUP, 0.0, 0.0]);
+            }
+        }
+        self.boxes = kept;
     }
 
     /// Where player `i` looks and how they move this step: turning, running, jumping, climbing and stamina, all
@@ -2820,5 +2911,170 @@ mod tests {
         z.hp = if kind == 2 { 320.0 } else { 100.0 };
         z.scale = if kind == 2 { 1.25 } else { 1.0 };
         g.bots.push(z);
+    }
+
+    /// A new life starts with the magazine full and the reserve at twice the magazine.
+    #[test]
+    fn a_new_life_starts_with_full_mags_and_full_reserves() {
+        let g = arena();
+        assert_eq!(g.players[0].ammo, full_ammo());
+        assert_eq!(g.players[0].reserve, full_reserve());
+        for i in 0..WEAPON_COUNT {
+            assert_eq!(g.players[0].reserve[i], 2 * WEAPONS[i].mag);
+        }
+    }
+
+    /// A reload moves rounds from the reserve into the magazine, and only as many as the reserve has.
+    #[test]
+    fn a_reload_moves_rounds_from_the_reserve_and_only_as_far_as_it_reaches() {
+        let mut g = arena();
+        g.bots.clear();
+        g.wave_t = f32::INFINITY;
+        g.players[0].ammo[0] = 0;
+        g.players[0].reserve[0] = 5;
+        g.players[0].input.reload = true;
+        idle(&mut g, WEAPONS[0].reload + 0.3);
+        assert_eq!(g.players[0].ammo[0], 5, "the magazine takes what the reserve has");
+        assert_eq!(g.players[0].reserve[0], 0, "the reserve pays for it");
+    }
+
+    /// With an empty reserve a reload never starts and an empty magazine fires no shot.
+    #[test]
+    fn an_empty_reserve_leaves_the_gun_silent_and_unreloading() {
+        let mut g = arena();
+        g.bots.clear();
+        g.wave_t = f32::INFINITY;
+        g.players[0].ammo[0] = 0;
+        g.players[0].reserve[0] = 0;
+        g.players[0].input.reload = true;
+        g.players[0].input.fire = true;
+        idle(&mut g, 2.0);
+        assert_eq!(g.players[0].reload_t, 0.0, "no reload with no reserve");
+        assert_eq!(g.players[0].ammo[0], 0, "no shot underflows the magazine");
+        assert!(!g.events.iter().any(|e| e[0] == ev::RELOAD));
+        assert!(!g.events.iter().any(|e| e[0] == ev::SHOT));
+    }
+
+    /// Each wave tops the ammo boxes up to the number of zombies in it, on top of the ones left behind.
+    #[test]
+    fn each_wave_tops_up_the_boxes_to_the_number_of_zombies() {
+        let mut g = zombie_game();
+        g.players[0].hp = 1e6;
+        idle(&mut g, 0.1);
+        assert_eq!(g.wave, 1);
+        assert_eq!(g.boxes.len(), 9, "wave one: one box per zombie");
+        g.boxes.pop();
+        for b in &mut g.bots {
+            b.alive = false;
+        }
+        g.to_spawn = 0;
+        idle(&mut g, 5.5);
+        assert_eq!(g.wave, 2);
+        assert_eq!(g.boxes.len(), 12, "wave two tops up to its own count");
+    }
+
+    /// Every box of a wave lands in bounds, within walking distance of the player, and clear of the others.
+    #[test]
+    fn boxes_land_where_the_player_can_reach_them() {
+        let mut g = zombie_game();
+        g.players[0].hp = 1e6;
+        idle(&mut g, 0.1);
+        assert_eq!(g.boxes.len(), 9);
+        let p = g.players[0].body.pos;
+        for at in &g.boxes {
+            assert!(at[0].abs() <= HALF - 2.0 && at[2].abs() <= HALF - 2.0, "box out of bounds: {at:?}");
+            assert!(g.nav.reachable(*at), "box the player cannot walk to: {at:?}");
+            let d = ((at[0] - p[0]).powi(2) + (at[2] - p[2]).powi(2)).sqrt();
+            assert!(d >= BOX_NEAR, "box only {d:.1} m from the player: {at:?}");
+        }
+        for i in 0..g.boxes.len() {
+            for j in (i + 1)..g.boxes.len() {
+                let d = ((g.boxes[i][0] - g.boxes[j][0]).powi(2) + (g.boxes[i][2] - g.boxes[j][2]).powi(2)).sqrt();
+                assert!(d >= BOX_GAP, "boxes only {d:.2} m apart: {:?} {:?}", g.boxes[i], g.boxes[j]);
+            }
+        }
+    }
+
+    /// On the made maps, a wave's boxes all spawn where the player can reach them.
+    #[test]
+    fn boxes_on_the_made_maps_are_all_reachable() {
+        for (map, seed) in (0..map::MAPS).flat_map(|m| [1, 7].map(move |s| (m, s))) {
+            let mut g = Game::on(map, seed);
+            g.wave_t = 0.0;
+            g.players[0].hp = 1e6;
+            idle(&mut g, 0.1);
+            assert_eq!(g.boxes.len(), 9, "map {map} seed {seed}: the wave's boxes are missing");
+            for at in &g.boxes {
+                assert!(g.nav.reachable(*at), "map {map} seed {seed}: box the player cannot reach: {at:?}");
+            }
+        }
+    }
+
+    /// Running over a box adds a magazine to the reserves, capped at twice the magazine, and leaves the loaded one alone.
+    #[test]
+    fn a_box_adds_a_magazine_to_the_reserves_capped_at_double() {
+        let mut g = arena();
+        g.bots.clear();
+        g.wave_t = f32::INFINITY;
+        g.players[0].ammo[0] = 15;
+        g.players[0].reserve[0] = 20;
+        let p = g.players[0].body.pos;
+        g.boxes.push([p[0] + 0.5, p[1], p[2]]);
+        idle(&mut g, 0.1);
+        assert!(g.boxes.is_empty(), "the box was run over");
+        assert_eq!(g.players[0].ammo[0], 15, "the loaded magazine is left alone");
+        assert_eq!(g.players[0].reserve[0], 20 + WEAPONS[0].mag, "one magazine added");
+        assert!(g.events.iter().any(|e| e[0] == ev::PICKUP));
+        g.boxes.push([p[0] + 0.5, p[1], p[2]]);
+        idle(&mut g, 0.1);
+        assert_eq!(g.players[0].reserve[0], 2 * WEAPONS[0].mag, "capped at twice the magazine");
+        assert!(g.boxes.is_empty());
+    }
+
+    /// A box is not taken while the reserves are full, even with an empty magazine: full means the reserves.
+    #[test]
+    fn a_box_stays_while_the_reserves_are_full() {
+        let mut g = arena();
+        g.bots.clear();
+        g.wave_t = f32::INFINITY;
+        g.players[0].ammo[0] = 0;
+        g.players[0].reserve[0] = 2 * WEAPONS[0].mag;
+        let p = g.players[0].body.pos;
+        g.boxes.push([p[0] + 0.5, p[1], p[2]]);
+        idle(&mut g, 0.1);
+        assert_eq!(g.boxes.len(), 1, "full reserves: the box is left for later");
+        assert!(!g.events.iter().any(|e| e[0] == ev::PICKUP));
+    }
+
+    /// A box just out of reach is left alone, and a dead player takes nothing.
+    #[test]
+    fn a_box_just_out_of_reach_stays_and_a_dead_player_takes_nothing() {
+        let mut g = arena();
+        g.bots.clear();
+        g.wave_t = f32::INFINITY;
+        let p = g.players[0].body.pos;
+        g.players[0].reserve[0] = 0;
+        g.boxes.push([p[0] + 1.2, p[1], p[2]]);
+        idle(&mut g, 0.1);
+        assert_eq!(g.boxes.len(), 1, "a box 1.2 m off is not run over");
+        g.boxes.push([p[0] - 0.6, p[1], p[2]]);
+        g.hurt_player(0, 1e9);
+        idle(&mut g, 0.1);
+        assert_eq!(g.boxes.len(), 2, "a dead player takes nothing");
+    }
+
+    /// Dying resets the boxes with the waves, and the new life starts with full reserves.
+    #[test]
+    fn dying_clears_the_boxes_with_the_waves() {
+        let mut g = zombie_game();
+        idle(&mut g, 0.1);
+        assert!(!g.boxes.is_empty());
+        g.hurt_player(0, 1e9);
+        assert!(!g.players[0].alive());
+        idle(&mut g, 4.2);
+        assert!(g.players[0].alive());
+        assert_eq!(g.wave, 0);
+        assert!(g.boxes.is_empty(), "the boxes of the old life are gone");
+        assert_eq!(g.players[0].reserve, full_reserve(), "the new life starts with full reserves");
     }
 }

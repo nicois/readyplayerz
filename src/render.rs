@@ -1977,6 +1977,13 @@ impl Renderer {
             self.draw_mate_gun(m);
         }
         self.draw_brass(None);
+        // the ammo crates: a drab box with a yellow band
+        for at in &g.boxes {
+            let m = box_model([at[0] - 0.35, at[1], at[2] - 0.35], [at[0] + 0.35, at[1] + 0.7, at[2] + 0.35]);
+            self.draw_model(&m, [0.38, 0.36, 0.22], 0.0, 0.1);
+            let m = box_model([at[0] - 0.40, at[1] + 0.28, at[2] - 0.40], [at[0] + 0.40, at[1] + 0.42, at[2] + 0.40]);
+            self.draw_model(&m, [0.98, 0.75, 0.2], 0.0, 0.2);
+        }
         for t in &g.tracers {
             // another player's shot comes out of the muzzle of the gun they are seen holding
             let mate = g.players.iter().enumerate().find(|(i, p)| *i != g.local && p.id == t.by);
