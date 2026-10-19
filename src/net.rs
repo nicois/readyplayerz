@@ -8,10 +8,10 @@
 //! own: a client's last few inputs (`Inputs`), and the server's snapshots of the game, each split into as many
 //! datagrams as it takes (see `encode_snapshot`), every one of them a list of records about one thing each.
 
-use crate::sim::{Input, V3};
+use crate::sim::{Input, Pose, V3};
 
 /// Bumped whenever the format changes, so an old page is told to reload instead of misreading.
-pub const VERSION: u8 = 1;
+pub const VERSION: u8 = 2;
 /// Most players in a room.
 pub const MAX_PLAYERS: usize = 6;
 /// How many of its latest inputs a client sends each time, so a lost datagram or two loses none of them.
@@ -331,7 +331,7 @@ pub struct Zombie {
     pub swing_t: f32,
     pub dead_t: f32,
     pub head: V3,
-    pub pose: Option<(f32, f32, f32)>,
+    pub pose: Option<Pose>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
@@ -416,8 +416,8 @@ pub fn encode_snapshot(s: &Snapshot) -> Vec<Vec<u8>> {
         r.signed(z.vel[0], 12.0).signed(z.vel[1], 12.0).unit(z.speed, 8.0).unit(z.phase, 6.3);
         r.unit(z.hit_t, 1.0).unit(z.swing_t, 1.0).unit(z.dead_t, 12.0);
         r.signed(z.head[0], 0.25).signed(z.head[1], 0.25).signed(z.head[2], 0.25);
-        if let Some((s, up, ahead)) = z.pose {
-            r.unit(s, 1.0).signed(up, 4.0).signed(ahead, 3.0);
+        if let Some((s, up, ahead, duck)) = z.pose {
+            r.unit(s, 1.0).signed(up, 4.0).signed(ahead, 3.0).unit(duck, 1.0);
         }
         rec(&mut out, &mut w, r);
     }
@@ -475,7 +475,7 @@ pub fn decode_snapshot(b: &[u8]) -> Option<Snapshot> {
                 let (vel, speed, phase) = ([r.signed(12.0)?, r.signed(12.0)?], r.unit(8.0)?, r.unit(6.3)?);
                 let (hit_t, swing_t, dead_t) = (r.unit(1.0)?, r.unit(1.0)?, r.unit(12.0)?);
                 let head = [r.signed(0.25)?, r.signed(0.25)?, r.signed(0.25)?];
-                let pose = if flags & 32 != 0 { Some((r.unit(1.0)?, r.signed(4.0)?, r.signed(3.0)?)) } else { None };
+                let pose = if flags & 32 != 0 { Some((r.unit(1.0)?, r.signed(4.0)?, r.signed(3.0)?, r.unit(1.0)?)) } else { None };
                 let (kind, alive, corpse, on_ground) = (flags & 3, flags & 4 != 0, flags & 8 != 0, flags & 16 != 0);
                 s.zombies.push(Zombie { id, pos, face, kind, alive, corpse, on_ground, vel, speed, phase, hit_t, swing_t, dead_t, head, pose });
             }
@@ -523,7 +523,7 @@ mod tests {
     #[test]
     fn a_big_snapshot_is_split_into_datagrams_that_each_read_on_their_own() {
         let own = Own { ack: 99, life: 2, pos: [1.5, 0.25, -30.125], vel: [0.5, -3.0, 1.0], climb: Some([0.5; 14]), stamina: 0.4, hp: 64.0, kills: 12, ..Default::default() };
-        let zombie = |i: u32| Zombie { id: i, pos: [i as f32, 0.0, -2.0 * i as f32], face: 1.0, kind: (i % 3) as u8, alive: i % 2 == 0, speed: 3.0, pose: (i % 5 == 0).then_some((0.5, 1.0, 0.5)), ..Default::default() };
+        let zombie = |i: u32| Zombie { id: i, pos: [i as f32, 0.0, -2.0 * i as f32], face: 1.0, kind: (i % 3) as u8, alive: i % 2 == 0, speed: 3.0, pose: (i % 5 == 0).then_some((0.5, 1.0, 0.5, 0.25)), ..Default::default() };
         let s = Snapshot {
             tick: 5000,
             own: Some(own.clone()),

@@ -51,7 +51,7 @@ impl Blend for Zombie {
         z.head = mix3(self.head, b.head, k);
         (z.hit_t, z.swing_t, z.dead_t) = (mix(self.hit_t, b.hit_t, k), mix(self.swing_t, b.swing_t, k), mix(self.dead_t, b.dead_t, k));
         if let (Some(p), Some(q)) = (self.pose, b.pose) {
-            z.pose = Some((mix(p.0, q.0, k), mix(p.1, q.1, k), mix(p.2, q.2, k)));
+            z.pose = Some((mix(p.0, q.0, k), mix(p.1, q.1, k), mix(p.2, q.2, k), mix(p.3, q.3, k)));
         }
         z
     }

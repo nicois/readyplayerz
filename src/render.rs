@@ -2118,12 +2118,14 @@ impl Renderer {
         let lean = if runner { 0.35 } else { 0.2 } + lurch;
         // climbing (see `sim::Climb`): how far through, and the edge's height above the feet and distance ahead, in
         // the body's own measure. It hangs upright against the wall, then folds over the edge as it gets a knee onto it
-        let climb = b.climbing().map(|(s, up, ahead)| (s, up / sy, ahead / sx));
+        let climb = b.climbing().map(|(s, up, ahead, _)| (s, up / sy, ahead / sx));
         let over = climb.map_or(0.0, |(s, ..)| ((s - crate::sim::CLIMB_OVER) / (1.0 - crate::sim::CLIMB_OVER)).clamp(0.0, 1.0));
-        let lean = if climb.is_some() { (0.3 + 0.7 * (PI * over).sin().powf(0.7)) / 1.4 } else { lean };
+        // through a window it crawls over the sill on its knees, bent double under the head of it
+        let duck = b.climbing().map_or(0.0, |p| p.3);
+        let lean = if climb.is_some() { ((0.3 + 0.7 * (PI * over).sin().powf(0.7)) / 1.4).max(0.95 * duck) } else { lean };
         // and it rolls from side to side with each heave, the arms taking turns
         let sway = climb.map_or(0.0, |(s, ..)| 0.12 * (s * 4.0 * PI).sin() * (1.0 - over));
-        let pelvis = mul(&mul(&base, &translate(ph.sin() * 0.04 * amp, -bob, 0.0)), &around([0.0, 0.94, 0.0], &mul(&rot_y(ph.sin() * 0.14 * amp), &mul(&rot_z(ph.sin() * 0.05 * amp + sway), &rot_x(-0.08)))));
+        let pelvis = mul(&mul(&base, &translate(ph.sin() * 0.04 * amp, -bob - 0.35 * duck, 0.0)), &around([0.0, 0.94, 0.0], &mul(&rot_y(ph.sin() * 0.14 * amp), &mul(&rot_z(ph.sin() * 0.05 * amp + sway), &rot_x(-0.08)))));
         // never quite the same twice: a few sines at odd rates, for the arms and spine to wander by
         let wander = |rate: f32, k: f32| {
             let t = g.time * rate + seed * k;
@@ -2168,7 +2170,8 @@ impl Renderer {
                     let k = (PI * ((over - lag) / (0.8 - lag * 0.6)).clamp(0.0, 1.0)).sin();
                     let up = (1.7 * k, 2.1 * k);
                     let w = ((over - lag) / 0.15).clamp(0.0, 1.0);
-                    (tuck.0 + (up.0 - tuck.0) * w, tuck.1 + (up.1 - tuck.1) * w)
+                    let (hip_a, knee_a) = (tuck.0 + (up.0 - tuck.0) * w, tuck.1 + (up.1 - tuck.1) * w);
+                    (hip_a.max(1.5 * duck), knee_a.max(2.0 * duck))
                 }
                 None => (hip_a, knee_a),
             };

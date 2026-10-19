@@ -854,14 +854,19 @@ mod tests {
         println!("nav field in {:?}", t.elapsed());
         let t = std::time::Instant::now();
         for k in 0..10 {
-            nav.follow(&[[k as f32 * 3.0, 0.0, 14.0]]);
+            nav.follow(&[[k as f32 * 3.0, 0.0, 14.0]], &[]);
         }
         println!("a route to the player in {:?}", t.elapsed() / 10);
+        let t = std::time::Instant::now();
+        for k in 0..10 {
+            nav.set_goal([k as f32 * 3.0, 0.0, 14.0]);
+        }
+        println!("a route from everywhere in {:?}", t.elapsed() / 10);
         let world = Grid::new(super::build(1).walls, 4.0);
         let mut nav = Nav::new(&world, HALF);
         let t = std::time::Instant::now();
         for k in 0..10 {
-            nav.follow(&[[k as f32 * 3.0, 0.0, 14.0]]);
+            nav.follow(&[[k as f32 * 3.0, 0.0, 14.0]], &[]);
         }
         println!("on the town, a route in {:?}", t.elapsed() / 10);
     }

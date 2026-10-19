@@ -341,6 +341,171 @@ fn zombies_get_up_to_the_player_everywhere_up_high() {
     assert!(through.is_empty(), "{}", through.join("\n"));
 }
 
+/// How a wave sent at a player went: when each zombie got to them, if it did, and what those that hung about below
+/// for long without getting up were doing.
+struct Wave {
+    arrived: Vec<Option<f32>>,
+    stuck: Vec<String>,
+}
+
+impl Wave {
+    /// Puts the player at `at` on `map` made from `seed` and sends `n` zombies at them from the spawn points, as the
+    /// waves would, for up to `secs`.
+    fn at(map: u8, seed: u32, at: V3, n: u32, secs: f32) -> Wave {
+        let mut g = crate::sim::Game::on(map, seed);
+        g.hold_waves();
+        g.players[0].body.pos = [at[0], at[1] + 0.05, at[2]];
+        g.players[0].body.vel = [0.0; 3];
+        g.players[0].climb = None;
+        g.tick(crate::sim::STEP);
+        g.bots.clear();
+        g.send(n, 4);
+        for b in &mut g.bots {
+            b.hp = 1e6;
+        }
+        let n = g.bots.len();
+        let mut arrived = vec![None; n];
+        let mut hover = vec![0.0f32; n];
+        let mut worst = vec![String::new(); n];
+        let mut t = 0.0;
+        while t < secs && arrived.iter().any(|a| a.is_none()) {
+            g.players[0].hp = 100.0;
+            g.tick(crate::sim::STEP);
+            t += crate::sim::STEP;
+            let me = g.players[0].body.pos;
+            for k in 0..n {
+                let b = &g.bots[k];
+                let flat = (b.body.pos[0] - me[0]).hypot(b.body.pos[2] - me[2]);
+                let dy = me[1] - b.body.pos[1];
+                if arrived[k].is_none() && flat < 2.5 && (-STRIKE_DOWN..STRIKE_UP).contains(&dy) {
+                    arrived[k] = Some(t);
+                }
+                if arrived[k].is_none() && flat < 7.0 && b.climbing().is_none() {
+                    hover[k] += crate::sim::STEP;
+                    if hover[k] > 6.0 && worst[k].is_empty() {
+                        worst[k] = g.describe_bot(k);
+                    }
+                }
+            }
+        }
+        let stuck = (0..n).filter(|&k| arrived[k].is_none() && hover[k] > 6.0).map(|k| format!("hung about {:.0} s: {}", hover[k], worst[k])).collect();
+        Wave { arrived, stuck }
+    }
+}
+
+/// In a back garden on the suburb from seed 2 a tree stands by the fence, and a player can get up into it off
+/// the fence. Zombies climbing the fence after them were set down just over its middle, on the street side as far
+/// as the route went, and went round and round the garden; and one that got up onto the corner of the canopy
+/// took itself to be on the ground under it and stood there.
+#[test]
+fn a_wave_gets_up_into_the_garden_tree_after_the_player() {
+    let Wave { arrived, stuck } = Wave::at(1, 2, [94.5, 5.28, 100.5], 10, 45.0);
+    let got = arrived.iter().filter(|a| a.is_some()).count();
+    assert!(got >= 8 && stuck.is_empty(), "{got} of 10 got up the tree:\n{}", stuck.join("\n"));
+}
+
+/// A whole wave sent from the spawn points at a player up high, as the game would: how many of them get to the
+/// player in a minute, and which hang about below for long without getting up. Prints a line per place up high;
+/// MAP and SEED pick the map, MIN the fewest that must get there for a place to be printed as fine.
+#[test]
+#[ignore]
+fn waves_up_high() {
+    let map: u8 = std::env::var("MAP").ok().and_then(|s| s.parse().ok()).unwrap_or(1);
+    let seed: u32 = std::env::var("SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(1);
+    let gaps = Gaps::new(map::make(map, seed), [0.0, 0.0, 14.0]);
+    let p = &gaps.places;
+    let ground = |i: usize| p.index[&(p.spots[i].x, p.spots[i].z)].iter().map(|&k| p.spots[k]).find(|k| k.ground).map_or(0.0, |k| k.h);
+    let mut high: Vec<usize> = gaps.player.keys().copied().filter(|&i| p.spots[i].h - ground(i) >= STRIKE_UP).collect();
+    high.sort();
+    let (mut bad, mut tried) = (0, 0);
+    for patch in p.patches(high) {
+        let Some(top) = patch.iter().copied().filter(|&i| p.spots[i].middle).max_by(|a, b| p.spots[*a].h.total_cmp(&p.spots[*b].h)) else { continue };
+        let at = p.at(top);
+        let Wave { arrived, stuck } = Wave::at(map, seed, at, 10, 60.0);
+        let n = arrived.len();
+        tried += 1;
+        let got = arrived.iter().filter(|a| a.is_some()).count();
+        let last = arrived.iter().flatten().fold(0.0f32, |a, b| a.max(*b));
+        let min: usize = std::env::var("MIN").ok().and_then(|s| s.parse().ok()).unwrap_or(n);
+        if got < min || !stuck.is_empty() {
+            bad += 1;
+            println!("{} ({} places): {got}/{n} got there, last after {last:.0} s\n    {}", show(at), patch.len(), stuck.join("\n    "));
+        } else {
+            println!("{} ({} places): all {n} by {last:.0} s", show(at), patch.len());
+        }
+    }
+    println!("{bad} of {tried} places up high had zombies left behind");
+}
+
+/// How long a tick takes on the suburb with a full horde of 24 coming at a player in the street, and at one up on
+/// the school roof, a long walk from anywhere.
+#[test]
+#[ignore]
+fn tick_cost() {
+    for at in [[0.0, 0.0, 14.0], [-64.5, 6.6, 79.5]] {
+        let mut g = crate::sim::Game::on(1, 1);
+        g.hold_waves();
+        g.players[0].body.pos = [at[0], at[1] + 0.05, at[2]];
+        g.tick(crate::sim::STEP);
+        g.bots.clear();
+        g.send(24, 4);
+        for b in &mut g.bots {
+            b.hp = 1e6;
+        }
+        let (mut total, mut worst) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
+        let n = (60.0 / crate::sim::STEP) as u32;
+        for _ in 0..n {
+            g.players[0].hp = 100.0;
+            let t = std::time::Instant::now();
+            g.tick(crate::sim::STEP);
+            total += t.elapsed();
+            worst = worst.max(t.elapsed());
+        }
+        println!("player at {at:?}: a tick in {:?} on average, {worst:?} at worst", total / n);
+    }
+}
+
+/// Puts the player at AT=x,height,z on MAP made from SEED, sends a wave at them, and prints every EVERY seconds
+/// (half a second) what the zombies within RADIUS (8 m) are doing, for SECS (40).
+#[test]
+#[ignore]
+fn watch() {
+    let map: u8 = std::env::var("MAP").ok().and_then(|s| s.parse().ok()).unwrap_or(1);
+    let seed: u32 = std::env::var("SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(1);
+    let at: Vec<f32> = std::env::var("AT").unwrap().split(',').map(|s| s.parse().unwrap()).collect();
+    let secs: f32 = std::env::var("SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(40.0);
+    let radius: f32 = std::env::var("RADIUS").ok().and_then(|s| s.parse().ok()).unwrap_or(8.0);
+    let every: f32 = std::env::var("EVERY").ok().and_then(|s| s.parse().ok()).unwrap_or(0.5);
+    let mut g = crate::sim::Game::on(map, seed);
+    g.hold_waves();
+    g.players[0].body.pos = [at[0], at[1] + 0.05, at[2]];
+    g.players[0].body.vel = [0.0; 3];
+    g.players[0].climb = None;
+    g.tick(crate::sim::STEP);
+    g.bots.clear();
+    g.send(10, 4);
+    for b in &mut g.bots {
+        b.hp = 1e6;
+    }
+    let mut t = 0.0;
+    let mut next = 0.0;
+    while t < secs {
+        g.players[0].hp = 100.0;
+        g.tick(crate::sim::STEP);
+        t += crate::sim::STEP;
+        if t >= next {
+            next += every;
+            let me = g.players[0].body.pos;
+            for k in 0..g.bots.len() {
+                let b = &g.bots[k];
+                if (b.body.pos[0] - me[0]).hypot(b.body.pos[2] - me[2]) < radius {
+                    println!("{t:5.1} #{k} {}", g.describe_bot(k));
+                }
+            }
+        }
+    }
+}
+
 /// Prints the player's way from the middle to TO=x,height,z on MAP made from SEED, marking the places a zombie
 /// stands on too.
 #[test]
