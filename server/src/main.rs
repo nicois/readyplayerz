@@ -350,6 +350,15 @@ async fn serve_http(port: u16, web: String, game_port: u16, hash: Arc<Mutex<Opti
     }
 }
 
+/// The game's QUIC settings, for Fly's UDP: every packet sent on its own (segmentation offload hands the kernel
+/// batches that the way through Fly drops, and with them the handshake's certificate flight), and none bigger than
+/// QUIC's least, as Fly's tunnels leave only about 1300 bytes of a packet (see `net::DATAGRAM`).
+fn transport() -> wtransport::quinn::TransportConfig {
+    let mut t = wtransport::quinn::TransportConfig::default();
+    t.enable_segmentation_offload(false).initial_mtu(1200).mtu_discovery_config(None);
+    t
+}
+
 fn config(identity: Identity, port: u16) -> ServerConfig {
     let builder = match std::env::var("GAME_BIND") {
         Ok(host) => {
@@ -359,7 +368,7 @@ fn config(identity: Identity, port: u16) -> ServerConfig {
         }
         Err(_) => ServerConfig::builder().with_bind_default(port),
     };
-    builder.with_identity(identity).keep_alive_interval(Some(Duration::from_secs(3))).max_idle_timeout(Some(Duration::from_secs(15))).unwrap().build()
+    builder.with_custom_transport(identity, transport()).keep_alive_interval(Some(Duration::from_secs(3))).max_idle_timeout(Some(Duration::from_secs(15))).unwrap().build()
 }
 
 fn self_signed() -> Identity {
