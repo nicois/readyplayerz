@@ -140,25 +140,27 @@ pub struct Weapon {
     pub scope: bool,
     /// movement speed multiplier
     pub speed: f32,
+    /// on a reload the magazine is swapped, so unfired rounds left in it are dropped
+    pub drop_mag: bool,
 }
 
 pub static WEAPONS: [Weapon; WEAPON_COUNT] = [
-    Weapon { name: "Carbine", class: "Assault rifle", mag: 30, delay: 0.11, reload: 1.4, pellets: 1, body_dmg: 34.0, head_dmg: 75.0, spread: 0.06, ads_spread: 0.002, kick: 0.006, auto: true, zoom: 0.8, scope: false, speed: 1.0 },
-    Weapon { name: "SMG", class: "SMG", mag: 35, delay: 0.065, reload: 1.2, pellets: 1, body_dmg: 20.0, head_dmg: 40.0, spread: 0.045, ads_spread: 0.007, kick: 0.004, auto: true, zoom: 0.85, scope: false, speed: 1.08 },
-    Weapon { name: "Shotgun", class: "Shotgun", mag: 6, delay: 0.85, reload: 2.4, pellets: 8, body_dmg: 14.0, head_dmg: 28.0, spread: 0.07, ads_spread: 0.038, kick: 0.045, auto: false, zoom: 0.9, scope: false, speed: 1.0 },
-    Weapon { name: "Sniper", class: "Sniper", mag: 5, delay: 1.3, reload: 2.6, pellets: 1, body_dmg: 100.0, head_dmg: 150.0, spread: 0.12, ads_spread: 0.0, kick: 0.03, auto: false, zoom: 0.3, scope: true, speed: 0.92 },
+    Weapon { name: "Carbine", class: "Assault rifle", mag: 30, delay: 0.11, reload: 1.4, pellets: 1, body_dmg: 34.0, head_dmg: 75.0, spread: 0.06, ads_spread: 0.002, kick: 0.006, auto: true, zoom: 0.8, scope: false, speed: 1.0, drop_mag: true },
+    Weapon { name: "SMG", class: "SMG", mag: 35, delay: 0.065, reload: 1.2, pellets: 1, body_dmg: 20.0, head_dmg: 40.0, spread: 0.045, ads_spread: 0.007, kick: 0.004, auto: true, zoom: 0.85, scope: false, speed: 1.08, drop_mag: true },
+    Weapon { name: "Shotgun", class: "Shotgun", mag: 6, delay: 0.85, reload: 2.4, pellets: 8, body_dmg: 14.0, head_dmg: 28.0, spread: 0.07, ads_spread: 0.038, kick: 0.045, auto: false, zoom: 0.9, scope: false, speed: 1.0, drop_mag: false },
+    Weapon { name: "Sniper", class: "Sniper", mag: 5, delay: 1.3, reload: 2.6, pellets: 1, body_dmg: 100.0, head_dmg: 150.0, spread: 0.12, ads_spread: 0.0, kick: 0.03, auto: false, zoom: 0.3, scope: true, speed: 0.92, drop_mag: false },
     // harder hitting than the carbine and harder to hold on target
-    Weapon { name: "AK-47", class: "Assault rifle", mag: 30, delay: 0.10, reload: 1.6, pellets: 1, body_dmg: 42.0, head_dmg: 95.0, spread: 0.07, ads_spread: 0.004, kick: 0.010, auto: true, zoom: 0.8, scope: false, speed: 0.97 },
+    Weapon { name: "AK-47", class: "Assault rifle", mag: 30, delay: 0.10, reload: 1.6, pellets: 1, body_dmg: 42.0, head_dmg: 95.0, spread: 0.07, ads_spread: 0.004, kick: 0.010, auto: true, zoom: 0.8, scope: false, speed: 0.97, drop_mag: true },
     // a hose: very fast and light, but no stock to steady the sights
-    Weapon { name: "Uzi", class: "SMG", mag: 32, delay: 0.055, reload: 1.3, pellets: 1, body_dmg: 17.0, head_dmg: 34.0, spread: 0.05, ads_spread: 0.013, kick: 0.005, auto: true, zoom: 0.88, scope: false, speed: 1.1 },
+    Weapon { name: "Uzi", class: "SMG", mag: 32, delay: 0.055, reload: 1.3, pellets: 1, body_dmg: 17.0, head_dmg: 34.0, spread: 0.05, ads_spread: 0.013, kick: 0.005, auto: true, zoom: 0.88, scope: false, speed: 1.1, drop_mag: true },
     // both barrels go almost at once, then it breaks open for two more shells
-    Weapon { name: "Double barrel", class: "Shotgun", mag: 2, delay: 0.2, reload: 1.7, pellets: 10, body_dmg: 15.0, head_dmg: 30.0, spread: 0.085, ads_spread: 0.05, kick: 0.06, auto: false, zoom: 0.92, scope: false, speed: 1.02 },
+    Weapon { name: "Double barrel", class: "Shotgun", mag: 2, delay: 0.2, reload: 1.7, pellets: 10, body_dmg: 15.0, head_dmg: 30.0, spread: 0.085, ads_spread: 0.05, kick: 0.06, auto: false, zoom: 0.92, scope: false, speed: 1.02, drop_mag: false },
     // iron sights and a quicker bolt than the scoped rifle, and a head shot always kills
-    Weapon { name: "Mosin", class: "Sniper", mag: 5, delay: 1.0, reload: 2.2, pellets: 1, body_dmg: 85.0, head_dmg: 220.0, spread: 0.10, ads_spread: 0.0, kick: 0.028, auto: false, zoom: 0.55, scope: false, speed: 0.96 },
-    Weapon { name: "Pistol", class: "Pistol", mag: 12, delay: 0.16, reload: 1.1, pellets: 1, body_dmg: 26.0, head_dmg: 60.0, spread: 0.04, ads_spread: 0.004, kick: 0.012, auto: false, zoom: 0.85, scope: false, speed: 1.05 },
-    Weapon { name: "Revolver", class: "Pistol", mag: 6, delay: 0.42, reload: 2.0, pellets: 1, body_dmg: 60.0, head_dmg: 135.0, spread: 0.045, ads_spread: 0.003, kick: 0.035, auto: false, zoom: 0.85, scope: false, speed: 1.04 },
+    Weapon { name: "Mosin", class: "Sniper", mag: 5, delay: 1.0, reload: 2.2, pellets: 1, body_dmg: 85.0, head_dmg: 220.0, spread: 0.10, ads_spread: 0.0, kick: 0.028, auto: false, zoom: 0.55, scope: false, speed: 0.96, drop_mag: false },
+    Weapon { name: "Pistol", class: "Pistol", mag: 12, delay: 0.16, reload: 1.1, pellets: 1, body_dmg: 26.0, head_dmg: 60.0, spread: 0.04, ads_spread: 0.004, kick: 0.012, auto: false, zoom: 0.85, scope: false, speed: 1.05, drop_mag: true },
+    Weapon { name: "Revolver", class: "Pistol", mag: 6, delay: 0.42, reload: 2.0, pellets: 1, body_dmg: 60.0, head_dmg: 135.0, spread: 0.045, ads_spread: 0.003, kick: 0.035, auto: false, zoom: 0.85, scope: false, speed: 1.04, drop_mag: false },
     // a hand cannon: every shot throws the aim well up, so quick follow-ups take pulling it back down
-    Weapon { name: "Desert Eagle", class: "Pistol", mag: 7, delay: 0.32, reload: 1.5, pellets: 1, body_dmg: 55.0, head_dmg: 125.0, spread: 0.05, ads_spread: 0.004, kick: 0.10, auto: false, zoom: 0.85, scope: false, speed: 1.0 },
+    Weapon { name: "Desert Eagle", class: "Pistol", mag: 7, delay: 0.32, reload: 1.5, pellets: 1, body_dmg: 55.0, head_dmg: 125.0, spread: 0.05, ads_spread: 0.004, kick: 0.10, auto: false, zoom: 0.85, scope: false, speed: 1.0, drop_mag: true },
 ];
 
 #[derive(Clone, Copy, Debug)]
@@ -299,6 +301,8 @@ pub struct Player {
     pub gait: f32,
     /// 0 walking, 1 sprinting, eased between the two for the view
     pub sprint_t: f32,
+    /// actually sprinting this tick: no reloads or box pickups while running
+    pub sprinting: bool,
     /// 1 right after a hard landing, fading out
     pub land_t: f32,
     /// how far the eye trails the body after stepping up or down a step, eased away so stairs feel like a slope
@@ -366,6 +370,7 @@ impl Player {
             stride: 0.0,
             gait: 0.0,
             sprint_t: 0.0,
+            sprinting: false,
             land_t: 0.0,
             step_y: 0.0,
             climb: None,
@@ -1799,14 +1804,26 @@ impl Game {
         if on_grenade {
             // the hand is on the grenade: no reloading or shooting
         } else if p.reload_t > 0.0 {
-            p.reload_t -= dt;
-            if p.reload_t <= 0.0 {
-                // rounds come from the reserve, and only as many as it has
-                let n = (w.mag - p.ammo[p.weapon]).min(p.reserve[p.weapon]);
-                p.ammo[p.weapon] += n;
-                p.reserve[p.weapon] -= n;
+            if p.sprinting {
+                // running interrupts a reload, and nothing is lost
+                p.reload_t = 0.0;
+            } else {
+                p.reload_t -= dt;
+                if p.reload_t <= 0.0 {
+                    if w.drop_mag {
+                        // the magazine is swapped in, and what was in the old one is dropped
+                        let n = w.mag.min(p.reserve[p.weapon]);
+                        p.ammo[p.weapon] = n;
+                        p.reserve[p.weapon] -= n;
+                    } else {
+                        // rounds come from the reserve, and only as many as it has
+                        let n = (w.mag - p.ammo[p.weapon]).min(p.reserve[p.weapon]);
+                        p.ammo[p.weapon] += n;
+                        p.reserve[p.weapon] -= n;
+                    }
+                }
             }
-        } else if (inp.reload || ammo == 0) && ammo < w.mag && p.reserve[p.weapon] > 0 {
+        } else if !p.sprinting && (inp.reload || ammo == 0) && ammo < w.mag && p.reserve[p.weapon] > 0 {
             p.reload_t = w.reload;
             self.events.push([ev::RELOAD, p.weapon as f32, 0.0]);
         } else if inp.fire && ammo > 0 && p.cooldown <= 0.0 && p.equip_t <= 0.0 && (w.auto || p.armed) {
@@ -1818,9 +1835,10 @@ impl Game {
         }
     }
 
-    /// Walk over an ammo box and a magazine of its rounds goes into the reserves, so far as they are not full.
+    /// Walk over an ammo box standing or walking and a magazine of its rounds goes into the reserves, so far as
+    /// they are not full; running over one leaves it be.
     fn tick_boxes(&mut self) {
-        if !self.players[self.local].alive() {
+        if !self.players[self.local].alive() || self.players[self.local].sprinting {
             return;
         }
         let full = full_reserve();
@@ -1877,6 +1895,7 @@ impl Game {
             p.winded &= p.stamina < WINDED_UNTIL;
         }
         p.sprint_t += (if sprinting { 1.0 } else { 0.0 } - p.sprint_t) * (dt * 6.0).min(1.0);
+        p.sprinting = sprinting;
         p.land_t = (p.land_t - dt * 3.0).max(0.0);
         let speed = if sprinting { SPRINT } else { WALK } * w.speed * (1.0 - 0.4 * p.ads);
         let (was_ground, fall, was_y) = (p.body.on_ground, -p.body.vel[1], p.body.pos[1]);
@@ -2953,6 +2972,97 @@ mod tests {
         assert_eq!(g.players[0].ammo[0], 0, "no shot underflows the magazine");
         assert!(!g.events.iter().any(|e| e[0] == ev::RELOAD));
         assert!(!g.events.iter().any(|e| e[0] == ev::SHOT));
+    }
+
+    /// Running cancels a reload in progress, and the loaded magazine comes back as it was.
+    #[test]
+    fn running_cancels_a_reload_in_progress() {
+        let mut g = arena();
+        g.bots.clear();
+        g.wave_t = f32::INFINITY;
+        g.players[0].ammo[0] = 20;
+        g.players[0].input.reload = true;
+        idle(&mut g, 0.2);
+        assert!(g.players[0].reload_t > 0.0, "the reload had started");
+        g.players[0].input.reload = false;
+        g.players[0].input.sprint = true;
+        g.players[0].input.w = true;
+        idle(&mut g, 0.3);
+        assert_eq!(g.players[0].reload_t, 0.0, "running cancels the reload");
+        assert_eq!(g.players[0].ammo[0], 20, "the loaded magazine comes back");
+        assert_eq!(g.players[0].reserve[0], 2 * WEAPONS[0].mag, "nothing was taken from the reserve");
+    }
+
+    /// A reload does not start while running.
+    #[test]
+    fn running_forbids_starting_a_reload() {
+        let mut g = arena();
+        g.bots.clear();
+        g.wave_t = f32::INFINITY;
+        g.players[0].ammo[0] = 20;
+        g.players[0].input.reload = true;
+        g.players[0].input.sprint = true;
+        g.players[0].input.w = true;
+        idle(&mut g, 0.5);
+        assert_eq!(g.players[0].reload_t, 0.0, "no reload starts while running");
+        assert_eq!(g.players[0].reserve[0], 2 * WEAPONS[0].mag, "the reserve is untouched");
+    }
+
+    /// Running over an ammo box leaves it; a standing player still collects it.
+    #[test]
+    fn running_over_a_box_leaves_it_behind() {
+        let mut g = arena();
+        g.bots.clear();
+        g.wave_t = f32::INFINITY;
+        g.players[0].reserve[0] = WEAPONS[0].mag;
+        let p = g.players[0].body.pos;
+        g.boxes.push([p[0], p[1], p[2]]);
+        g.players[0].input.sprint = true;
+        g.players[0].input.w = true;
+        idle(&mut g, 0.2);
+        assert_eq!(g.boxes.len(), 1, "the box is not picked up while running");
+        assert_eq!(g.players[0].reserve[0], WEAPONS[0].mag, "no rounds came out of it");
+        assert!(!g.events.iter().any(|e| e[0] == ev::PICKUP));
+        g.players[0].input = Input::default();
+        let q = g.players[0].body.pos;
+        g.boxes.push([q[0], q[1], q[2]]);
+        idle(&mut g, 0.1);
+        assert!(g.events.iter().any(|e| e[0] == ev::PICKUP), "a standing player still collects a box");
+    }
+
+    /// Reloading a magazine gun swaps the magazine: rounds left in the old one are dropped.
+    #[test]
+    fn reloading_a_magazine_gun_drops_the_loaded_magazine() {
+        let mut g = arena();
+        g.bots.clear();
+        g.wave_t = f32::INFINITY;
+        g.players[0].ammo[0] = 20;
+        g.players[0].reserve[0] = 5;
+        g.players[0].input.reload = true;
+        idle(&mut g, WEAPONS[0].reload + 0.3);
+        assert_eq!(g.players[0].ammo[0], 5, "the new magazine holds what the reserve has");
+        assert_eq!(g.players[0].reserve[0], 0, "the reserve pays for it");
+    }
+
+    /// Tube-fed, bolt and cylinder guns keep the rounds they loaded: their reload only tops up.
+    #[test]
+    fn reloading_shotguns_and_revolvers_keeps_the_loaded_rounds() {
+        let mut g = arena();
+        g.bots.clear();
+        g.wave_t = f32::INFINITY;
+        g.select(2);
+        g.players[0].ammo[2] = 3;
+        g.players[0].reserve[2] = 5;
+        g.players[0].input.reload = true;
+        idle(&mut g, WEAPONS[2].reload + 0.3);
+        assert_eq!(g.players[0].ammo[2], 6, "the loaded shells stay and the tube tops up");
+        assert_eq!(g.players[0].reserve[2], 2, "the reserve pays only for the top-up");
+        g.select(9);
+        g.players[0].ammo[9] = 4;
+        g.players[0].reserve[9] = 2;
+        idle(&mut g, WEAPONS[9].reload + 0.3);
+        assert_eq!(g.players[0].ammo[9], 6, "the loaded chambers stay and top up");
+        assert_eq!(g.players[0].reserve[9], 0, "the reserve pays for the top-up");
     }
 
     /// Each wave tops the ammo boxes up to the number of zombies in it, on top of the ones left behind.
