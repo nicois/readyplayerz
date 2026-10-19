@@ -200,7 +200,7 @@ vec3 living_face(vec3 c, vec3 p) {
     float lips = exp(-pow(length((h - vec3(0.0, 1.59, -0.09)) * vec3(1.0, 2.8, 1.4)) / 0.024, 2.0));
     c = mix(c, c * vec3(0.9, 0.68, 0.66), lips * 0.55);
     // where the lips meet, dipping a little at the corners (see body::living_head)
-    float parting = smoothstep(0.0018, 0.0006, abs(h.y - 1.5903 + 3.0 * h.x * h.x)) * smoothstep(0.021, 0.014, abs(h.x)) * step(h.z, -0.075);
+    float parting = smoothstep(0.0018, 0.0006, abs(h.y - 1.5903 + 3.0 * h.x * h.x)) * smoothstep(0.026, 0.018, abs(h.x)) * step(h.z, -0.075);
     c = mix(c, c * vec3(0.45, 0.3, 0.3), parting * 0.8);
     float cheeks = exp(-pow(length(q - vec3(0.055, 1.615, -0.075)) / 0.03, 2.0));
     c = mix(c, c * vec3(1.02, 0.88, 0.86), cheeks * 0.15);

@@ -243,16 +243,16 @@ fn head(p: V) -> f32 {
 /// chin, closed lips on the curve of the teeth, and open eyes under a relaxed lid.
 fn living_head(p: V) -> f32 {
     let q = [p[0].abs(), p[1], p[2]];
-    let mut d = ell(p, [0.0, 1.68, 0.012], [0.098, 0.118, 0.108]);
-    d = smin(d, ell(p, [0.0, 1.64, -0.025], [0.078, 0.07, 0.07]), 0.025);
-    // a soft brow, cheekbones from under the eye back toward the ear, the cheeks over the teeth, the flesh down
-    // the side of the face to the jaw
+    // the skull, its forehead broad and flattish across the front, and the face under it: as wide at the
+    // cheekbones as the skull nearly, turning sharply from its front to its sides there
+    let mut d = ell(p, [0.0, 1.685, 0.014], [0.086, 0.113, 0.1]);
+    d = smin(d, ell(p, [0.0, 1.715, -0.035], [0.068, 0.07, 0.053]), 0.03);
+    let f = [p[0], p[1], p[2] - 8.0 * p[0] * p[0]];
+    d = smin(d, ell(f, [0.0, 1.638, -0.03], [0.068, 0.058, 0.06]), 0.03);
     d = smin(d, ell(q, [0.042, 1.695, -0.084], [0.028, 0.01, 0.015]), 0.02);
-    d = smin(d, ell(p, [0.0, 1.69, -0.09], [0.015, 0.01, 0.01]), 0.015);
-    d = smin(d, cone(q, [0.042, 1.648, -0.078], [0.077, 1.645, -0.025], 0.012, 0.009), 0.02);
-    d = smin(d, ell(q, [0.056, 1.638, -0.068], [0.022, 0.016, 0.018]), 0.025);
-    d = smin(d, ell(q, [0.044, 1.626, -0.058], [0.028, 0.028, 0.022]), 0.04);
-    d = smin(d, ell(q, [0.045, 1.608, -0.047], [0.02, 0.03, 0.028]), 0.03);
+    d = smin(d, ell(q, [0.056, 1.648, -0.056], [0.018, 0.014, 0.022]), 0.045);
+    d = smin(d, ell(q, [0.028, 1.628, -0.064], [0.03, 0.025, 0.022]), 0.03);
+    d = smin(d, ell(q, [0.046, 1.615, -0.035], [0.018, 0.03, 0.035]), 0.04);
     // the mouth and chin are bent back round the curve of the teeth, the corners of the mouth well behind its
     // middle; the teeth themselves under the lips
     let b = [p[0], p[1], p[2] - 18.0 * p[0] * p[0]];
@@ -261,16 +261,16 @@ fn living_head(p: V) -> f32 {
     d = smin(d, cone(p, [0.0, 1.668, -0.094], [0.0, 1.627, -0.107], 0.007, 0.011), 0.012);
     d = smin(d, ell(q, [0.0135, 1.617, -0.097], [0.0095, 0.007, 0.009]), 0.01);
     d = smin(d, ell(p, [0.0, 1.621, -0.108], [0.0105, 0.0095, 0.011]), 0.01);
-    d = smin(d, ell(q, [0.097, 1.655, 0.012], [0.01, 0.028, 0.018]), 0.01);
+    d = smin(d, ell(q, [0.089, 1.655, 0.012], [0.01, 0.028, 0.018]), 0.01);
     // the jaw: up from its angle to below the ear, along to the chin
-    d = smin(d, cone(q, [0.055, 1.595, 0.002], [0.061, 1.625, 0.006], 0.014, 0.012), 0.03);
-    d = smin(d, cone(q, [0.055, 1.595, 0.002], [0.016, 1.547, -0.074], 0.014, 0.012), 0.03);
-    d = smin(d, ell(b, [0.0, 1.567, -0.074], [0.02, 0.02, 0.015]), 0.02);
-    d = smin(d, ell(b, [0.0, 1.552, -0.085], [0.019, 0.015, 0.014]), 0.02);
+    d = smin(d, cone(q, [0.051, 1.6, 0.0], [0.059, 1.628, 0.006], 0.014, 0.012), 0.03);
+    d = smin(d, cone(q, [0.051, 1.6, 0.0], [0.016, 1.551, -0.074], 0.014, 0.012), 0.03);
+    d = smin(d, ell(b, [0.0, 1.57, -0.074], [0.02, 0.02, 0.015]), 0.02);
+    d = smin(d, ell(b, [0.0, 1.556, -0.085], [0.018, 0.015, 0.014]), 0.02);
     // closed lips, the upper one in two curves (the shader draws the line between them), and the eyes
     let bq = [b[0].abs(), b[1], b[2]];
-    d = smin(d, ell(bq, [0.007, 1.5985, -0.089], [0.015, 0.006, 0.011]), 0.008);
-    d = smin(d, ell(b, [0.0, 1.5805, -0.0855], [0.02, 0.009, 0.012]), 0.008);
+    d = smin(d, ell(bq, [0.009, 1.5985, -0.089], [0.017, 0.006, 0.011]), 0.008);
+    d = smin(d, ell(b, [0.0, 1.5805, -0.0855], [0.024, 0.009, 0.012]), 0.008);
     d = smooth_sub(d, ell(q, [0.04, 1.668, -0.084], [0.019, 0.014, 0.018]), 0.008);
     smin(d, ell(q, [0.04, 1.678, -0.0885], [0.0155, 0.0045, 0.0115]), 0.004)
 }
@@ -364,7 +364,7 @@ fn hair(p: V) -> f32 {
 /// Close-cropped hair for the living: a thin shell over the skull.
 fn crop(p: V) -> f32 {
     let h = to_head(p);
-    (ell(h, [0.0, 1.686, 0.017], [0.104, 0.124, 0.115]) * HEAD_K).max(NECK_Y - p[1])
+    (smin(ell(h, [0.0, 1.69, 0.017], [0.092, 0.119, 0.107]), ell(h, [0.0, 1.72, -0.033], [0.074, 0.076, 0.058]), 0.03) * HEAD_K).max(NECK_Y - p[1])
 }
 
 /// Where each bone runs in the rest pose, for the weights.
@@ -617,8 +617,7 @@ impl Figure {
         let s = scale;
         let body = build(&body_part, [-0.62, -0.02, -0.28], [0.62, 1.52, 0.26], 0.011 * s, false);
         let head = build(&head_part, [-0.13, 1.48, -0.16], [0.13, 1.82, 0.17], 0.0045 * s, false);
-        // the living face is meshed finer, for its lips and lids
-        let face = build(&face_part, [-0.13, 1.48, -0.16], [0.13, 1.82, 0.17], 0.003 * s, false);
+        let face = build(&face_part, [-0.13, 1.48, -0.16], [0.13, 1.82, 0.17], 0.0045 * s, false);
         let hands = [
             build(&hand_part, [-0.62, 0.66, -0.1], [-0.36, 0.98, 0.1], 0.0045 * s, false),
             build(&hand_part, [0.36, 0.66, -0.1], [0.62, 0.98, 0.1], 0.0045 * s, false),
