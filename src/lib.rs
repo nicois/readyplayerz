@@ -3,6 +3,7 @@ pub mod gunmodel;
 pub mod grid;
 pub mod map;
 pub mod nav;
+pub mod net;
 #[cfg(test)]
 mod reach;
 pub mod sim;

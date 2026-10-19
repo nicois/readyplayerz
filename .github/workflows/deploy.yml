@@ -1,5 +1,6 @@
-# Tests, builds the wasm client and deploys web/ to Cloudflare Pages on every push to main.
-# Needs the repo secrets CLOUDFLARE_API_TOKEN (with the "Cloudflare Pages: Edit" permission) and CLOUDFLARE_ACCOUNT_ID.
+# Tests, builds the wasm client and deploys web/ to Cloudflare Pages on every push to main, then the game server to
+# Fly (see fly.toml). Needs the repo secrets CLOUDFLARE_API_TOKEN (with the "Cloudflare Pages: Edit" permission),
+# CLOUDFLARE_ACCOUNT_ID and FLY_API_TOKEN (a deploy token for the Fly app).
 name: Deploy
 
 on:
@@ -37,3 +38,17 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy web --project-name=readyplayerz --branch=main --commit-dirty=true
+
+  # after the tests have passed; a deploy restarts the server, ending any game being played
+  game-server:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      # one machine only: every room lives in its memory
+      - run: flyctl deploy --remote-only --ha=false
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

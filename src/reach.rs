@@ -303,23 +303,23 @@ fn zombies_get_up_to_the_player_everywhere_up_high() {
                 z.hp = 1e6;
                 g.bots.push(z);
             }
-            g.player.body.pos = [at[0], at[1] + 0.05, at[2]];
-            g.player.body.vel = [0.0; 3];
-            g.player.climb = None;
+            g.players[0].body.pos = [at[0], at[1] + 0.05, at[2]];
+            g.players[0].body.vel = [0.0; 3];
+            g.players[0].climb = None;
             let mut struck = false;
             for _ in 0..(45.0 / crate::sim::STEP) as usize {
-                g.player.hp = 100.0;
+                g.players[0].hp = 100.0;
                 g.tick(crate::sim::STEP);
                 // the waves would bring more
                 g.bots.truncate(3);
-                if g.player.hp < 100.0 {
+                if g.players[0].hp < 100.0 {
                     struck = true;
                     break;
                 }
             }
             if !struck {
                 let them: Vec<String> = (0..g.bots.len()).map(|i| g.describe_bot(i)).collect();
-                failed.push(format!("map {map}: nobody got to the player at {} ({} places), now at {}:\n    {}", show(at), patch.len(), show(g.player.body.pos), them.join("\n    ")));
+                failed.push(format!("map {map}: nobody got to the player at {} ({} places), now at {}:\n    {}", show(at), patch.len(), show(g.players[0].body.pos), them.join("\n    ")));
             }
         }
     }

@@ -50,7 +50,8 @@ pub struct Nav {
     ground: Vec<f32>,
     /// path cost to the goal, 10 per straight step and 14 per diagonal
     cost: Vec<u32>,
-    goal: Option<usize>,
+    /// the spots the field leads to: each route goes to whichever is nearest
+    goals: Vec<usize>,
     /// how far out from the goal the field was worked out
     reach: u32,
     /// the spots that can step onto each spot: `into[into_start[i]..into_start[i + 1]]`, with what the step costs
@@ -107,7 +108,7 @@ impl Nav {
         start.push(spots.len() as u32);
         solid_start.push(solid.len() as u32);
         let total = spots.len();
-        let mut nav = Nav { half, n, start, spots, narrow, solid_start, solid, ground, cost: vec![UNREACHED; total], goal: None, reach: UNREACHED, into_start: Vec::new(), into: Vec::new(), into_cost: Vec::new(), buckets: Vec::new() };
+        let mut nav = Nav { half, n, start, spots, narrow, solid_start, solid, ground, cost: vec![UNREACHED; total], goals: Vec::new(), reach: UNREACHED, into_start: Vec::new(), into: Vec::new(), into_cost: Vec::new(), buckets: Vec::new() };
         nav.link();
         nav
     }
@@ -283,35 +284,36 @@ impl Nav {
 
     /// Points the field at `p`, at whatever height it is standing, from everywhere there is a route.
     pub fn set_goal(&mut self, p: V3) {
-        self.route_to(p, UNREACHED);
+        self.route_to(&[p], UNREACHED);
     }
 
-    /// Points the field at `p` from only as far as `FOLLOW` away: as far as zombies ever need a route from, and the
-    /// same work on a big map as on a small one.
-    pub fn follow(&mut self, p: V3) {
-        self.route_to(p, FOLLOW);
+    /// Points the field at the nearest of `ps` (the players) from only as far as `FOLLOW` away: as far as zombies
+    /// ever need a route from, and the same work on a big map as on a small one.
+    pub fn follow(&mut self, ps: &[V3]) {
+        self.route_to(ps, FOLLOW);
     }
 
-    /// Points the field at `p` from everywhere within `reach` in path cost. Does nothing if they are still on the
-    /// same spot.
-    fn route_to(&mut self, p: V3, reach: u32) {
-        let goal = self.nearest_spot(p, GOAL_SEARCH);
-        if goal == self.goal && reach == self.reach {
+    /// Points the field at the nearest of `ps` from everywhere within `reach` in path cost. Does nothing if they
+    /// are all still on the same spots.
+    fn route_to(&mut self, ps: &[V3], reach: u32) {
+        let mut goals: Vec<usize> = ps.iter().filter_map(|&p| self.nearest_spot(p, GOAL_SEARCH)).collect();
+        goals.sort_unstable();
+        goals.dedup();
+        if goals == self.goals && reach == self.reach {
             return;
         }
         self.reach = reach;
-        self.goal = goal;
         self.cost.fill(UNREACHED);
-        let Some(g) = goal else {
-            return;
-        };
         // Dijkstra with a bucket per cost instead of a heap: no step costs more than BUCKETS - 1, so the spots
         // waiting to be done only ever span that many costs, and a ring of buckets holds them in order
-        self.cost[g] = 0;
         let mut buckets = std::mem::take(&mut self.buckets);
         buckets.resize_with(BUCKETS, Vec::new);
-        buckets[0].push(g as u32);
-        let (mut d, mut waiting) = (0u32, 1usize);
+        for &g in &goals {
+            self.cost[g] = 0;
+            buckets[0].push(g as u32);
+        }
+        let (mut d, mut waiting) = (0u32, goals.len());
+        self.goals = goals;
         while waiting > 0 {
             let b = d as usize % BUCKETS;
             while let Some(i) = buckets[b].pop() {

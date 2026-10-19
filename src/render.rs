@@ -308,7 +308,8 @@ void main() {
                 if (u_cut.z != 0.0 && sign(v_rest.x) == u_cut.z) discard;
             }
             if (u_cut.w != 0.0 && sign(v_rest.x) == u_cut.w && v_rest.y < 0.52 && v_rest.y > 0.1 + 0.04 * nz) discard;
-            if (noise3(v_rest * 21.0 + 7.0 + v_seed) > 0.83) discard;
+            // moth-eaten, except on the living (a seed below zero: see `draw_mate`)
+            if (v_seed >= 0.0 && noise3(v_rest * 21.0 + 7.0 + v_seed) > 0.83) discard;
         } else if (v_umat > 11.5 && v_umat < 12.5) {
             vec3 h = head_space(v_rest);
             vec3 r = h - vec3(0.0, 1.68, 0.01);
@@ -1672,9 +1673,9 @@ impl Renderer {
 
     pub fn render(&self, g: &Game) {
         let gl = &self.gl;
-        let eye = g.player.eye();
+        let eye = g.me().eye();
         let aspect = self.width as f32 / self.height.max(1) as f32;
-        let p = &g.player;
+        let p = g.me();
         let fov = p.fov();
         let fwd = p.forward();
 
@@ -1698,6 +1699,10 @@ impl Renderer {
             if dot(to, fwd) >= -3.0 || near_light {
                 self.draw_zombie(g, i, b);
             }
+        }
+        // the other players, playing online
+        for (_, m) in g.players.iter().enumerate().filter(|(i, _)| *i != g.local) {
+            self.draw_mate(g, m);
         }
         gl.use_program(Some(&self.prog));
         let lvp = self.light_vp(centre);
@@ -1763,6 +1768,9 @@ impl Renderer {
             self.draw_mesh(&self.sphere_vao, self.sphere_count, &model, d.color, d.glow, 0.3, 0.0);
         }
         self.draw_grenades(g);
+        for (_, m) in g.players.iter().enumerate().filter(|(i, _)| *i != g.local) {
+            self.draw_mate_gun(m);
+        }
         for t in &g.tracers {
             self.draw_lines(&[t.a[0], t.a[1], t.a[2], t.b[0], t.b[1], t.b[2]], [1.0, 0.95, 0.6], 1.0);
         }
@@ -1802,7 +1810,7 @@ impl Renderer {
         for b in &g.blasts {
             self.draw_blast(b);
         }
-        let p = &g.player;
+        let p = g.me();
         if p.aiming && p.alive() {
             self.draw_arc(&p.arc, p.arc_axis);
         }
@@ -1872,7 +1880,7 @@ impl Renderer {
     fn draw_zombie(&self, g: &Game, i: usize, b: &Bot) {
         use crate::body as body;
         use std::f32::consts::PI;
-        let (p, pp) = (b.body.pos, g.player.body.pos);
+        let (p, pp) = (b.body.pos, g.me().body.pos);
         let d2 = (pp[0] - p[0]).powi(2) + (pp[2] - p[2]).powi(2);
         let speed = (b.body.vel[0].powi(2) + b.body.vel[2].powi(2)).sqrt();
         let dead = !b.alive;
@@ -2047,7 +2055,7 @@ impl Renderer {
         // detail by how big the zombie is in the picture: the distance suits one 1600 pixels tall at the hip's
         // field of view, and comes nearer for coarser pictures, where the near mesh's triangles would be smaller
         // than a pixel. It never goes further, so a bigger picture or a zoomed sight costs no more than that
-        let px = (self.height as f32 / 1600.0 * 0.6f32.tan() / (g.player.fov() / 2.0).tan()).min(1.0);
+        let px = (self.height as f32 / 1600.0 * 0.6f32.tan() / (g.me().fov() / 2.0).tan()).min(1.0);
         let lod = if d < 35.0 * px { 0 } else { 1 };
         self.jobs.borrow_mut().push(SkinJob {
             bones: bones.iter().flatten().copied().collect(),
@@ -2079,6 +2087,91 @@ impl Renderer {
             }
             self.ell(&jaw, [0.0, 1.5625, -0.075], [0.013, 0.005, 0.018], &r0, [0.55, 0.16, 0.18], 11.0, 0.0, 0.0);
         }
+    }
+
+    /// Another player: the zombies' body (see `draw_zombie`) standing straight in clean clothes, a colour of shirt
+    /// each, holding their gun up where they aim, legs going as they move, and lying flat while they are down.
+    /// Queues the body, as `draw_zombie` does; `draw_mate_gun` draws the gun.
+    fn draw_mate(&self, g: &Game, p: &crate::sim::Player) {
+        use crate::body as body;
+        use std::f32::consts::PI;
+        let at = p.body.pos;
+        let id = p.id as usize;
+        let speed = p.body.vel[0].hypot(p.body.vel[2]);
+        let amp = if p.body.on_ground { (speed / 5.0).min(1.0) } else { 0.3 };
+        let down = if p.alive() { 0.0 } else { 1.0 };
+        let base = mul(&mul(&translate(at[0], at[1] + 0.1 * down, at[2]), &rot_y(-p.yaw)), &rot_x(1.5 * down));
+        let ph = g.time * (4.0 + speed * 1.1) + id as f32;
+        let bob = (ph * 2.0).cos().abs() * 0.03 * amp;
+        let pelvis = mul(&mul(&base, &translate(0.0, -bob, 0.0)), &around([0.0, 0.94, 0.0], &rot_y(ph.sin() * 0.1 * amp)));
+        let spine = mul(&pelvis, &around([0.0, 0.98, 0.0], &rot_x(-0.08 - 0.1 * amp)));
+        let chest = mul(&spine, &around([0.0, 1.16, 0.0], &rot_x(-0.25 * p.pitch * (1.0 - down))));
+        let head = mul(&chest, &around([0.0, 1.54, 0.0], &rot_x(-0.6 * p.pitch * (1.0 - down))));
+        let jaw = mul(&head, &around(body::head_to_rest([0.0, 1.60, 0.03]), &rot_x(-0.05)));
+        let mut bones = [IDENTITY; body::BONES];
+        bones[body::PELVIS] = pelvis;
+        bones[body::SPINE] = spine;
+        bones[body::CHEST] = chest;
+        bones[body::HEAD] = head;
+        bones[body::JAW] = jaw;
+        for (k, side) in [-1.0f32, 1.0].iter().enumerate() {
+            let side = *side;
+            let phi = ph + if side > 0.0 { PI } else { 0.0 };
+            let (hip_a, knee_a) = (0.6 * amp * phi.sin(), 0.06 + 0.7 * amp * phi.cos().max(0.0));
+            let hip = mul(&pelvis, &around([0.0, 0.92, 0.0], &rot_x(hip_a)));
+            let knee = mul(&hip, &around([0.0, 0.50, 0.0], &rot_x(-knee_a)));
+            let ankle = mul(&knee, &around([0.0, 0.09, 0.0], &rot_x(-(hip_a - knee_a) * 0.7)));
+            bones[body::HIP + k] = hip;
+            bones[body::KNEE + k] = knee;
+            bones[body::ANKLE + k] = ankle;
+            // both hands on the gun, out in front and following the aim; a grenade in hand, the right arm goes up
+            // and back to throw. Down, the arms lie at the sides
+            let aim = (1.0 - down) * if p.aiming && side > 0.0 { 0.0 } else { 1.0 };
+            let throw = (1.0 - down) * if p.aiming && side > 0.0 { 1.0 } else { 0.0 };
+            let sh_a = (0.75 + 0.7 * p.pitch + if side > 0.0 { 0.0 } else { 0.15 }) * aim + 2.6 * throw + 0.1 * down;
+            let el_a = (if side > 0.0 { 1.0 } else { 0.55 }) * aim + 1.4 * throw;
+            let splay = -0.3 * aim + 0.25 * throw + 0.1 * down;
+            let sh = mul(&chest, &around([side * body::ARM_X, 1.41, 0.0], &mul(&rot_z(side * splay), &rot_x(sh_a))));
+            let el = mul(&sh, &around([0.0, 1.13, 0.0], &rot_x(el_a)));
+            let wr = mul(&el, &around([0.0, 0.87, 0.0], &rot_x(0.2)));
+            let rest = around([side * body::ARM_X, body::SHOULDER_Y, 0.0], &rot_z(-side * body::ARM_ANGLE));
+            bones[body::SHOULDER + k] = mul(&sh, &rest);
+            bones[body::ELBOW + k] = mul(&el, &rest);
+            bones[body::WRIST + k] = mul(&wr, &rest);
+        }
+        let shirt = [[0.16, 0.30, 0.62], [0.75, 0.38, 0.10], [0.22, 0.45, 0.20], [0.50, 0.20, 0.55], [0.70, 0.62, 0.15], [0.12, 0.50, 0.55], [0.62, 0.16, 0.18], [0.85, 0.85, 0.85]][id % 8];
+        let skin = [[0.80, 0.62, 0.50], [0.55, 0.40, 0.30], [0.90, 0.74, 0.62], [0.42, 0.30, 0.22]][(id / 2) % 4];
+        let hair = [[0.10, 0.07, 0.05], [0.45, 0.34, 0.17], [0.04, 0.035, 0.03], [0.30, 0.13, 0.07]][(id / 3) % 4];
+        let d = (at[0] - g.me().body.pos[0]).hypot(at[2] - g.me().body.pos[2]);
+        self.jobs.borrow_mut().push(SkinJob {
+            bones: bones.iter().flatten().copied().collect(),
+            lod: if d < 30.0 { 0 } else { 1 },
+            skin,
+            shirt,
+            pants: [0.17, 0.19, 0.16],
+            shoe: [0.08, 0.07, 0.06],
+            hair,
+            // a whole shirt with long sleeves, and none of the zombies' holes in it
+            cut: [0.85, 0.0, 0.0, 0.0],
+            hair_kind: [1.0, 0.0],
+            wounds: [[0.0; 4]; 3],
+            seed: -1.0,
+        });
+    }
+
+    /// Another player's gun, in their hands at the chest, pointing where they aim.
+    fn draw_mate_gun(&self, p: &crate::sim::Player) {
+        if !p.alive() || p.aiming {
+            return;
+        }
+        let (sy, cy) = p.yaw.sin_cos();
+        let right = [cy, 0.0, sy];
+        let at = p.body.pos;
+        let c = [at[0] + right[0] * 0.12 + sy * 0.3, at[1] + 1.33 + 0.3 * p.pitch.sin(), at[2] + right[2] * 0.12 - cy * 0.3];
+        let spec = self.guns[p.weapon].spec;
+        let gun = mul(&mul(&translate(c[0], c[1], c[2]), &mul(&rot_y(-p.yaw), &rot_x(p.pitch))), &translate(spec.hold[0], spec.hold[1], spec.hold[2]));
+        let reload = if p.reload_t > 0.0 { 0.5 } else { 0.0 };
+        self.draw_gun(p.weapon, &gun, 0.0, reload, 0.0, 0.0, 0.0, false);
     }
 
     fn draw_piece(&self, model: &M4, p: &GpuPiece) {
@@ -2150,7 +2243,7 @@ impl Renderer {
     /// The grenade in the right hand while aiming it, coming up from below as it's taken out; once it's thrown,
     /// the empty hand following through forward and down out of the view.
     fn draw_grenade_view(&self, g: &Game) {
-        let p = &g.player;
+        let p = g.me();
         let follow = 1.0 - p.throw_t / crate::sim::THROW_TIME; // 0 the moment it leaves the hand
         if !p.aiming && !(p.throw_t > 0.0 && follow < 0.4) {
             return;
@@ -2176,7 +2269,7 @@ impl Renderer {
     }
 
     fn draw_viewmodel(&self, g: &Game) {
-        let p = &g.player;
+        let p = g.me();
         let w = p.gun();
         let t = g.time;
         let speed = (p.body.vel[0].powi(2) + p.body.vel[2].powi(2)).sqrt();

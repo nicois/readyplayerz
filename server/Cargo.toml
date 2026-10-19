@@ -1,0 +1,9 @@
+[package]
+name = "server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arena = { path = ".." }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "fs", "io-util"] }
+wtransport = { version = "0.7", features = ["self-signed"] }

@@ -125,6 +125,23 @@
   #keys dd { margin: 0; }
   @media (max-width: 640px) { .pick { grid-template-columns: 1fr; } #menu h1 { font-size: 40px; } }
   #err { color: #ff8a8a; }
+  /* playing with friends: make or join a room, then the room's lobby */
+  .field { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0; }
+  .field .lbl { width: 110px; font-size: 13px; font-weight: normal; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
+  .field input { font: inherit; font-size: 16px; color: inherit; padding: 8px 10px; width: 220px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.22); border-radius: 4px; }
+  .field input:focus { outline: none; border-color: #ffd36a; }
+  #mp-code { width: 110px; text-transform: uppercase; letter-spacing: .2em; }
+  .btn { padding: 8px 16px; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; border: 1px solid rgba(255,255,255,.3) !important; border-radius: 4px; }
+  .btn:hover { border-color: #ffd36a !important; background: rgba(255,211,106,.12) !important; }
+  .btn.main { border-color: #ffd36a !important; background: rgba(255,211,106,.16) !important; }
+  .btn:disabled { opacity: .4; cursor: default; }
+  #mp-room-code { font-size: 44px; letter-spacing: .3em; color: #ffd36a; margin: 0 0 6px; }
+  #mp-link { width: min(520px, 100%); font-size: 13px; }
+  #mp-players { list-style: none; margin: 16px 0; padding: 0; font-size: 16px; }
+  #mp-players li { padding: 4px 0; }
+  #mp-players small { margin-left: 8px; font-size: 12px; opacity: .6; }
+  #mp-status { min-height: 1.4em; font-size: 13px; color: #ffd36a; }
+  #mp-error { min-height: 1.4em; font-size: 13px; color: #ff8a8a; }
   /* stamina, above the weapon slots: only shown while it isn't full, red while winded */
   #stamina { position: absolute; left: 50%; bottom: 70px; width: 160px; height: 4px; margin-left: -80px; background: rgba(0,0,0,.35); border-radius: 2px; overflow: hidden; opacity: 0; transition: opacity .4s; }
   #stamina.show { opacity: 1; transition: opacity .1s; }
@@ -176,12 +193,30 @@
     <p class="sub">Survive the waves. They don't stop. Health comes back if you stay clear for a while.</p>
     <nav>
       <button class="item" id="play">Play</button>
+      <button class="item" data-go="s-mp">Play with friends<small id="mp-sum"></small></button>
       <button class="item" data-go="s-loadout">Loadout<small id="sum"></small></button>
       <button class="item" data-go="s-settings">Settings</button>
       <button class="item danger" id="end">End game</button>
     </nav>
     <p class="note pending"></p>
     <p id="err"></p>
+  </section>
+  <section class="screen" id="s-mp">
+    <header><button class="back">&lsaquo; Back</button><h2>Play with friends</h2></header>
+    <div id="mp-out">
+      <p class="sub">Make a room and send your friends the link, or type in the code of a friend's room. Everyone fights the same waves together.</p>
+      <div class="field"><b class="lbl">Your name</b><input id="mp-name" maxlength="16" placeholder="Player"></div>
+      <div class="field"><button class="btn main" id="mp-create">Make a room</button></div>
+      <div class="field"><input id="mp-code" maxlength="4" placeholder="CODE"><button class="btn" id="mp-join">Join room</button></div>
+    </div>
+    <div id="mp-in" style="display:none">
+      <p id="mp-room-code"></p>
+      <div class="field"><input id="mp-link" readonly><button class="btn" id="mp-copy">Copy invite link</button></div>
+      <ul id="mp-players"></ul>
+      <div class="field"><button class="btn main" id="mp-start">Start the game</button><button class="btn" id="mp-play">Jump in</button><button class="btn" id="mp-leave">Leave room</button></div>
+    </div>
+    <p id="mp-status"></p>
+    <p id="mp-error"></p>
   </section>
   <section class="screen" id="s-loadout">
     <header><button class="back">&lsaquo; Back</button><h2>Loadout</h2></header>
@@ -225,6 +260,7 @@
 import init, { Client } from "./pkg/arena.js";
 import { Sound } from "./audio.js";
 import { Music } from "./music.js";
+import { Net } from "./net.js";
 
 const canvas = document.getElementById("c");
 const menu = document.getElementById("menu");
@@ -472,7 +508,7 @@ const pendingText = () => {
 };
 
 // screens, and where Back goes from each
-const BACK = { "s-loadout": "s-main", "s-settings": "s-main", "s-pick": "s-loadout" };
+const BACK = { "s-loadout": "s-main", "s-settings": "s-main", "s-pick": "s-loadout", "s-mp": "s-main" };
 let screen = "s-main";
 function show(id) {
   screen = id;
@@ -586,6 +622,8 @@ if (params.has("climb")) {
   const [s, side = 3, back = 3] = params.get("climb").split(",").map(Number);
   if (!client.show_climb(s, side, back)) console.log("no ledge to climb ahead");
 }
+// ?dev hands the game to the console (and to test scripts) as `client`
+if (params.has("dev")) window.client = client;
 const locked = () => document.pointerLockElement === canvas;
 // ending the game stays on the menu, ready to pick a loadout and start again
 $("end").addEventListener("click", () => {
@@ -598,12 +636,93 @@ document.addEventListener("pointerlockchange", () => {
   menu.style.display = locked() ? "none" : "flex";
   client.set_paused(!locked());
   music.setInPlay(locked());
-  if (!locked()) { client.release_all(); sound.cancel(); show("s-main"); }
+  if (!locked()) { client.release_all(); sound.cancel(); show(lobby.online ? "s-mp" : "s-main"); }
 });
+// ---- playing with friends: a room on the game server (see net.js), made here or joined by its code or link
+let net = null;
+let lobby = { online: false, error: "" };
+// the game server: the one the page came from when it is served from this machine (./server.sh), otherwise the
+// one on Fly (see fly.toml); ?server=host plays on another
+const local = ["localhost", "127.0.0.1"].includes(location.hostname);
+const server = params.get("server") || (local ? "" : "readyplayerz-game.fly.dev");
+try { $("mp-name").value = localStorage.getItem("name") || ""; } catch {}
+const mpStatus = t => ($("mp-status").textContent = t);
+async function joinRoom(code) {
+  const name = $("mp-name").value.trim();
+  try { localStorage.setItem("name", name); } catch {}
+  net?.close();
+  client.net_leave("");
+  $("mp-error").textContent = "";
+  mpStatus(code ? `Joining room ${code}...` : "Making a room...");
+  const n = new Net(client, why => {
+    if (net !== n) return;
+    net = null;
+    client.net_leave(why);
+    if (locked()) document.exitPointerLock();
+    show("s-mp");
+  });
+  net = n;
+  try {
+    await n.open(code, name, server);
+  } catch (e) {
+    n.lost(e.message || String(e));
+  }
+}
+function leaveRoom() {
+  net?.close();
+  net = null;
+  client.net_leave("");
+  history.replaceState(null, "", location.pathname + location.search.replace(/[?&]room=[^&]*/, "").replace(/^&/, "?"));
+  drawRoom();
+}
+// the lobby screen from where things stand
+function drawRoom() {
+  lobby = JSON.parse(client.lobby());
+  const inRoom = lobby.online;
+  $("mp-out").style.display = inRoom ? "none" : "block";
+  $("mp-in").style.display = inRoom ? "block" : "none";
+  $("mp-error").textContent = lobby.error;
+  $("mp-sum").textContent = inRoom ? `Room ${lobby.room} · ${lobby.players.length} in` : "";
+  if (!inRoom) {
+    if (!net) mpStatus("");
+    return;
+  }
+  const host = lobby.players[0]?.[0] === lobby.id;
+  $("mp-room-code").textContent = lobby.room;
+  const link = `${location.origin}${location.pathname}?room=${lobby.room}${params.has("server") ? `&server=${encodeURIComponent(server)}` : ""}`;
+  if ($("mp-link").value !== link) {
+    $("mp-link").value = link;
+    // the address bar shows the room too, so a reload comes back to it
+    history.replaceState(null, "", link);
+  }
+  const names = lobby.players.map(([id, name], i) => `<li>${name}${id === lobby.id ? "<small>you</small>" : ""}${i === 0 ? "<small>host</small>" : ""}</li>`);
+  if ($("mp-players").innerHTML !== names.join("")) $("mp-players").innerHTML = names.join("");
+  $("mp-start").style.display = host && !lobby.started ? "" : "none";
+  mpStatus(lobby.started ? "The game is under way: jump in." : host ? "Start the game when everyone is in. You can jump in and look around until then." : "Waiting for the host to start the game. You can jump in and look around until then.");
+}
+$("mp-create").addEventListener("click", () => joinRoom(""));
+$("mp-join").addEventListener("click", () => { const c = $("mp-code").value.trim().toUpperCase(); if (c) joinRoom(c); });
+$("mp-code").addEventListener("keydown", e => { if (e.key === "Enter") $("mp-join").click(); });
+$("mp-start").addEventListener("click", () => net?.start());
+$("mp-play").addEventListener("click", () => { sound.start(); canvas.requestPointerLock(); });
+$("mp-leave").addEventListener("click", leaveRoom);
+$("mp-copy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("mp-link").value); mpStatus("Link copied: send it to your friends."); }
+  catch { $("mp-link").select(); }
+});
+// an invite link: straight into the room. Dev flag: ?create makes one, for testing without clicking
+if (params.has("room")) {
+  show("s-mp");
+  joinRoom(params.get("room").toUpperCase());
+} else if (params.has("create")) {
+  show("s-mp");
+  joinRoom("");
+}
+
 addEventListener("keydown", e => {
   if (e.repeat) return;
   if (e.code === "Escape" && !locked() && BACK[screen]) show(BACK[screen]);
-  if (e.code === "KeyM") setSound(sound.muted ? 0 : 1);
+  if (e.code === "KeyM" && !(e.target instanceof HTMLInputElement)) setSound(sound.muted ? 0 : 1);
   if (locked()) { client.key(e.code, true); if (e.code === "Space") e.preventDefault(); }
 });
 addEventListener("keyup", e => client.key(e.code, false));
@@ -618,11 +737,15 @@ addEventListener("wheel", e => { if (locked() && e.deltaY) client.cycle_weapon(e
 const perf = params.has("perf") ? { n: 0, cpu: 0, worst: 0, since: 0 } : null;
 
 let lastFrame = 0;
+let lobbyFrames = 0;
 function loop(t) {
   const t0 = performance.now();
   if (lastFrame) autoFrame(t, t - lastFrame);
   lastFrame = t;
   client.frame(t);
+  net?.flush();
+  // the lobby, while the menu is up, and every so often in play for the score line
+  if (!locked() || ++lobbyFrames % 30 === 0) drawRoom();
   if (perf) {
     const ms = performance.now() - t0;
     perf.n++;
@@ -646,7 +769,7 @@ function loop(t) {
       m.className = kind;
     }
   }
-  const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped, killt, px, pz, pyaw, wave, left, carried, picked, inPlay, spread, stamina, winded, carried2, picked2, grenades, nextGrenade] = client.hud();
+  const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped, killt, px, pz, pyaw, wave, left, carried, picked, inPlay, spread, stamina, winded, carried2, picked2, grenades, nextGrenade, down, standing, team] = client.hud();
   $("hp").textContent = Math.ceil(hp);
   $("am").textContent = ammo;
   $("mg").textContent = mag;
@@ -658,8 +781,8 @@ function loop(t) {
     slots[s].classList.toggle("on", weapon === w);
   });
   $("sum").textContent = `${names[picked]} · ${names[picked2]}`;
-  $("end").style.display = inPlay ? "block" : "none";
-  $("play").textContent = inPlay ? "Resume" : "Play";
+  $("end").style.display = inPlay && !lobby.online ? "block" : "none";
+  $("play").textContent = lobby.online ? "Jump in" : inPlay ? "Resume" : "Play";
   const scopeOn = scoped && ads > 0.85;
   $("scope").style.display = scopeOn ? "block" : "none";
   $("cross").style.display = scopeOn || ads > 0.5 ? "none" : "block";
@@ -671,13 +794,19 @@ function loop(t) {
   $("rl").textContent = reloading ? "reloading..." : "";
   $("gr").textContent = `${grenades} grenade${grenades === 1 ? "" : "s"} [G]` + (nextGrenade > 0 ? ` · +1 in ${Math.ceil(nextGrenade)}s` : "");
   $("kd").textContent = `${kills} kills / ${deaths} deaths`;
-  $("score").textContent = left > 0 ? `Wave ${wave} \u00b7 ${left} left` : wave === 0 ? "Get ready..." : `Wave ${wave} cleared`;
+  const waiting = lobby.online && !lobby.started ? "Waiting for the host to start" : "Get ready...";
+  const squad = team > 1 ? ` \u00b7 ${standing} of ${team} standing` : "";
+  $("score").textContent = (left > 0 ? `Wave ${wave} \u00b7 ${left} left` : wave === 0 ? waiting : `Wave ${wave} cleared`) + squad;
   $("flash").style.opacity = flash;
   const dead = $("dead");
-  dead.style.display = respawn > 0 ? "block" : "none";
-  if (respawn > 0) {
-    dead.innerHTML = `Overrun on wave ${wave}. Restarting in ${respawn.toFixed(1)}`
-      + `<small>Next life: ${names[picked]} and ${names[picked2]} &middot; Esc to change your loadout</small>`;
+  // down with others still standing: back for the next wave; everyone down: the game starts over
+  const benched = down > 0 && standing > 0;
+  dead.style.display = respawn > 0 || benched ? "block" : "none";
+  const next = `<small>Next life: ${names[picked]} and ${names[picked2]} &middot; Esc to change your loadout</small>`;
+  if (benched) {
+    dead.innerHTML = `You're down. Back when the next wave starts` + next;
+  } else if (respawn > 0) {
+    dead.innerHTML = `Overrun on wave ${wave}. Restarting in ${respawn.toFixed(1)}` + next;
   }
   if (!loaded) {
     // the first frame has been drawn: show it on the next one

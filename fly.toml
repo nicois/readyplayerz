@@ -1,0 +1,35 @@
+# The game server on Fly: one machine, which holds every room in memory, so it is never stopped for being idle
+# (UDP wouldn't wake it) and there is never a second one (rooms on it would be invisible to the first). Deployed by
+# .github/workflows/deploy.yml with `--ha=false` for that reason. Needs a dedicated IPv4 for UDP.
+app = "readyplayerz-game"
+primary_region = "arn"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  HTTP_PORT = "8080"
+  GAME_PORT = "4433"
+  # Fly only routes UDP replies sent from this address
+  GAME_BIND = "fly-global-services"
+  PUBLIC_HOST = "readyplayerz-game.fly.dev"
+
+# /net, which tells the page the game's port and certificate hash, over Fly's https
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+# the game itself: WebTransport, on the same port inside and out
+[[services]]
+  protocol = "udp"
+  internal_port = 4433
+
+  [[services.ports]]
+    port = 4433
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

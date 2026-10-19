@@ -1,7 +1,7 @@
 // Synthesized sound effects. Everything is built from noise and oscillators, so there are no audio files.
 // The sim reports what happened as [code, a, b] triples; `play` turns them into sound.
 
-const SHOT = 1, HIT = 3, HEAD = 4, KILL = 5, HURT = 6, RELOAD = 7, EQUIP = 8, STEP = 9, JUMP = 10, LAND = 11, DEATH = 12, GROWL = 13, WAVE = 14, SNARL = 15, THROW = 16, BOUNCE = 17, BLAST = 18;
+const SHOT = 1, HIT = 3, HEAD = 4, KILL = 5, HURT = 6, RELOAD = 7, EQUIP = 8, STEP = 9, JUMP = 10, LAND = 11, DEATH = 12, GROWL = 13, WAVE = 14, SNARL = 15, THROW = 16, BOUNCE = 17, BLAST = 18, FAR_SHOT = 19;
 
 // the first three formants (Hz) of a man's vowels: oo, uh, aa, aw, and the a of "cat"
 const OO = [300, 870, 2240], UH = [640, 1190, 2390], AA = [730, 1090, 2440], AW = [570, 840, 2410], AE = [660, 1720, 2410];
@@ -178,7 +178,21 @@ export class Sound {
       this.noise(d, t, 0.05, "bandpass", 5000, 2500, 0.5, 3);
       this.noise(d, t + 0.16, 0.5, "lowpass", 600, 80, 0.2);
     }
-    // the action cycling after the shot, or a cylinder clicking round to the next chamber
+    this.cycle(c);
+  }
+
+  // someone else's shot, `dist` metres off to the side `pan`: quieter, duller and wetter the further it is, and
+  // a little late. Their gun's action cycles out of earshot
+  farShot(w, dist, pan) {
+    const c = GUNS[w] || GUNS[0], near = 1 / (1 + dist / 15), t = this.ctx.currentTime + Math.min(dist / 340, 0.3);
+    const r = 0.92 + Math.random() * 0.16, d = this.bus(pan * 0.8, Math.min(c.wet + 0.3 * (1 - near), 0.8));
+    this.noise(d, t, c.crack[2], "highpass", c.crack[0] * r * (0.5 + 0.5 * near), c.crack[0] * 0.4, c.crack[1] * 0.7 * near);
+    this.tone(d, t, "sine", c.thump[0] * r, c.thump[1], c.thump[2], c.thump[3] * 0.7 * near);
+    this.noise(d, t, c.tail[2] * 1.3, "lowpass", c.tail[0] * (0.4 + 0.6 * near), c.tail[1], c.tail[3] * (0.4 + 0.5 * near));
+  }
+
+  // the action cycling after a shot, or a cylinder clicking round to the next chamber
+  cycle(c) {
     if (c.action === "pump") {
       this.after(380, () => this.clack(0.6, 1.0));
       this.after(560, () => this.clack(0.6, 0.85));
@@ -440,6 +454,7 @@ export class Sound {
         case THROW: this.throw(); break;
         case BOUNCE: this.bounce(a, b); break;
         case BLAST: this.blast(a, b); break;
+        case FAR_SHOT: { const w = Math.round(b / 4); this.farShot(w, a, b - 4 * w); break; }
       }
     }
   }

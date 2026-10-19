@@ -879,9 +879,9 @@ mod tests {
     #[test]
     fn zombies_climb_the_stairs_to_a_player_on_an_upper_floor() {
         let (mut g, b) = lone_building(3);
-        g.player.hp = 1e6;
+        g.players[0].hp = 1e6;
         // the player stands on the second floor at the east end, a zombie waits on the ground floor
-        g.player.body.pos = [b.max[0] - 2.0, 3.3, 0.0];
+        g.players[0].body.pos = [b.max[0] - 2.0, 3.3, 0.0];
         let mut z = crate::sim::Bot::zombie([b.min[0] + 2.5, 0.0, 0.0], 0.0);
         z.hp = 1e6;
         g.bots.push(z);
@@ -892,7 +892,7 @@ mod tests {
             if let Some(z) = g.bots.first() {
                 top = top.max(z.body.pos[1]);
             }
-            if g.player.hp < 100.0 {
+            if g.players[0].hp < 100.0 {
                 bitten = true;
                 break;
             }
@@ -905,18 +905,18 @@ mod tests {
     fn the_stairs_in_a_building_lead_up_to_the_next_floor_and_the_roof() {
         let (mut g, b) = lone_building(3);
         // foot of the first flight, hugging the north wall and facing east
-        g.player.body.pos = [b.min[0] + 0.8, 0.0, b.min[2] + 1.0];
-        g.player.yaw = std::f32::consts::FRAC_PI_2;
-        g.input.w = true;
+        g.players[0].body.pos = [b.min[0] + 0.8, 0.0, b.min[2] + 1.0];
+        g.players[0].yaw = std::f32::consts::FRAC_PI_2;
+        g.players[0].input.w = true;
         walk(&mut g, 4.0);
-        let y = g.player.body.pos[1];
+        let y = g.players[0].body.pos[1];
         assert!((3.2..3.5).contains(&y), "first flight ended at height {y}");
         // second flight runs back along the south wall from the east end
-        g.player.body.pos = [b.max[0] - 0.8, 3.3, b.max[2] - 1.0];
-        g.player.body.vel = [0.0; 3];
-        g.player.yaw = -std::f32::consts::FRAC_PI_2;
+        g.players[0].body.pos = [b.max[0] - 0.8, 3.3, b.max[2] - 1.0];
+        g.players[0].body.vel = [0.0; 3];
+        g.players[0].yaw = -std::f32::consts::FRAC_PI_2;
         walk(&mut g, 4.0);
-        let y = g.player.body.pos[1];
+        let y = g.players[0].body.pos[1];
         assert!((6.5..6.8).contains(&y), "second flight ended at height {y}");
     }
 
@@ -925,11 +925,11 @@ mod tests {
         let (mut g, b) = lone_building(2);
         // the player stands near the top of the open flight; the zombie is on the floor beside it, where it can
         // see them over the edge of the steps but can't jump up
-        g.player.body.pos = [-1.0, 3.0, b.min[2] + 1.0];
+        g.players[0].body.pos = [-1.0, 3.0, b.min[2] + 1.0];
         g.bots.push(crate::sim::Bot::zombie([-1.0, 0.0, -1.0], 0.0));
         for _ in 0..(10.0 / crate::sim::STEP) as usize {
             g.tick(crate::sim::STEP);
-            if g.player.hp < 100.0 {
+            if g.players[0].hp < 100.0 {
                 return;
             }
         }
@@ -939,24 +939,24 @@ mod tests {
     #[test]
     fn running_up_and_down_the_stairs_is_smooth() {
         let (mut g, b) = lone_building(2);
-        g.player.body.pos = [b.min[0] + 0.8, 0.0, b.min[2] + 1.0];
-        g.input.w = true;
-        g.input.sprint = true;
+        g.players[0].body.pos = [b.min[0] + 0.8, 0.0, b.min[2] + 1.0];
+        g.players[0].input.w = true;
+        g.players[0].input.sprint = true;
         // up the flight, then turn round at the top and run back down it
         for (yaw, to) in [(std::f32::consts::FRAC_PI_2, 3.3), (-std::f32::consts::FRAC_PI_2, 0.0)] {
-            g.player.yaw = yaw;
-            let mut eye = g.player.eye()[1];
+            g.players[0].yaw = yaw;
+            let mut eye = g.players[0].eye()[1];
             let mut airborne = 0;
             for _ in 0..(2.5 / crate::sim::STEP) as usize {
                 g.tick(crate::sim::STEP);
-                let e = g.player.eye()[1];
+                let e = g.players[0].eye()[1];
                 // a sprint up a smooth slope this steep rises 0.075 a tick; a bare step would jump 0.3
-                assert!((e - eye).abs() < 0.12, "the eye jumped {} in one tick at {:?}", e - eye, g.player.body.pos);
+                assert!((e - eye).abs() < 0.12, "the eye jumped {} in one tick at {:?}", e - eye, g.players[0].body.pos);
                 eye = e;
-                airborne += !g.player.body.on_ground as usize;
+                airborne += !g.players[0].body.on_ground as usize;
             }
             assert_eq!(airborne, 0, "left the steps for {airborne} ticks");
-            let y = g.player.body.pos[1];
+            let y = g.players[0].body.pos[1];
             assert!((y - to).abs() < 0.05, "ended at height {y}, not {to}");
         }
     }
@@ -970,27 +970,27 @@ mod tower {
     fn the_stair_round_the_clock_tower_climbs_all_the_way_to_the_balcony() {
         let mut g = crate::sim::Game::new(1);
         g.bots.clear();
-        g.player.hp = 1e6;
-        g.player.body.pos = [-1.5, 0.6, 3.7];
+        g.players[0].hp = 1e6;
+        g.players[0].body.pos = [-1.5, 0.6, 3.7];
         // once round the corners and on to the east face's, then up the last flight on the north face and out
         // onto the deck
         let c = 3.7;
         let route = [[c, c], [c, -c], [-c, -c], [-c, c], [c, c], [c, -c], [-2.7, -c], [-4.6, 0.0]];
-        g.input.w = true;
+        g.players[0].input.w = true;
         for (i, to) in route.iter().enumerate() {
             for _ in 0..(8.0 / crate::sim::STEP) as usize {
-                let p = g.player.body.pos;
+                let p = g.players[0].body.pos;
                 let (dx, dz) = (to[0] - p[0], to[1] - p[2]);
                 if dx.hypot(dz) < 0.25 {
                     break;
                 }
-                g.player.yaw = dx.atan2(-dz);
+                g.players[0].yaw = dx.atan2(-dz);
                 g.tick(crate::sim::STEP);
             }
-            let p = g.player.body.pos;
+            let p = g.players[0].body.pos;
             assert!((to[0] - p[0]).hypot(to[1] - p[2]) < 0.3, "stuck on the way to corner {i} at {p:?}");
         }
-        let y = g.player.body.pos[1];
+        let y = g.players[0].body.pos[1];
         assert!((21.8..22.0).contains(&y), "ended at height {y}, not on the deck");
     }
 }
@@ -1011,13 +1011,13 @@ mod debug {
         let mats = vec![0; walls.len()];
         let mut g = crate::sim::Game::with_map(1, Map { half: HALF, walls, colors: c, mats, decals: Vec::new(), spawns: Vec::new(), ground: None });
         g.bots.clear();
-        g.player.body.pos = [-7.2, 0.0, -3.6];
-        g.player.yaw = std::f32::consts::FRAC_PI_2;
-        g.input.w = true;
+        g.players[0].body.pos = [-7.2, 0.0, -3.6];
+        g.players[0].yaw = std::f32::consts::FRAC_PI_2;
+        g.players[0].input.w = true;
         for i in 0..240 {
             g.tick(crate::sim::STEP);
             if i % 15 == 0 {
-                println!("{:.2} {:?} vel {:?} hp {}", i as f32 / 60.0, g.player.body.pos, g.player.body.vel, g.player.hp);
+                println!("{:.2} {:?} vel {:?} hp {}", i as f32 / 60.0, g.players[0].body.pos, g.players[0].body.vel, g.players[0].hp);
             }
         }
     }

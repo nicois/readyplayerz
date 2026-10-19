@@ -16,6 +16,11 @@ web-sys = { version = "0.3", features = [
   "WebGlRenderbuffer",
 ] }
 
+[workspace]
+# the game server, run natively; the wasm build only ever builds the game itself
+members = ["server"]
+default-members = ["."]
+
 [profile.release]
 opt-level = 3
 lto = true

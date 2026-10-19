@@ -854,14 +854,14 @@ mod tests {
         println!("nav field in {:?}", t.elapsed());
         let t = std::time::Instant::now();
         for k in 0..10 {
-            nav.follow([k as f32 * 3.0, 0.0, 14.0]);
+            nav.follow(&[[k as f32 * 3.0, 0.0, 14.0]]);
         }
         println!("a route to the player in {:?}", t.elapsed() / 10);
         let world = Grid::new(super::build(1).walls, 4.0);
         let mut nav = Nav::new(&world, HALF);
         let t = std::time::Instant::now();
         for k in 0..10 {
-            nav.follow([k as f32 * 3.0, 0.0, 14.0]);
+            nav.follow(&[[k as f32 * 3.0, 0.0, 14.0]]);
         }
         println!("on the town, a route in {:?}", t.elapsed() / 10);
     }
@@ -961,14 +961,14 @@ mod tests {
         for at in [[-60.0, -110.0], [-80.0, -110.0], [-52.0, -117.0]] {
             let mut g = crate::sim::Game::on(1, 1);
             g.bots.clear();
-            g.player.body.pos = [at[0], 3.35, at[1]];
+            g.players[0].body.pos = [at[0], 3.35, at[1]];
             for k in 0..6 {
                 let mut z = crate::sim::Bot::zombie([-62.0 + k as f32, 0.0, -123.0], k as f32);
                 z.hp = 1e6;
                 g.bots.push(z);
             }
             for _ in 0..(30.0 / crate::sim::STEP) as usize {
-                g.player.hp = 100.0;
+                g.players[0].hp = 100.0;
                 g.tick(crate::sim::STEP);
                 // the waves would bring more
                 g.bots.truncate(6);
