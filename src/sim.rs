@@ -890,10 +890,57 @@ fn scramble(pos: V3, to: V3, world: &Grid) -> Option<Climb> {
     // finely: where a garage roof runs out a hand's breadth past the house beside it, that is all there is to stand on
     let mut around: Vec<V3> = (-5..=5).flat_map(|i| (-5..=5).map(move |k| [to[0] + i as f32 * 0.1, to[1] + EPS, to[2] + k as f32 * 0.1])).collect();
     around.sort_by(|a, b| (a[0] - pos[0]).hypot(a[2] - pos[2]).total_cmp(&(b[0] - pos[0]).hypot(b[2] - pos[2])));
-    let at = around.into_iter().find(|&p| fits(p) && !fits([p[0], p[1] - 0.05, p[2]]))?;
+    let on = |p: V3, hw: f32| {
+        let b = aabb_at([p[0], p[1] - 0.05, p[2]], hw, 0.05);
+        world.find(&b, |w| overlaps(&b, w))
+    };
+    // somewhere with something under the middle of the body if there is one: set down on a sliver of the end of a
+    // fence, it only slides off again, and again
+    let at = around.iter().copied().find(|&p| fits(p) && on(p, HW / 2.0)).or_else(|| around.iter().copied().find(|&p| fits(p) && on(p, HW)))?;
     let (dx, dz) = (at[0] - pos[0], at[2] - pos[2]);
     let time = BOT_CLIMB_PACE.0 + BOT_CLIMB_PACE.1 * (at[1] - pos[1]);
     Some(Climb { start: pos, from: pos, to: at, t: 0.0, time, yaw: dx.atan2(-dz), edge: dx.hypot(dz).max(HW), heave: true, squeeze: false })
+}
+
+/// How many steps of its route a zombie looks along for the furthest it can walk straight to.
+const LOOK_AHEAD: usize = 4;
+
+/// Where a zombie at `pos` whose route's next step is `first` heads for: the furthest step of the route a few on
+/// that it can walk to in a straight line on the level, so it cuts across a lawn and rounds a corner as someone
+/// would, instead of going cell to cell along the route's eight ways. Anything else, a stair, a climb, a drop or
+/// a fence top, it takes a step at a time.
+fn look_ahead(nav: &Nav, world: &Grid, pos: V3, first: V3) -> V3 {
+    let level = |a: V3, b: V3| (a[1] - b[1]).abs() < 0.3;
+    // nothing in the way of a body walking from `pos` to `to`, from above a step to the top of the head and across
+    // its width, and somewhere to walk all along
+    let straight = |to: V3| {
+        let d = [to[0] - pos[0], to[1] - pos[1], to[2] - pos[2]];
+        let flat = d[0].hypot(d[2]);
+        if flat < 0.01 {
+            return true;
+        }
+        let r = len(d);
+        let u = [d[0] / r, d[1] / r, d[2] / r];
+        let side = [-d[2] / flat * HW * 0.9, d[0] / flat * HW * 0.9];
+        let ground = (1..(flat / 0.5) as usize + 1).all(|k| {
+            let s = k as f32 * 0.5 / flat;
+            nav.level_at([pos[0] + d[0] * s, pos[1] + d[1] * s, pos[2] + d[2] * s])
+        });
+        ground && [STEP_UP + 0.05, 1.0, 1.7].iter().all(|&y| {
+            [-1.0, 0.0, 1.0].iter().all(|&s| world.raycast_walls([pos[0] + side[0] * s, pos[1] + y, pos[2] + side[1] * s], u, r) >= r)
+        })
+    };
+    if !level(pos, first) {
+        return first;
+    }
+    let (mut aim, mut at) = (first, first);
+    for _ in 0..LOOK_AHEAD {
+        match nav.next(at) {
+            Some(n) if level(at, n) && straight(n) => (aim, at) = (n, n),
+            _ => break,
+        }
+    }
+    aim
 }
 
 /// How long a zombie stands at the foot of a climb its route goes up, finding no edge to get over, before it
@@ -1011,7 +1058,16 @@ impl Game {
             let yaw = (to[0] - b.body.pos[0]).atan2(-(to[2] - b.body.pos[2]));
             find_ledge(b.body.pos, yaw, BOT_REACH, BOT_CLIMB_PACE, true, &self.world).map(|c| c.to)
         });
-        format!("pos {:.2?} ground {} climbing {} direct {} next {next:.2?} ledge {ledge:.2?}", b.body.pos, b.body.on_ground, b.climb.is_some(), b.direct)
+        format!("pos {:.2?} vel {:.1?} ground {} climbing {} direct {} balk {:.2} next {next:.2?} ledge {ledge:.2?}", b.body.pos, b.body.vel, b.body.on_ground, b.climb.is_some(), b.direct, b.balk_t)
+    }
+
+    /// Brings `n` zombies of wave `wave` in at once, from the spawn points as the waves would, for a test.
+    #[cfg(test)]
+    pub(crate) fn send(&mut self, n: u32, wave: u32) {
+        self.wave = wave;
+        for _ in 0..n {
+            self.spawn_zombie();
+        }
     }
 
     /// Zombies still to kill this wave: those alive plus those yet to arrive.
@@ -1104,6 +1160,15 @@ impl Game {
             }
             if walk < best.0 {
                 best = (walk, Some(s));
+            }
+        }
+        // none with a route: the players are somewhere a long walk from every spawn point, as up on the school
+        // roof, and the field doesn't reach that far. So it comes in on the ground somewhere along the way
+        if best.1.is_none() {
+            let far = |s: &V3| from.iter().all(|p| (s[0] - p[0]).hypot(s[2] - p[2]) >= SPAWN_NEAR);
+            let along: Vec<V3> = self.nav.ground_within(SPAWN_WALK).into_iter().filter(far).collect();
+            if !along.is_empty() {
+                return along[self.rng.next() as usize % along.len()];
             }
         }
         best.1.unwrap_or_else(|| self.pick_spawn(&from, SPAWN_NEAR))
@@ -1576,7 +1641,8 @@ impl Game {
         if self.role != Role::Mirror {
             let goals = self.standing();
             if !goals.is_empty() {
-                self.nav.follow(&goals);
+                let zombies: Vec<V3> = self.bots.iter().filter(|b| b.alive).map(|b| b.body.pos).collect();
+                self.nav.follow(&goals, &zombies);
             }
             self.tick_respawns(dt);
             self.tick_waves(dt);
@@ -1925,8 +1991,21 @@ impl Game {
                     b.climb = None;
                 }
             } else {
+                // a climb goes from the spot the route has it on, and the route only knows metre cells: on a fence
+                // across two of them it may be at the far end of the wrong one, and heading straight for the top of
+                // the climb from there takes it in under a tree's canopy, so it goes along into the right one first
+                let climb_to = next.filter(|to| !b.direct && !through && to[1] - b.body.pos[1] > 0.65);
+                let near = |to: &V3| (to[0] - b.body.pos[0]).hypot(to[2] - b.body.pos[2]) < 1.5;
+                let from = climb_to.filter(|to| !near(to)).and_then(|_| self.nav.from_cell(b.body.pos));
+                let off = from.map(|c| [c[0] + (b.body.pos[0] - c[0]).clamp(-0.35, 0.35), c[1] + (b.body.pos[2] - c[1]).clamp(-0.35, 0.35)]);
+                let off = off.filter(|o| (o[0] - b.body.pos[0]).hypot(o[1] - b.body.pos[2]) > 0.05);
                 let mut tv = match next {
                     Some(to) if !b.direct => {
+                        let to = match off {
+                            Some(o) => [o[0], b.body.pos[1], o[1]],
+                            None if b.body.on_ground && !through => look_ahead(&self.nav, world, b.body.pos, to),
+                            None => to,
+                        };
                         let (rx, rz) = (to[0] - b.body.pos[0], to[2] - b.body.pos[2]);
                         let l = (rx * rx + rz * rz).sqrt().max(1e-4);
                         [rx / l * go, rz / l * go]
@@ -1938,18 +2017,19 @@ impl Game {
                         [nx * go - nz * st, nz * go + nx * st]
                     }
                 };
-                // push apart from neighbours so a horde doesn't stack into one body
+                // push apart from neighbours so a horde doesn't stack into one body; only those level with it: one
+                // up on a fence isn't shouldered off it by the crowd at its foot
                 for (j, (pj, aj)) in snap.iter().enumerate() {
                     let (ox, oz) = (b.body.pos[0] - pj[0], b.body.pos[2] - pj[2]);
                     let d = (ox * ox + oz * oz).sqrt();
-                    if j != i && *aj && d < 0.9 && d > 0.001 {
+                    if j != i && *aj && d < 0.9 && d > 0.001 && (b.body.pos[1] - pj[1]).abs() < 1.2 {
                         tv[0] += ox / d * (0.9 - d) * 4.0;
                         tv[1] += oz / d * (0.9 - d) * 4.0;
                     }
                 }
                 // up on something (a fence, a hedge) with the climb from it not yet found, it keeps still while it
                 // looks: walking on at the edge would take it off what it is on and back to the ground
-                let foot = next.filter(|to| !b.direct && to[1] - b.body.pos[1] > 0.65 && (to[0] - b.body.pos[0]).hypot(to[2] - b.body.pos[2]) < 1.5);
+                let foot = climb_to.filter(|to| near(to) || off.is_none() && (to[0] - b.body.pos[0]).hypot(to[2] - b.body.pos[2]) < 2.2);
                 if foot.is_some() && b.balk_t > 0.0 && b.body.pos[1] > world.ground_at(b.body.pos[0], b.body.pos[2]) + 0.3 {
                     tv = [0.0; 2];
                 }
@@ -1958,13 +2038,12 @@ impl Game {
                 // knows metre cells, so where the edge can't be got over facing the way it goes (a narrow eave seen
                 // end on from a hedge under it), it tries the other ways round for an edge up to the same height. Or
                 // up onto what the route takes it to be on already: it may be beside the hedge the climb starts from
-                let ledge = next.filter(|to| !b.direct && !through && to[1] - b.body.pos[1] > 0.65);
                 // a route through a window: once at the wall, in through it
                 if let Some(to) = next.filter(|_| through && !b.direct && b.body.on_ground) {
                     let yaw = (to[0] - b.body.pos[0]).atan2(-(to[2] - b.body.pos[2]));
                     b.climb = find_vault(b.body.pos, yaw, BOT_REACH, BOT_CLIMB_PACE, true, world);
                 }
-                if let Some(to) = ledge.filter(|to| (to[0] - b.body.pos[0]).hypot(to[2] - b.body.pos[2]) < 1.5) {
+                if let Some(to) = foot {
                     let yaw = (to[0] - b.body.pos[0]).atan2(-(to[2] - b.body.pos[2]));
                     let on = self.nav.standing(b.body.pos).filter(|h| h - b.body.pos[1] > LEDGE_LOW);
                     let wanted = |c: &Climb| (c.to[1] - to[1]).abs() < 0.15 || on.is_some_and(|h| (c.to[1] - h).abs() < 0.15);

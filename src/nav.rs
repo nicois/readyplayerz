@@ -15,14 +15,16 @@ const CLIMB: f32 = 0.65;
 const DROP: f32 = 7.0;
 /// Highest a spot can be above someone's feet and still be what they stand on (they may be mid-hop onto it).
 const REACH_UP: f32 = 1.0;
+/// Higher than a jump goes (see `sim::JUMP`): a body this far above the spot under it is standing on something else.
+const PERCH: f32 = 1.5;
 /// Body height a standing spot needs clear above it.
 const HEADROOM: f32 = 1.8;
 /// Narrowest top a bot can stand on: a garden fence, not a post or a rail.
 const FOOTING: f32 = 0.11;
-/// Narrowest top a bot walks along. One narrower is only climbed onto and stepped off again, as a fence is on the
-/// way up onto a roof: walked along, a body slips off it and climbs back on for ever. And it costs as much as
-/// going this many steps further, so a route only goes over one where there is no other way: a parapet beside a gap
-/// in it is gone round through the gap.
+/// Narrowest top a bot walks along freely. One narrower, a fence, costs as much as going this many steps further
+/// for each step onto it, so a route only goes over one where there is no other way, as on the way up onto a roof,
+/// and along one only the step or two it takes to get to where the climb from it goes up: a parapet beside a gap
+/// in it is gone round through the gap, and nobody walks the length of a garden fence.
 const WALKWAY: f32 = 0.35;
 const NARROW_COST: u32 = 30;
 /// Tallest ledge a bot pulls itself up onto (see `sim::BOT_REACH`), with room above it to rise; a climb costs as
@@ -36,6 +38,8 @@ const VAULT_COST: u32 = 50;
 const FOLLOW: u32 = 1400;
 /// More than the dearest single step: a diagonal and a climb onto a narrow top.
 const BUCKETS: usize = 128;
+/// Half a body's width (see `sim::HW`).
+const HW: f32 = 0.4;
 
 /// One standable spot: the middle of a cell at some height.
 pub struct Nav {
@@ -55,8 +59,11 @@ pub struct Nav {
     cost: Vec<u32>,
     /// the spots the field leads to: each route goes to whichever is nearest
     goals: Vec<usize>,
-    /// how far out from the goal the field was worked out
+    /// how far out from the goal the field was worked out, and whether that took in everywhere with a route
     reach: u32,
+    complete: bool,
+    /// the spots the route search still has to get to before it stops (see `follow`)
+    needed: Vec<bool>,
     /// the spots that can step onto each spot: `into[into_start[i]..into_start[i + 1]]`, with what the step costs
     into_start: Vec<u32>,
     into: Vec<u32>,
@@ -114,7 +121,7 @@ impl Nav {
         start.push(spots.len() as u32);
         solid_start.push(solid.len() as u32);
         let total = spots.len();
-        let mut nav = Nav { half, n, start, spots, narrow, solid_start, solid, ground, cost: vec![UNREACHED; total], goals: Vec::new(), reach: UNREACHED, into_start: Vec::new(), into: Vec::new(), into_cost: Vec::new(), through: Vec::new(), buckets: Vec::new() };
+        let mut nav = Nav { half, n, start, spots, narrow, solid_start, solid, ground, cost: vec![UNREACHED; total], goals: Vec::new(), reach: UNREACHED, complete: false, needed: Vec::new(), into_start: Vec::new(), into: Vec::new(), into_cost: Vec::new(), through: Vec::new(), buckets: Vec::new() };
         nav.link(world);
         nav
     }
@@ -216,9 +223,7 @@ impl Nav {
         let c2 = (c.0 + d.0, c.1 + d.1);
         let ground = self.on_ground(c, from);
         let run = if d.0 != 0 && d.1 != 0 { std::f32::consts::SQRT_2 } else { 1.0 };
-        // never from one narrow top along to another: see `WALKWAY`
         let to = self.in_cell(c2)
-            .filter(|&s| !(self.narrow[from] && self.narrow[s]))
             .filter(|&s| self.can_step(h, self.spots[s], self.on_ground(c2, s), run))
             .min_by(|a, b| (self.spots[*a] - h).abs().partial_cmp(&(self.spots[*b] - h).abs()).unwrap())?;
         if d.0 != 0 && d.1 != 0 {
@@ -269,8 +274,12 @@ impl Nav {
     fn spot_of(&self, p: V3) -> Option<usize> {
         let c = self.cell_of(p[0], p[2])?;
         let own = self.in_cell(c).min_by(|a, b| (self.spots[*a] - p[1]).abs().partial_cmp(&(self.spots[*b] - p[1]).abs()).unwrap());
-        if let Some(s) = own.filter(|&s| self.spots[s] < p[1] + REACH_UP && self.cost[s] != UNREACHED) {
-            return Some(s);
+        // more than a jump above anything in its own cell, it is perched on the corner of something in the next,
+        // as the canopy of a tree overhangs past the trunk: taken to be on the ground under it, it would stand
+        // up there waiting to find the climb onto the fence its route goes up next
+        let perched = |s: usize| p[1] - self.spots[s] > PERCH;
+        if let Some(s) = own.filter(|&s| self.spots[s] < p[1] + REACH_UP && self.cost[s] != UNREACHED && !perched(s)) {
+            return Some(self.along_narrow(p, s));
         }
         let mut best = (f32::INFINITY, None);
         for dz in -1..=1 {
@@ -291,28 +300,63 @@ impl Nav {
         best.1.or(own)
     }
 
+    /// A body on spot `s` that is the top of a fence is on the fence wherever its feet overlap it, and a fence
+    /// across the line between two cells is a spot in each. Going along it from one to the other is dear (see
+    /// `WALKWAY`), and dearer than it is worth to a body already standing on both, so it is on whichever has the
+    /// shorter route: climbed onto from a garden, it is set down just over the middle of the fence, and taken to
+    /// be on the far side's spot it would go down off it into the street and round to the garden again.
+    fn along_narrow(&self, p: V3, s: usize) -> usize {
+        if !self.narrow[s] {
+            return s;
+        }
+        let h = self.spots[s];
+        let mut best = s;
+        for (x, z) in [(p[0] - HW, p[2] - HW), (p[0] + HW, p[2] - HW), (p[0] - HW, p[2] + HW), (p[0] + HW, p[2] + HW)] {
+            let Some(c) = self.cell_of(x, z) else { continue };
+            for k in self.in_cell(c) {
+                if self.narrow[k] && (self.spots[k] - h).abs() < 0.01 && self.cost[k] < self.cost[best] {
+                    best = k;
+                }
+            }
+        }
+        best
+    }
+
     /// Points the field at `p`, at whatever height it is standing, from everywhere there is a route.
     pub fn set_goal(&mut self, p: V3) {
-        self.route_to(&[p], UNREACHED);
+        self.route_to(&[p], UNREACHED, &[]);
     }
 
-    /// Points the field at the nearest of `ps` (the players) from only as far as `FOLLOW` away: as far as zombies
-    /// ever need a route from, and the same work on a big map as on a small one.
-    pub fn follow(&mut self, ps: &[V3]) {
-        self.route_to(ps, FOLLOW);
+    /// Points the field at the nearest of `ps` (the players) from as far as `FOLLOW` away, the same work on a big
+    /// map as on a small one, and on past that as far as it takes to reach the zombies at `need` too: most of the
+    /// time they are well inside it, but someone up on the school roof is a 200 m walk from the street, up the one
+    /// stair at the far end of it. Does nothing if the players are all still on the same spots and the zombies
+    /// all have a route, or none can be had.
+    pub fn follow(&mut self, ps: &[V3], need: &[V3]) {
+        let need: Vec<usize> = need.iter().filter_map(|&p| self.nearest_spot(p, 1)).collect();
+        self.route_to(ps, FOLLOW, &need);
     }
 
-    /// Points the field at the nearest of `ps` from everywhere within `reach` in path cost. Does nothing if they
-    /// are all still on the same spots.
-    fn route_to(&mut self, ps: &[V3], reach: u32) {
+    /// Points the field at the nearest of `ps` from everywhere within `reach` in path cost, or as far as it takes
+    /// to get to all of `need`.
+    fn route_to(&mut self, ps: &[V3], reach: u32, need: &[usize]) {
         let mut goals: Vec<usize> = ps.iter().filter_map(|&p| self.nearest_spot(p, GOAL_SEARCH)).collect();
         goals.sort_unstable();
         goals.dedup();
-        if goals == self.goals && reach == self.reach {
+        let short = !self.complete && need.iter().any(|&s| self.cost[s] == UNREACHED);
+        if goals == self.goals && reach == self.reach && !short {
             return;
         }
         self.reach = reach;
         self.cost.fill(UNREACHED);
+        self.needed.resize(self.spots.len(), false);
+        let mut wanted = 0;
+        for &s in need {
+            if !self.needed[s] {
+                self.needed[s] = true;
+                wanted += 1;
+            }
+        }
         // Dijkstra with a bucket per cost instead of a heap: no step costs more than BUCKETS - 1, so the spots
         // waiting to be done only ever span that many costs, and a ring of buckets holds them in order
         let mut buckets = std::mem::take(&mut self.buckets);
@@ -323,7 +367,8 @@ impl Nav {
         }
         let (mut d, mut waiting) = (0u32, goals.len());
         self.goals = goals;
-        while waiting > 0 {
+        // past `reach`, only as long as some of `need` are still to be got to
+        while waiting > 0 && (d <= reach || wanted > 0) {
             let b = d as usize % BUCKETS;
             while let Some(i) = buckets[b].pop() {
                 waiting -= 1;
@@ -331,10 +376,14 @@ impl Nav {
                 if self.cost[i] != d {
                     continue;
                 }
+                if self.needed[i] {
+                    self.needed[i] = false;
+                    wanted -= 1;
+                }
                 // walk the field backwards, through the spots that can step onto this one
                 for k in self.into_start[i] as usize..self.into_start[i + 1] as usize {
                     let (j, nd) = (self.into[k] as usize, d + self.into_cost[k] as u32);
-                    if nd < self.cost[j] && nd <= reach {
+                    if nd < self.cost[j] {
                         self.cost[j] = nd;
                         buckets[nd as usize % BUCKETS].push(j as u32);
                         waiting += 1;
@@ -342,6 +391,18 @@ impl Nav {
                 }
             }
             d += 1;
+        }
+        // stopped short: what is still waiting is past the edge of the field, as if never got to
+        self.complete = waiting == 0;
+        for b in &mut buckets {
+            for i in b.drain(..) {
+                if self.cost[i as usize] >= d {
+                    self.cost[i as usize] = UNREACHED;
+                }
+            }
+        }
+        for &s in need {
+            self.needed[s] = false;
         }
         self.buckets = buckets;
     }
@@ -475,6 +536,22 @@ impl Nav {
         (ground.len(), reached)
     }
 
+    /// The middles of the ground spots with a walk to the goal of no more than `walk` metres, as points.
+    pub fn ground_within(&self, walk: f32) -> Vec<V3> {
+        let n = self.n as i32;
+        let most = (walk * 10.0 / CELL) as u32;
+        (0..n * n).map(|i| (i % n, i / n)).flat_map(|c| self.in_cell(c).filter(move |&s| self.on_ground(c, s) && self.cost[s] <= most).map(move |s| (c, s))).map(|(c, s)| {
+            let m = self.center(c);
+            [m[0], self.spots[s], m[1]]
+        }).collect()
+    }
+
+    /// True if a body can walk across `p` at about the height of its feet: the cell under it has a spot within
+    /// a step of them, and not the top of a fence.
+    pub fn level_at(&self, p: V3) -> bool {
+        self.cell_of(p[0], p[2]).is_some_and(|c| self.in_cell(c).any(|s| (self.spots[s] - p[1]).abs() < CLIMB && !self.narrow[s]))
+    }
+
     /// True if `p` stands on a spot that has a route to the goal.
     pub fn reachable(&self, p: V3) -> bool {
         self.spot_of(p).is_some_and(|s| self.cost[s] != UNREACHED)
@@ -484,6 +561,11 @@ impl Nav {
     pub fn route_len(&self, p: V3) -> Option<f32> {
         let s = self.spot_of(p)?;
         (self.cost[s] != UNREACHED).then(|| self.cost[s] as f32 * CELL / 10.0)
+    }
+
+    /// The middle of the cell of the spot the route takes a body at `p` to be on: where its next step goes from.
+    pub fn from_cell(&self, p: V3) -> Option<[f32; 2]> {
+        self.spot_of(p).map(|s| self.center(self.cell_at(s)))
     }
 
     /// The height of the spot the route takes a body at `p` to be on. A body on the ground beside a hedge that
