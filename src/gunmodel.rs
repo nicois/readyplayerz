@@ -268,6 +268,124 @@ pub struct Spec {
     pub pivot: V,
     /// the axis a cylinder swings out about
     pub swing: V,
+    /// the rounds of a break action or a cylinder, each in its own chamber (see `Rounds`)
+    pub rounds: Option<Rounds>,
+}
+
+/// A gun whose rounds sit where they can be seen, one in each chamber: the first `parts` of `Gun::mag` are then one
+/// round, drawn in each, and any after them a speedloader. A reload goes: open, the spent ones are pulled out and
+/// thrown clear, fresh ones come up in the hand turned side on, so they can be seen, swing into line behind the
+/// chambers and are pushed home, close. The times are fractions of the reload.
+#[derive(Clone, Copy)]
+pub struct Rounds {
+    /// where each round's base sits, in the frame of the part that opens; the first fires first
+    pub chambers: &'static [V],
+    /// how many of the pieces are one round, and how many of those the case, all that is left once it has fired
+    pub parts: usize,
+    pub case: usize,
+    /// how thick a round is, to lie on the floor rather than in it
+    pub radius: f32,
+    /// when the spent ones start coming out, how far out they are by the time they are thrown clear, and when
+    pub pull: f32,
+    pub out: f32,
+    pub eject: f32,
+    /// whether the live ones are thrown out along with the spent, as a cylinder's ejector does
+    pub all: bool,
+    /// how fast one is thrown clear, in its own frame: +z is back out of the chamber; and how far the muzzle is
+    /// tipped up as they go, flicking them clear or letting them drop
+    pub throw: V,
+    pub flick: f32,
+    /// when the first fresh one comes up, how long after it each next one does, and how long each takes to go in
+    pub fill: f32,
+    pub stagger: f32,
+    pub load: f32,
+    /// where a fresh one comes up from, as an offset from its chamber, and turned how far about x from in line;
+    /// where it is in line, just behind, to go straight in from
+    pub from: V,
+    pub tilt: f32,
+    pub entry: V,
+    /// the middle of the speedloader that brings them all at once, if there is one: it is turned about it, and
+    /// drawn there
+    pub loader: Option<V>,
+    /// where the left hand is from its hold when it has a fresh round at its chamber
+    pub hand: V,
+}
+
+/// Which way a speedloader is taken away once it has let its rounds go, in the frame of the part that opens.
+const LOADER_AWAY: V = [0.0, -0.10, 0.12];
+
+/// 0 up to `a`, 1 from `b`, smoothly between.
+pub fn ease(a: f32, b: f32, x: f32) -> f32 {
+    let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// How a reload of `Rounds` goes, by how far through it is (`reload`, 0 to 1), with `fired` of them spent.
+impl Rounds {
+    /// How many chambers a reload empties, and so fills again.
+    pub fn emptied(&self, fired: usize) -> usize {
+        if self.all { self.chambers.len() } else { fired.min(self.chambers.len()) }
+    }
+
+    /// When the last fresh one of `n` is home.
+    pub fn loaded(&self, n: usize) -> f32 {
+        self.fill + n.saturating_sub(1) as f32 * self.stagger + self.load
+    }
+
+    /// How far fresh round `j` has gone in, 0 to 1, once it has started. On a speedloader they all go together.
+    pub fn progress(&self, j: usize, reload: f32) -> Option<f32> {
+        let j = if self.loader.is_some() { 0 } else { j };
+        let start = self.fill + j as f32 * self.stagger;
+        (reload >= start).then(|| ((reload - start) / self.load).min(1.0))
+    }
+
+    /// Where a fresh round is `u` of the way in: brought up turned side on so it shows, swung into line at
+    /// `entry`, then pushed straight in. As an offset from its chamber, and a turn about x.
+    pub fn loading(&self, u: f32) -> (V, f32) {
+        let (a, b) = (ease(0.0, 0.6, u), ease(0.6, 1.0, u));
+        let (f, e) = (self.from, self.entry);
+        (std::array::from_fn(|i| (f[i] + (e[i] - f[i]) * a) * (1.0 - b)), self.tilt * (1.0 - a))
+    }
+
+    /// Where the speedloader has been taken from its rounds once they are home, 0 there at first.
+    pub fn loader_away(&self, reload: f32) -> V {
+        let done = self.loaded(1);
+        let k = if self.loader.is_some() { ease(done + 0.03, done + 0.15, reload) } else { 0.0 };
+        LOADER_AWAY.map(|v| v * k)
+    }
+
+    /// Whether the speedloader is still in the hand.
+    pub fn loader_held(&self, reload: f32) -> bool {
+        self.loader.is_some() && reload >= self.fill && reload < self.loaded(1) + 0.15
+    }
+
+    /// How far the muzzle is tipped up for the rounds to come out.
+    pub fn tip(&self, reload: f32) -> f32 {
+        self.flick * (ease(self.pull - 0.05, self.eject, reload) - ease(self.eject + 0.03, self.fill + 0.04, reload))
+    }
+
+    /// Where the left hand is from its hold: down for fresh rounds while the spent ones come out, then with each
+    /// fresh one as it goes in (back down for the next in between), and with the speedloader as it is taken away.
+    /// As a move from the hold, and one along with the rounds in the frame of the part that opens.
+    pub fn hand_at(&self, fired: usize, reload: f32) -> (V, V) {
+        let n = self.emptied(fired).max(1);
+        let done = self.loaded(n) + if self.loader.is_some() { 0.15 } else { 0.0 };
+        let fetch = ease(self.pull - 0.1, self.eject, reload) - ease(self.fill - 0.1, self.fill, reload);
+        let carry = ease(self.fill - 0.1, self.fill, reload) - ease(done + 0.02, done + 0.12, reload);
+        // the round it has now: the first not yet in
+        let j = (0..n).find(|&j| self.progress(j, reload).is_none_or(|u| u < 1.0)).unwrap_or(n - 1);
+        let o = match self.progress(j, reload) {
+            Some(u) => self.loading(u).0,
+            // back down for the next, after the one before has gone in
+            None if j > 0 => {
+                let start = self.fill + j as f32 * self.stagger;
+                self.from.map(|v| v * ease(start - self.stagger + self.load, start, reload))
+            }
+            None => self.from,
+        };
+        let away = self.loader_away(reload);
+        (std::array::from_fn(|i| self.hand[i] * carry + [0.0, -0.16, 0.04][i] * fetch), std::array::from_fn(|i| (o[i] + away[i]) * carry))
+    }
 }
 
 /// What every gun's spec has unless it says otherwise.
@@ -286,6 +404,7 @@ const SPEC: Spec = Spec {
     flip: 0.07,
     pivot: [0.0; 3],
     swing: [0.0; 3],
+    rounds: None,
 };
 
 /// A block that changes size along its length, as for a stock: `x` half widths and `y` bottom and top at `z0`
@@ -1098,12 +1217,10 @@ fn double_barrel() -> Gun {
     fore.bx([-0.0215, -0.034, -0.330], [0.0215, -0.006, -0.110], 0.007);
     fore_dark.bx([-0.0060, -0.0355, -0.140], [0.0060, -0.0325, -0.115], 0.0008);
 
-    // the two shells in the chambers: brass heads at the breech and red hulls inside
-    let (mut hulls, mut heads) = (Mesh::default(), Mesh::default());
-    for x in [-0.0108f32, 0.0108] {
-        hulls.cyl([x, 0.0, -0.110], [x, 0.0, -0.040], 0.0090, 0.0090, 16);
-        heads.cyl([x, 0.0, -0.040], [x, 0.0, -0.0345], 0.0100, 0.0100, 16);
-    }
+    // a shell, one in each chamber: a brass head at the breech and a red hull inside
+    let (mut hull, mut head) = (Mesh::default(), Mesh::default());
+    hull.cyl([0.0, 0.0, -0.0755], [0.0, 0.0, -0.0055], 0.0090, 0.0090, 16);
+    head.cyl([0.0, 0.0, -0.0055], [0.0, 0.0, 0.0], 0.0100, 0.0100, 16);
 
     let body = vec![
         piece(action_body, STEEL, [0.30, 0.28, 0.25], 0.8),
@@ -1118,7 +1235,7 @@ fn double_barrel() -> Gun {
     trig.bx([-0.0022, -0.066, -0.0115], [0.0022, -0.040, -0.0045], 0.0006);
     Gun {
         body,
-        mag: vec![piece(hulls, POLYMER, [0.55, 0.07, 0.05], 0.5), piece(heads, STEEL, BRASS, 0.9)],
+        mag: vec![piece(hull, POLYMER, [0.55, 0.07, 0.05], 0.5), piece(head, STEEL, BRASS, 0.9)],
         trigger: vec![piece(trig, STEEL, [0.28, 0.28, 0.30], 0.8)],
         action: vec![
             piece(barrels, STEEL, BLUED, 0.9),
@@ -1131,13 +1248,35 @@ fn double_barrel() -> Gun {
             muzzle_z: -0.665,
             sight_y,
             action: Action::Break,
-            // drawn back out of the chambers and away in the hand
-            mag_out: [0.0, 0.0, 0.10],
             left_at: [0.0, -0.013, 0.04],
             // held a little further out, so aiming along the low rib the stock's wrist isn't right under the eye
             hold: [0.0, 0.0, -0.06],
             flip: 0.16,
             pivot,
+            // the extractors ease the shells out as the barrels drop, then the ejectors kick the spent ones up and
+            // back over the shoulder; an unfired one stays in
+            rounds: Some(Rounds {
+                chambers: &[[0.0108, 0.0, -0.0345], [-0.0108, 0.0, -0.0345]],
+                parts: 2,
+                case: 2,
+                radius: 0.0100,
+                pull: 0.12,
+                out: 0.015,
+                eject: 0.21,
+                all: false,
+                throw: [0.5, 2.0, 0.9],
+                flick: 0.18,
+                // one shell and then the other, each up from under the breech lying across, in line with its nose
+                // at the mouth, and in
+                fill: 0.38,
+                stagger: 0.24,
+                load: 0.17,
+                from: [0.0, -0.07, 0.16],
+                tilt: 1.2,
+                entry: [0.0, 0.0, 0.085],
+                loader: None,
+                hand: [0.0, -0.045, 0.27],
+            }),
             ..SPEC
         },
     }
@@ -1370,18 +1509,33 @@ fn revolver() -> Gun {
     }
     steel.bx([-0.0018, 0.0145, 0.010], [0.0018, sight_y - 0.0035, 0.020], 0.0003);
 
-    // the cylinder: six chambers round the axis, flutes between them, the chamber mouths, the rims of the rounds
-    // at the back and the crane out the front
-    let (mut cyl, mut cdark, mut rims) = (Mesh::default(), Mesh::default(), Mesh::default());
+    // the cylinder: six chambers round the axis, flutes between them, the chamber mouths and the crane out the front
+    let (mut cyl, mut cdark) = (Mesh::default(), Mesh::default());
     let c = |r: f32, a: f32, z: f32| [r * a.cos(), axis[1] + r * a.sin(), z];
     cyl.cyl(c(0.0, 0.0, -0.043), c(0.0, 0.0, 0.012), 0.0195, 0.0195, 30);
     for k in 0..6 {
         let a = std::f32::consts::FRAC_PI_2 + k as f32 / 6.0 * TAU;
         cdark.cyl(c(0.0125, a, -0.0433), c(0.0125, a, -0.0430), 0.0046, 0.0046, 12);
-        rims.cyl(c(0.0125, a, 0.0120), c(0.0125, a, 0.0124), 0.0058, 0.0058, 12);
         cdark.cyl(c(0.0187, a + TAU / 12.0, -0.034), c(0.0187, a + TAU / 12.0, 0.004), 0.0030, 0.0030, 8);
     }
     cyl.cyl(c(0.0, 0.0, -0.050), c(0.0, 0.0, -0.043), 0.0045, 0.0045, 12);
+
+    // a round, one in each chamber: the rimmed brass case, its primer, and the copper bullet in its mouth
+    let (mut case, mut primer, mut bullet) = (Mesh::default(), Mesh::default(), Mesh::default());
+    case.cyl([0.0, 0.0, -0.0012], [0.0, 0.0, 0.0004], 0.0058, 0.0058, 14);
+    case.cyl([0.0, 0.0, -0.0330], [0.0, 0.0, -0.0012], 0.0047, 0.0047, 14);
+    primer.cyl([0.0, 0.0, 0.0004], [0.0, 0.0, 0.0006], 0.0019, 0.0019, 10);
+    bullet.cyl([0.0, 0.0, -0.0400], [0.0, 0.0, -0.0330], 0.0045, 0.0042, 14);
+    bullet.cyl([0.0, 0.0, -0.0445], [0.0, 0.0, -0.0400], 0.0018, 0.0042, 14);
+    // the speedloader they come in on: a black body gripping the six rims, and the knurled knob that lets them go
+    let loader_at = [0.0, axis[1], 0.0124];
+    let (mut loader, mut knob) = (Mesh::default(), Mesh::default());
+    loader.cyl([0.0, 0.0, 0.0006], [0.0, 0.0, 0.0080], 0.0195, 0.0185, 30);
+    knob.cyl([0.0, 0.0, 0.0080], [0.0, 0.0, 0.0200], 0.0075, 0.0075, 18);
+    for k in 0..12 {
+        let (s, c) = (k as f32 / 12.0 * TAU).sin_cos();
+        knob.cyl([0.0075 * c, 0.0075 * s, 0.0082], [0.0075 * c, 0.0075 * s, 0.0198], 0.0011, 0.0011, 6);
+    }
 
     let body = vec![
         piece(frame, STEEL, BLUED, 0.9),
@@ -1394,9 +1548,15 @@ fn revolver() -> Gun {
     trig.bx([-0.0028, -0.056, -0.036], [0.0028, -0.040, -0.029], 0.0008);
     Gun {
         body,
-        mag: Vec::new(),
+        mag: vec![
+            piece(case, STEEL, BRASS, 0.9),
+            piece(primer, STEEL, [0.62, 0.60, 0.58], 0.9),
+            piece(bullet, STEEL, [0.62, 0.34, 0.20], 0.8),
+            piece(loader, POLYMER, [0.05, 0.05, 0.055], 0.4),
+            piece(knob, STEEL, [0.20, 0.20, 0.22], 0.8),
+        ],
         trigger: vec![piece(trig, STEEL, [0.22, 0.22, 0.24], 0.8)],
-        action: vec![piece(cyl, STEEL, BLUED, 0.9), piece(cdark, RUBBER, BLACK, 0.3), piece(rims, STEEL, BRASS, 0.9)],
+        action: vec![piece(cyl, STEEL, BLUED, 0.9), piece(cdark, RUBBER, BLACK, 0.3)],
         spec: Spec {
             muzzle_z: -0.2053,
             sight_y,
@@ -1408,6 +1568,39 @@ fn revolver() -> Gun {
             flip: 0.32,
             pivot: axis,
             swing: [-0.0105, -0.032, 0.0],
+            // muzzle up, the ejector rod pushes all six out together and they drop free
+            rounds: Some(Rounds {
+                // round the axis from the top, the way the cylinder turns them under the hammer
+                chambers: &[
+                    [0.0, 0.0, 0.0124],
+                    [-0.010825, -0.00625, 0.0124],
+                    [-0.010825, -0.01875, 0.0124],
+                    [0.0, -0.0250, 0.0124],
+                    [0.010825, -0.01875, 0.0124],
+                    [0.010825, -0.00625, 0.0124],
+                ],
+                parts: 3,
+                case: 2,
+                radius: 0.0058,
+                pull: 0.22,
+                out: 0.022,
+                eject: 0.30,
+                all: true,
+                throw: [0.0, 0.0, 0.7],
+                flick: 0.75,
+                // all six on the speedloader, up from below turned so they show, in line with the bullets' noses at
+                // the chamber mouths, and in
+                fill: 0.36,
+                stagger: 0.0,
+                load: 0.30,
+                // in the swung out cylinder's frame, which is turned most of a quarter about the bore: this is up
+                // from below and out to the left, the side it swings out to, turned about the upright to show them
+                from: [-0.083, 0.039, 0.12],
+                tilt: 0.9,
+                entry: [0.0, 0.0, 0.05],
+                loader: Some(loader_at),
+                hand: [-0.035, 0.05, -0.01],
+            }),
             ..SPEC
         },
     }
@@ -1741,6 +1934,43 @@ mod tests {
             tris += p.mesh.idx.len() / 3;
         }
         tris
+    }
+
+    /// A gun that shows its rounds one by one has a chamber for each it holds, and a case to leave when one fires.
+    #[test]
+    fn a_gun_that_shows_its_rounds_has_a_chamber_for_each() {
+        for (g, w) in guns().iter().zip(WEAPONS.iter()) {
+            let Some(r) = &g.spec.rounds else { continue };
+            assert_eq!(r.chambers.len(), w.mag as usize, "{}", w.name);
+            assert!(r.case > 0 && r.case <= r.parts && r.parts <= g.mag.len(), "{}", w.name);
+            assert_eq!(r.loader.is_some(), r.parts < g.mag.len(), "{}: a speedloader is the pieces after a round", w.name);
+            // all of them in before the gun starts to close (see `render::action_pose`)
+            let n = r.chambers.len();
+            assert!(r.pull < r.eject && r.eject < r.fill && r.loaded(n) <= 0.8, "{}'s reload is out of order", w.name);
+        }
+    }
+
+    /// The left hand goes smoothly through a reload of rounds, however many were spent: from one round going in, it
+    /// goes back down for the next rather than jumping there.
+    #[test]
+    fn the_hand_never_jumps_through_a_reload() {
+        for (g, w) in guns().iter().zip(WEAPONS.iter()) {
+            let Some(r) = &g.spec.rounds else { continue };
+            for fired in 1..=r.chambers.len() {
+                let at = |t: f32| {
+                    let (hold, along) = r.hand_at(fired, t);
+                    add(hold, along)
+                };
+                let steps = 2000;
+                for i in 0..steps {
+                    let (t0, t1) = (i as f32 / steps as f32, (i + 1) as f32 / steps as f32);
+                    let jump = len(sub(at(t1), at(t0)));
+                    assert!(jump < 0.003, "{} with {fired} spent: the hand jumps {jump} m at {t0}", w.name);
+                }
+                // and is back at its hold once the reload is done
+                assert!(len(at(1.0)) < 1e-4, "{} with {fired} spent: the hand ends {:?} off its hold", w.name, at(1.0));
+            }
+        }
     }
 
     #[test]

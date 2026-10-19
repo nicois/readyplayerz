@@ -1,5 +1,6 @@
 //! WebGL2 renderer: flat-shaded boxes and lines, one shader.
 
+use crate::gunmodel::{ease, Rounds};
 use crate::sim::{Bot, Game, V3};
 use crate::terrain::{Terrain, STEP as HILL_STEP};
 use js_sys::Float32Array;
@@ -726,6 +727,12 @@ pub struct Renderer {
     max_samples: i32,
     /// graphics quality: 0 low, 1 medium, 2 high (see `Quality`)
     pub quality: u8,
+    /// spent shells and cases thrown out of the gun by a reload, and the game time they were last moved at
+    brass: RefCell<Vec<crate::brass::Brass>>,
+    brass_t: Cell<f32>,
+    /// the gun in hand and how far through its reload it was last drawn, to throw the rounds out once as it passes
+    /// the moment for it
+    last_reload: Cell<(usize, f32)>,
     pub width: u32,
     pub height: u32,
 }
@@ -888,6 +895,39 @@ fn look_rolled(eye: V3, fwd: V3, roll: f32) -> M4 {
     ]
 }
 
+/// Where the camera is and which way it faces, to take what is drawn in its own space, as the gun is, out into the
+/// world and back.
+struct Camera {
+    eye: V3,
+    right: V3,
+    up: V3,
+    fwd: V3,
+    roll: f32,
+}
+
+impl Camera {
+    /// A direction in the camera's space, in the world.
+    fn dir(&self, v: V3) -> V3 {
+        let (r, u, f) = (self.right, self.up, self.fwd);
+        [r[0] * v[0] + u[0] * v[1] - f[0] * v[2], r[1] * v[0] + u[1] * v[1] - f[1] * v[2], r[2] * v[0] + u[2] * v[1] - f[2] * v[2]]
+    }
+
+    /// A point in the camera's space, in the world.
+    fn point(&self, p: V3) -> V3 {
+        let d = self.dir(p);
+        [self.eye[0] + d[0], self.eye[1] + d[1], self.eye[2] + d[2]]
+    }
+
+    /// From the world into the camera's space.
+    fn view(&self) -> M4 {
+        look_rolled(self.eye, self.fwd, self.roll)
+    }
+}
+
+/// How long thrown brass is drawn with the gun, over everything, before it is out in the world: as long as it is
+/// still falling past the gun, which would otherwise hide it.
+const BRASS_WITH_GUN: f32 = 0.4;
+
 /// How the head moves with the feet, as right, up and roll: a dip onto each footstep, a sway over to the
 /// planted foot and a lean into it. Sprinting makes it several times bigger, aiming steadies it.
 fn head_bob(p: &crate::sim::Player) -> (f32, f32, f32) {
@@ -966,6 +1006,77 @@ fn rot_z(a: f32) -> M4 {
 /// Applies `r` around `pivot` instead of the origin.
 fn around(pivot: V3, r: &M4) -> M4 {
     mul(&translate(pivot[0], pivot[1], pivot[2]), &mul(r, &translate(-pivot[0], -pivot[1], -pivot[2])))
+}
+
+/// Where a gun's moving part is, in gun space: a pump slides back, a bolt lifts before it pulls back, a slide kicks
+/// back as it fires, barrels tip down on their hinge, a cylinder turns and swings out. A break action or a cylinder
+/// opens at the start of a reload and closes at the end.
+fn action_pose(s: &crate::gunmodel::Spec, recoil: f32, reload: f32, cycle: f32, turn: f32) -> M4 {
+    use crate::gunmodel::Action;
+    match s.action {
+        Action::Fixed => IDENTITY,
+        Action::Pump => translate(0.0, 0.0, 0.09 * cycle),
+        Action::Bolt => mul(&translate(0.0, 0.0, 0.075 * ((cycle - 0.35) / 0.65).max(0.0)), &rot_z((cycle * 2.5).min(1.0) * 1.1)),
+        Action::Slide => translate(0.0, 0.0, 0.032 * ((recoil - 0.45) / 0.55).clamp(0.0, 1.0).sqrt()),
+        Action::Break | Action::Cylinder => mul(&opened(s, reload), &turned(s, turn)),
+    }
+}
+
+/// How far a break action or a cylinder is swung open, without a cylinder's turn: fresh rounds are brought up to it
+/// the same way however far it has turned.
+fn opened(s: &crate::gunmodel::Spec, reload: f32) -> M4 {
+    use crate::gunmodel::Action;
+    let open = ease(0.04, 0.2, reload) - ease(0.8, 0.94, reload);
+    match s.action {
+        Action::Break => around(s.pivot, &rot_x(-0.6 * open)),
+        Action::Cylinder => around(s.swing, &rot_z(1.3 * open)),
+        _ => IDENTITY,
+    }
+}
+
+/// How far a cylinder has turned on its axis, `turn` chambers.
+fn turned(s: &crate::gunmodel::Spec, turn: f32) -> M4 {
+    if s.action == crate::gunmodel::Action::Cylinder {
+        around(s.pivot, &rot_z(-turn * std::f32::consts::TAU / 6.0))
+    } else {
+        IDENTITY
+    }
+}
+
+/// A direction `v` turned by `m`, without its move.
+fn turn_dir(m: &M4, v: V3) -> V3 {
+    std::array::from_fn(|i| m[i] * v[0] + m[4 + i] * v[1] + m[8 + i] * v[2])
+}
+
+/// Moves what is at `pivot`, a round or the speedloader with all of them, `u` of the way in (see `Rounds::loading`).
+fn bring(r: &Rounds, u: f32, pivot: V3) -> M4 {
+    let (o, tilt) = r.loading(u);
+    mul(&translate(pivot[0] + o[0], pivot[1] + o[1], pivot[2] + o[2]), &mul(&rot_x(tilt), &translate(-pivot[0], -pivot[1], -pivot[2])))
+}
+
+/// Where round `k` of a gun with `Rounds` is, and whether it is only a spent case; None while its chamber is empty.
+/// As how it is being brought in, in the frame of the part that opens (see `opened`), and where it is in the turned
+/// cylinder or barrels. Out of a reload they are all home. In one, a spent round (or any, from a cylinder) is drawn
+/// part way out and then thrown clear (see `Renderer::eject`), and a fresh one is brought in.
+fn round_at(r: &Rounds, k: usize, fired: usize, reload: f32) -> Option<(M4, M4, bool)> {
+    let c = r.chambers[k];
+    let spent = k < fired;
+    if reload <= 0.0 || !(spent || r.all) {
+        return Some((IDENTITY, translate(c[0], c[1], c[2]), spent));
+    }
+    if reload < r.eject {
+        return Some((IDENTITY, translate(c[0], c[1], c[2] + r.out * ease(r.pull, r.eject, reload)), spent));
+    }
+    // on a speedloader they all come about its middle, otherwise each about its own base
+    let u = r.progress(k, reload)?;
+    Some((bring(r, u, r.loader.unwrap_or(c)), translate(c[0], c[1], c[2]), false))
+}
+
+/// Where the speedloader is in the part that opens, while it is in the hand.
+fn loader_at(r: &Rounds, reload: f32) -> Option<M4> {
+    let (l, u) = (r.loader?, r.progress(0, reload)?);
+    let a = r.loader_away(reload);
+    r.loader_held(reload).then(|| mul(&translate(a[0], a[1], a[2]), &mul(&bring(r, u, l), &translate(l[0], l[1], l[2]))))
 }
 
 /// One piece of the viewmodel, in gun space: -z is the muzzle, +z the stock, +y up.
@@ -1156,6 +1267,9 @@ impl Renderer {
             u_mat,
             line_vao,
             line_buf,
+            brass: RefCell::new(Vec::new()),
+            brass_t: Cell::new(0.0),
+            last_reload: Cell::new((0, 0.0)),
             width,
             height,
         })
@@ -1618,7 +1732,7 @@ impl Renderer {
             &translate(0.0, 0.0, -dist),
             &mul(&rot_x(0.10), &mul(&rot_y(-std::f32::consts::FRAC_PI_2 + 0.18), &translate(-centre[0], -centre[1], -centre[2]))),
         );
-        self.draw_gun(idx, &model, 0.0, 0.0, 0.0, 0.0, 0.0, false);
+        self.draw_gun(idx, &model, 0.0, 0.0, 0.0, 0.0, 0.0, 0, false);
         gl.uniform1f(self.u_view.as_ref(), 0.0);
         self.present(t);
     }
@@ -1756,6 +1870,8 @@ impl Renderer {
         let vp = mul(&perspective(fov, aspect, NEAR, FAR), &look_rolled(eye, fwd, roll));
         gl.uniform_matrix4fv_with_f32_array(self.u_vp.as_ref(), false, &vp);
         gl.uniform3f(self.u_eye.as_ref(), eye[0], eye[1], eye[2]);
+        let cam = Camera { eye, right: s, up: u, fwd: norm(fwd), roll };
+        self.tick_brass(g);
 
         self.draw_world(eye, &vp);
         self.flush();
@@ -1771,6 +1887,7 @@ impl Renderer {
         for (_, m) in g.players.iter().enumerate().filter(|(i, _)| *i != g.local) {
             self.draw_mate_gun(m);
         }
+        self.draw_brass(None);
         for t in &g.tracers {
             self.draw_lines(&[t.a[0], t.a[1], t.a[2], t.b[0], t.b[1], t.b[2]], [1.0, 0.95, 0.6], 1.0);
         }
@@ -1792,8 +1909,9 @@ impl Renderer {
         // the grenade in hand instead of the gun; just after a throw the gun is still down out of sight while the
         // hand follows through
         self.draw_grenade_view(g);
+        self.draw_brass(Some(&cam));
         if !p.aiming && !(p.gun().scope && p.ads > 0.6) {
-            self.draw_viewmodel(g);
+            self.draw_viewmodel(g, &cam);
         }
         gl.uniform1f(self.u_view.as_ref(), 0.0);
         self.present(t);
@@ -2171,7 +2289,7 @@ impl Renderer {
         let spec = self.guns[p.weapon].spec;
         let gun = mul(&mul(&translate(c[0], c[1], c[2]), &mul(&rot_y(-p.yaw), &rot_x(p.pitch))), &translate(spec.hold[0], spec.hold[1], spec.hold[2]));
         let reload = if p.reload_t > 0.0 { 0.5 } else { 0.0 };
-        self.draw_gun(p.weapon, &gun, 0.0, reload, 0.0, 0.0, 0.0, false);
+        self.draw_gun(p.weapon, &gun, 0.0, reload, 0.0, 0.0, 0.0, 0, false);
     }
 
     fn draw_piece(&self, model: &M4, p: &GpuPiece) {
@@ -2193,38 +2311,37 @@ impl Renderer {
 
     /// A gun with its hands: the magazine comes out and goes back in during a reload while the left hand goes to
     /// fetch it, the trigger is pulled when it fires, and the pump, bolt or slide cycles after a shot.
-    /// `turn` is how many chambers a cylinder has turned through, fractions while it is turning.
+    /// `turn` is how many chambers a cylinder has turned through, fractions while it is turning, and `fired` how
+    /// many rounds have gone since the last reload.
     #[allow(clippy::too_many_arguments)]
-    fn draw_gun(&self, idx: usize, gun: &M4, recoil: f32, reload: f32, mag_out: f32, cycle: f32, turn: f32, hands: bool) {
+    fn draw_gun(&self, idx: usize, gun: &M4, recoil: f32, reload: f32, mag_out: f32, cycle: f32, turn: f32, fired: usize, hands: bool) {
         use crate::gunmodel::Action;
         let g = &self.guns[idx];
         let s = &g.spec;
         let at = |v: [f32; 3], k: f32| translate(v[0] * k, v[1] * k, v[2] * k);
-        let ease = |a: f32, b: f32, x: f32| {
-            let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
-            t * t * (3.0 - 2.0 * t)
-        };
-        // a break action or a cylinder opens at the start of a reload and closes at the end
-        let open = ease(0.04, 0.2, reload) - ease(0.8, 0.94, reload);
         self.draw_pieces(gun, &g.body);
         let pull = ((recoil - 0.6) * 5.0).clamp(0.0, 1.0);
         self.draw_pieces(&mul(gun, &around(s.trigger_pivot, &rot_x(-0.35 * pull))), &g.trigger);
-
-        // the moving part: a pump slides back, a bolt lifts before it pulls back, a slide kicks back as it fires,
-        // barrels tip down on their hinge, a cylinder turns and swings out
-        let action = match s.action {
-            Action::Fixed => IDENTITY,
-            Action::Pump => translate(0.0, 0.0, 0.09 * cycle),
-            Action::Bolt => mul(&translate(0.0, 0.0, 0.075 * ((cycle - 0.35) / 0.65).max(0.0)), &rot_z((cycle * 2.5).min(1.0) * 1.1)),
-            Action::Slide => translate(0.0, 0.0, 0.032 * ((recoil - 0.45) / 0.55).clamp(0.0, 1.0).sqrt()),
-            Action::Break => around(s.pivot, &rot_x(-0.6 * open)),
-            Action::Cylinder => mul(&around(s.swing, &rot_z(1.3 * open)), &around(s.pivot, &rot_z(-turn * std::f32::consts::TAU / 6.0))),
-        };
-        self.draw_pieces(&mul(gun, &action), &g.action);
-        // shells in a break action ride in the barrels
-        let carrier = if s.action == Action::Break { mul(gun, &action) } else { *gun };
-        let mag = mul(&carrier, &mul(&at(s.mag_out, mag_out), &around(s.mag_pivot, &rot_x(s.mag_tilt * mag_out))));
-        self.draw_pieces(&mag, &g.mag);
+        let pose = action_pose(s, recoil, reload, cycle, turn);
+        let action = mul(gun, &pose);
+        self.draw_pieces(&action, &g.action);
+        if let Some(r) = &s.rounds {
+            // one round in each chamber, riding in the part that opens. Only the player's own reload is played
+            // through: someone else's gun is just shown open, its rounds home
+            let played = if hands { reload } else { 0.0 };
+            let (open, turn) = (mul(gun, &opened(s, reload)), turned(s, turn));
+            for k in 0..r.chambers.len() {
+                if let Some((brought, at, spent)) = round_at(r, k, fired, played) {
+                    self.draw_pieces(&mul(&open, &mul(&brought, &mul(&turn, &at))), &g.mag[..if spent { r.case } else { r.parts }]);
+                }
+            }
+            if let Some(at) = loader_at(r, played) {
+                self.draw_pieces(&mul(&open, &at), &g.mag[r.parts..]);
+            }
+        } else {
+            let mag = mul(gun, &mul(&at(s.mag_out, mag_out), &around(s.mag_pivot, &rot_x(s.mag_tilt * mag_out))));
+            self.draw_pieces(&mag, &g.mag);
+        }
         if !hands {
             return;
         }
@@ -2235,9 +2352,71 @@ impl Renderer {
         let reach = if s.pistol_hold { [0.0, -0.07, 0.02] } else { [0.0, -0.085, 0.23] };
         let mut hand = mul(gun, &mul(&at(s.left_at, 1.0), &mul(&at(reach, go), &at(s.mag_out, 0.6 * mag_out))));
         if s.action == Action::Pump {
-            hand = mul(&hand, &action);
+            hand = mul(&hand, &pose);
+        }
+        if let Some(r) = &s.rounds {
+            // a break action's hand is on the forend, so it rides the barrels down, and lifts them shut again by it;
+            // a revolver's stays upright as it brings the speedloader along the swung out cylinder
+            let (hold, along) = r.hand_at(fired, reload);
+            let (base, along) = if s.action == Action::Break { (action, along) } else { (*gun, turn_dir(&opened(s, reload), along)) };
+            let to = std::array::from_fn(|i| hold[i] + along[i]);
+            hand = mul(&base, &mul(&at(s.left_at, 1.0), &at(to, 1.0)));
         }
         self.draw_pieces(&hand, if s.pistol_hold { &self.hands.pistol_left } else { &self.hands.left });
+    }
+
+    /// Throws out into the world the rounds a reload empties from the chambers: `action` is where the part that
+    /// opens is, in the camera's space. Each goes a little differently, out to its own side, and carried along by
+    /// the player's own run.
+    fn eject(&self, g: &Game, action: &M4, r: &Rounds, fired: usize, cam: &Camera) {
+        let p = g.me();
+        let mut brass = self.brass.borrow_mut();
+        for (k, c) in r.chambers.iter().enumerate() {
+            let spent = k < fired;
+            if !(spent || r.all) {
+                continue;
+            }
+            let m = mul(action, &translate(c[0], c[1], c[2] + r.out));
+            let rot = [cam.dir([m[0], m[1], m[2]]), cam.dir([m[4], m[5], m[6]]), cam.dir([m[8], m[9], m[10]])];
+            let h = |n: f32| ((g.time * 12.9898 + k as f32 * 78.233 + n * 37.719).sin() * 43758.547).rem_euclid(1.0);
+            let side = if c[0] < 0.0 { -1.0 } else { 1.0 };
+            let t = [r.throw[0] * side + (h(1.0) - 0.5) * 0.4, r.throw[1] * (0.8 + 0.4 * h(2.0)) + (h(4.0) - 0.5) * 0.3, r.throw[2] * (0.8 + 0.4 * h(3.0))];
+            let along = |i: usize| rot[0][i] * t[0] + rot[1][i] * t[1] + rot[2][i] * t[2];
+            let vel = [along(0) + p.body.vel[0], along(1) + p.body.vel[1], along(2) + p.body.vel[2]];
+            // end over end, mostly, with a little twist
+            let (flip, twist) = (side * (5.0 + 7.0 * h(5.0)), (h(6.0) - 0.5) * 6.0);
+            let spin = [rot[0][0] * flip + rot[1][0] * twist, rot[0][1] * flip + rot[1][1] * twist, rot[0][2] * flip + rot[1][2] * twist];
+            brass.push(crate::brass::Brass { gun: p.weapon, spent, pos: cam.point([m[12], m[13], m[14]]), vel, rot, spin, radius: r.radius, age: 0.0, resting: false });
+        }
+        let extra = brass.len().saturating_sub(crate::brass::MAX);
+        brass.drain(..extra);
+    }
+
+    /// Moves the brass on to the game's time; a new game clears it away.
+    fn tick_brass(&self, g: &Game) {
+        let last = self.brass_t.replace(g.time);
+        let mut brass = self.brass.borrow_mut();
+        if g.time < last {
+            brass.clear();
+        }
+        let dt = (g.time - last).clamp(0.0, 0.05);
+        for b in brass.iter_mut() {
+            b.step(dt, &g.world);
+        }
+        brass.retain(|b| b.age < crate::brass::LIFE);
+    }
+
+    /// The brass just thrown, with the gun in the camera's space, or (with no camera) the rest, out in the world.
+    fn draw_brass(&self, cam: Option<&Camera>) {
+        let view = cam.map(Camera::view);
+        for b in self.brass.borrow().iter().filter(|b| (b.age < BRASS_WITH_GUN) == view.is_some()) {
+            let g = &self.guns[b.gun];
+            let Some(r) = &g.spec.rounds else { continue };
+            let (x, y, z, k) = (b.rot[0], b.rot[1], b.rot[2], b.size());
+            let model = [x[0] * k, x[1] * k, x[2] * k, 0.0, y[0] * k, y[1] * k, y[2] * k, 0.0, z[0] * k, z[1] * k, z[2] * k, 0.0, b.pos[0], b.pos[1], b.pos[2], 1.0];
+            let model = view.map_or(model, |v| mul(&v, &model));
+            self.draw_pieces(&model, if b.spent { &g.mag[..r.case] } else { &g.mag[..] });
+        }
     }
 
     /// The grenade in the right hand while aiming it, coming up from below as it's taken out; once it's thrown,
@@ -2268,7 +2447,7 @@ impl Renderer {
         }
     }
 
-    fn draw_viewmodel(&self, g: &Game) {
+    fn draw_viewmodel(&self, g: &Game, view: &Camera) {
         let p = g.me();
         let w = p.gun();
         let t = g.time;
@@ -2277,7 +2456,15 @@ impl Renderer {
         let recoil = p.cooldown / w.delay; // 1 right after a shot, fading to 0
         let reload = if p.reload_t > 0.0 { 1.0 - p.reload_t / w.reload } else { 0.0 };
         let dip = (reload * std::f32::consts::PI).sin(); // gun lowers and tilts while reloading
-        let mag_out = if (0.3..0.7).contains(&reload) { ((reload - 0.3) / 0.4 * std::f32::consts::PI).sin() } else { 0.0 };
+        let spec = self.guns[p.weapon].spec;
+        // a magazine comes out and goes back in; rounds a gun shows one by one go in their own way (see `round_at`)
+        let mag_out = if spec.rounds.is_none() && (0.3..0.7).contains(&reload) {
+            ((reload - 0.3) / 0.4 * std::f32::consts::PI).sin()
+        } else {
+            0.0
+        };
+        // the muzzle tips up for rounds to come out: a flick to throw them clear, or held up for them to drop
+        let tip = spec.rounds.map_or(0.0, |r| r.tip(reload));
         // pump / bolt cycles back and forth between shots
         let cycle = if w.delay > 0.5 && (0.2..0.75).contains(&recoil) {
             ((0.75 - recoil) / 0.55 * std::f32::consts::PI).sin()
@@ -2286,7 +2473,6 @@ impl Renderer {
         };
         // swinging up from below when the gun was just selected
         let raise = (p.equip_t / crate::sim::EQUIP_TIME).powi(2);
-        let spec = self.guns[p.weapon].spec;
         // a long gun needs more kick to read as one, and a gun that flips hard shoves back hard too
         let kick = if w.pellets > 1 || w.scope { 0.09f32 } else { 0.05 }.max(spec.flip * 0.2);
         let (flash_z, hold) = (spec.muzzle_z, spec.hold);
@@ -2313,13 +2499,13 @@ impl Renderer {
         let gun = mul(
             &translate(
                 lerp(self.gun_offset.get().map_or(0.15, |o| o[0]) + bob_x - 0.04 * carry - across * dip, 0.0),
-                lerp(self.gun_offset.get().map_or(-0.17, |o| o[1]) + bob_y - lower * dip - 0.35 * raise - 0.05 * carry, -sight_y),
+                lerp(self.gun_offset.get().map_or(-0.17, |o| o[1]) + bob_y - lower * dip - 0.35 * raise - 0.05 * carry + 0.03 * tip, -sight_y),
                 lerp(self.gun_offset.get().map_or(-0.38, |o| o[2]), -0.30) + kick * recoil + 0.03 * carry,
             ),
             &mul(
                 &rot_y(self.gun_yaw.get() * (1.0 - ads) + 0.55 * carry + th.sin() * 0.03 * walk * p.sprint_t),
                 &mul(
-                    &rot_x((spec.flip * recoil + pitch * dip) * (1.0 - 0.5 * ads) + 0.8 * raise - 0.22 * carry),
+                    &rot_x((spec.flip * recoil + pitch * dip + tip) * (1.0 - 0.5 * ads) + 0.8 * raise - 0.22 * carry),
                     &rot_z(roll * dip + 0.45 * carry + th.sin() * 0.05 * walk * p.sprint_t),
                 ),
             ),
@@ -2329,7 +2515,14 @@ impl Renderer {
         let fired = (w.mag - p.ammo[p.weapon]) as f32;
         let settle = (((1.0 - recoil) / 0.4).clamp(0.0, 1.0)).powi(2);
         let turn = if recoil > 0.0 { fired - 1.0 + settle } else { fired };
-        self.draw_gun(p.weapon, &gun, recoil, reload, mag_out, cycle, turn, true);
+        let spent = fired as usize;
+        self.draw_gun(p.weapon, &gun, recoil, reload, mag_out, cycle, turn, spent, true);
+        let (weapon, before) = self.last_reload.replace((p.weapon, reload));
+        if let Some(r) = &spec.rounds {
+            if weapon == p.weapon && before < r.eject && reload >= r.eject {
+                self.eject(g, &mul(&gun, &action_pose(&spec, recoil, reload, cycle, turn)), r, spent, view);
+            }
+        }
 
         if recoil > 0.55 && w.delay < 0.5 || recoil > 0.9 {
             // muzzle flash, spun a different amount each shot
