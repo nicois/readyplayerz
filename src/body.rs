@@ -209,21 +209,39 @@ fn arm(p: V) -> f32 {
     smin(d, hand(q), 0.015)
 }
 
-/// Skull, face, jaw and ears. The face is built up from simple shapes and then carved: eye sockets, an open mouth.
-fn head(p: V) -> f32 {
+/// Skull, face, jaw and ears. The face is built up from simple shapes and then carved: eye sockets, and on a
+/// zombie hollow cheeks, an angry squint and an open mouth. A living face (`human`) is fuller, with open eyes and
+/// the mouth shut.
+fn head(p: V, human: bool) -> f32 {
     let q = [p[0].abs(), p[1], p[2]];
     let mut d = ell(p, [0.0, 1.68, 0.012], [0.098, 0.118, 0.108]);
     d = smin(d, ell(p, [0.0, 1.62, -0.028], [0.088, 0.088, 0.084]), 0.02);
-    // cheekbones and the hollows under them, brow ridge, nose, ears
+    // cheekbones and the hollows under them, brow ridge, nose (shorter and neater on the living), ears
     d = smin(d, ell(q, [0.053, 1.638, -0.07], [0.032, 0.024, 0.026]), 0.015);
     d = smin(d, cone(q, [0.008, 1.683, -0.092], [0.064, 1.702, -0.068], 0.014, 0.011), 0.014);
-    d = smin(d, cone(p, [0.0, 1.665, -0.094], [0.0, 1.612, -0.112], 0.008, 0.013), 0.012);
-    d = smin(d, ell(q, [0.015, 1.604, -0.1], [0.011, 0.008, 0.01]), 0.01);
-    d = smin(d, ell(p, [0.0, 1.605, -0.114], [0.012, 0.011, 0.012]), 0.01);
+    if human {
+        d = smin(d, cone(p, [0.0, 1.668, -0.094], [0.0, 1.617, -0.108], 0.007, 0.012), 0.012);
+        d = smin(d, ell(q, [0.014, 1.607, -0.098], [0.01, 0.007, 0.009]), 0.01);
+        d = smin(d, ell(p, [0.0, 1.611, -0.109], [0.011, 0.01, 0.011]), 0.01);
+    } else {
+        d = smin(d, cone(p, [0.0, 1.665, -0.094], [0.0, 1.612, -0.112], 0.008, 0.013), 0.012);
+        d = smin(d, ell(q, [0.015, 1.604, -0.1], [0.011, 0.008, 0.01]), 0.01);
+        d = smin(d, ell(p, [0.0, 1.605, -0.114], [0.012, 0.011, 0.012]), 0.01);
+    }
     d = smin(d, ell(q, [0.097, 1.655, 0.012], [0.01, 0.028, 0.018]), 0.01);
-    // jaw and chin, lips
+    // jaw and chin
     d = smin(d, cone(q, [0.047, 1.60, 0.0], [0.0, 1.535, -0.07], 0.034, 0.028), 0.02);
     d = smin(d, ell(p, [0.0, 1.533, -0.079], [0.031, 0.024, 0.026]), 0.014);
+    if human {
+        // a fuller jaw and chin, lips meeting in a line, and eyes open under a relaxed lid
+        d = smin(d, ell(q, [0.042, 1.565, -0.045], [0.036, 0.032, 0.036]), 0.025);
+        d = smin(d, ell(p, [0.0, 1.538, -0.082], [0.03, 0.022, 0.024]), 0.015);
+        d = smin(d, ell(p, [0.0, 1.586, -0.089], [0.025, 0.007, 0.011]), 0.008);
+        d = smin(d, ell(p, [0.0, 1.566, -0.087], [0.023, 0.008, 0.011]), 0.008);
+        d = smooth_sub(d, ell(p, [0.0, 1.5765, -0.096], [0.023, 0.0015, 0.012]), 0.003);
+        d = smooth_sub(d, ell(q, [0.04, 1.668, -0.084], [0.019, 0.014, 0.018]), 0.008);
+        return smin(d, ell(q, [0.04, 1.678, -0.0885], [0.0155, 0.0045, 0.0115]), 0.004);
+    }
     d = smin(d, ell(p, [0.0, 1.592, -0.094], [0.029, 0.0075, 0.013]), 0.008);
     d = smin(d, ell(p, [0.0, 1.558, -0.092], [0.027, 0.0085, 0.013]), 0.008);
     // hollow cheeks
@@ -239,6 +257,15 @@ fn head(p: V) -> f32 {
 
 /// The whole body, hands and head included, in the rest pose.
 pub fn skin(p: V) -> f32 {
+    figure(p, false)
+}
+
+/// The same body with a living face.
+fn human_skin(p: V) -> f32 {
+    figure(p, true)
+}
+
+fn figure(p: V, human: bool) -> f32 {
     let mut d = 1.0f32;
     if p[1] > 0.68 && p[1] < 1.64 && p[0].abs() < 0.32 {
         d = torso(p);
@@ -247,7 +274,7 @@ pub fn skin(p: V) -> f32 {
         d = smin(d, legs(p), 0.045);
     }
     if p[1] > 1.36 {
-        d = smin(d, head(to_head(p)) * HEAD_K, 0.03);
+        d = smin(d, head(to_head(p), human) * HEAD_K, 0.03);
     }
     if p[0].abs() > 0.1 && p[1] > 0.55 && p[1] < 1.62 {
         d = smin(d, arm(p), 0.02);
@@ -268,6 +295,10 @@ fn body_part(p: V) -> f32 {
 
 fn head_part(p: V) -> f32 {
     skin(p).max(NECK_Y - p[1])
+}
+
+fn face_part(p: V) -> f32 {
+    human_skin(p).max(NECK_Y - p[1])
 }
 
 fn hand_part(p: V) -> f32 {
@@ -303,6 +334,12 @@ fn hair(p: V) -> f32 {
     let mut d = ell(h, [0.0, 1.695, 0.03], [0.112, 0.126, 0.122]);
     d = smin(d, cone(q, [0.047, 1.60, 0.0], [0.0, 1.535, -0.07], 0.047, 0.04), 0.03);
     (d * HEAD_K).max(NECK_Y - p[1])
+}
+
+/// Close-cropped hair for the living: a thin shell over the skull.
+fn crop(p: V) -> f32 {
+    let h = to_head(p);
+    (ell(h, [0.0, 1.686, 0.017], [0.104, 0.124, 0.115]) * HEAD_K).max(NECK_Y - p[1])
 }
 
 /// Where each bone runs in the rest pose, for the weights.
@@ -510,13 +547,25 @@ fn gradient(f: &dyn Fn(V) -> f32, p: V, e: f32) -> V {
     ]
 }
 
-/// A skinned mesh of the shape `f` over the box `lo..hi`.
-fn build(f: &dyn Fn(V) -> f32, lo: V, hi: V, h: f32) -> Mesh {
+/// Where the skin is under a point just off it: a few steps down the field.
+fn onto_skin(mut p: V) -> V {
+    for _ in 0..3 {
+        let g = gradient(&skin, p, 0.002);
+        let l = len(g).max(1e-6);
+        let d = skin(p).clamp(-0.08, 0.08);
+        p = [p[0] - g[0] / l * d, p[1] - g[1] / l * d, p[2] - g[2] / l * d];
+    }
+    p
+}
+
+/// A skinned mesh of the shape `f` over the box `lo..hi`. Clothes (`cloth`) move as the skin under them does, so
+/// that where the bones' pulls change quickly, under the arms say, the skin doesn't come through.
+fn build(f: &dyn Fn(V) -> f32, lo: V, hi: V, h: f32, cloth: bool) -> Mesh {
     let (pts, nrm, idx) = surface_nets(f, lo, hi, h);
     let segs = segments();
     let mut verts = Vec::with_capacity(pts.len() * STRIDE);
     for (p, n) in pts.iter().zip(&nrm) {
-        let (bi, bw) = weights(*p, &segs);
+        let (bi, bw) = weights(if cloth { onto_skin(*p) } else { *p }, &segs);
         // how far down an arm this is, in the arm's own frame, or 9 elsewhere
         let q = arm_down(*p);
         let on_arm = ((q[0] - ARM_X).powi(2) + q[2] * q[2]).sqrt() < 0.12 && q[1] < 1.47 && q[1] > 0.6 && p[0].abs() > 0.14;
@@ -525,30 +574,34 @@ fn build(f: &dyn Fn(V) -> f32, lo: V, hi: V, h: f32) -> Mesh {
     Mesh { verts, idx }
 }
 
-/// Every piece of the zombie's body, built once.
+/// Every piece of the zombie's body, built once, and the living head the players wear instead of its own.
 pub struct Figure {
     pub body: Mesh,
     pub head: Mesh,
+    pub face: Mesh,
     pub hands: [Mesh; 2],
     pub shirt: Mesh,
     pub pants: Mesh,
     pub hair: Mesh,
+    pub crop: Mesh,
 }
 
 impl Figure {
     /// `scale` makes every grid coarser (2 for far away, say), for less detail at a distance.
     pub fn new(scale: f32) -> Figure {
         let s = scale;
-        let body = build(&body_part, [-0.62, -0.02, -0.28], [0.62, 1.52, 0.26], 0.011 * s);
-        let head = build(&head_part, [-0.13, 1.48, -0.16], [0.13, 1.82, 0.17], 0.0045 * s);
+        let body = build(&body_part, [-0.62, -0.02, -0.28], [0.62, 1.52, 0.26], 0.011 * s, false);
+        let head = build(&head_part, [-0.13, 1.48, -0.16], [0.13, 1.82, 0.17], 0.0045 * s, false);
+        let face = build(&face_part, [-0.13, 1.48, -0.16], [0.13, 1.82, 0.17], 0.0045 * s, false);
         let hands = [
-            build(&hand_part, [-0.62, 0.66, -0.1], [-0.36, 0.98, 0.1], 0.0045 * s),
-            build(&hand_part, [0.36, 0.66, -0.1], [0.62, 0.98, 0.1], 0.0045 * s),
+            build(&hand_part, [-0.62, 0.66, -0.1], [-0.36, 0.98, 0.1], 0.0045 * s, false),
+            build(&hand_part, [0.36, 0.66, -0.1], [0.62, 0.98, 0.1], 0.0045 * s, false),
         ];
-        let shirt = build(&shirt, [-0.62, 0.82, -0.28], [0.62, 1.56, 0.26], 0.011 * s);
-        let pants = build(&pants, [-0.3, -0.02, -0.3], [0.3, 1.06, 0.2], 0.011 * s);
-        let hair = build(&hair, [-0.14, 1.48, -0.16], [0.14, 1.84, 0.18], 0.007 * s);
-        Figure { body, head, hands, shirt, pants, hair }
+        let shirt = build(&shirt, [-0.62, 0.82, -0.28], [0.62, 1.56, 0.26], 0.011 * s, true);
+        let pants = build(&pants, [-0.3, -0.02, -0.3], [0.3, 1.06, 0.2], 0.011 * s, true);
+        let hair = build(&hair, [-0.14, 1.48, -0.16], [0.14, 1.84, 0.18], 0.007 * s, false);
+        let crop = build(&crop, [-0.14, 1.48, -0.16], [0.14, 1.84, 0.18], 0.006 * s, false);
+        Figure { body, head, face, hands, shirt, pants, hair, crop }
     }
 }
 
@@ -659,7 +712,7 @@ mod tests {
         let t = std::time::Instant::now();
         let f = Figure::new(2.0);
         println!("built in {:?}", t.elapsed());
-        for (name, m) in [("body", &f.body), ("head", &f.head), ("left hand", &f.hands[0]), ("right hand", &f.hands[1]), ("shirt", &f.shirt), ("pants", &f.pants), ("hair", &f.hair)] {
+        for (name, m) in [("body", &f.body), ("head", &f.head), ("face", &f.face), ("left hand", &f.hands[0]), ("right hand", &f.hands[1]), ("shirt", &f.shirt), ("pants", &f.pants), ("hair", &f.hair), ("crop", &f.crop)] {
             println!("{name}: {} vertices, {} triangles", m.verts.len() / STRIDE, m.idx.len() / 3);
             assert!(m.idx.len() > 300, "{name} is nearly empty");
             assert!(m.idx.iter().all(|i| (*i as usize) < m.verts.len() / STRIDE));

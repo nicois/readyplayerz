@@ -163,10 +163,12 @@ float noise3(vec3 x) {
     return mix(mix(mix(hash3(i), hash3(i + vec3(1, 0, 0)), f.x), mix(hash3(i + vec3(0, 1, 0)), hash3(i + vec3(1, 1, 0)), f.x), f.y),
                mix(mix(hash3(i + vec3(0, 0, 1)), hash3(i + vec3(1, 0, 1)), f.x), mix(hash3(i + vec3(0, 1, 1)), hash3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
 }
-// flesh, cloth and blood for the zombies: 9 skin, 10 cloth, 11 blood; p is in metres on the part
-vec3 organic(vec3 base, float m, vec3 p) {
+// flesh, cloth and blood for the zombies: 9 skin, 10 cloth, 11 blood; p is in metres on the part. The living
+// have healthy skin, without the veins, bruises and sores
+vec3 organic(vec3 base, float m, vec3 p, bool living) {
     if (m < 9.5) {
         float n = noise3(p * 9.0), n2 = noise3(p * 31.0);
+        if (living) return base * (0.94 + 0.1 * n) * (0.97 + 0.06 * n2);
         vec3 c = base * (0.88 + 0.22 * n) * (0.95 + 0.1 * n2);
         float v = smoothstep(0.86, 0.99, 1.0 - abs(noise3(p * 15.0 + 3.1) * 2.0 - 1.0));
         c = mix(c, base * vec3(0.8, 0.6, 0.65), v * 0.4);
@@ -178,11 +180,11 @@ vec3 organic(vec3 base, float m, vec3 p) {
     if (m < 10.5) return base * (0.7 + 0.4 * noise3(p * 14.0)) * (0.65 + 0.5 * noise3(p * 5.0 + 11.0));
     return base * (0.75 + 0.4 * noise3(p * 20.0));
 }
-// a wet bloodshot eye seen along its own axis: dark pupil, iris, veined white
-vec3 eye_color(vec3 iris, vec3 d) {
+// a wet bloodshot eye seen along its own axis: dark pupil, iris, veined white; a living one's white is clear
+vec3 eye_color(vec3 iris, vec3 d, bool living) {
     float ang = acos(clamp(-d.z, -1.0, 1.0));
-    float veins = smoothstep(0.55, 0.9, noise3(d * 11.0 + 3.0)) * smoothstep(0.5, 0.9, ang);
-    vec3 white = mix(vec3(0.86, 0.80, 0.74), vec3(0.62, 0.14, 0.12), 0.1 + 0.5 * veins);
+    float veins = living ? 0.0 : smoothstep(0.55, 0.9, noise3(d * 11.0 + 3.0)) * smoothstep(0.5, 0.9, ang);
+    vec3 white = living ? vec3(0.84, 0.82, 0.78) : mix(vec3(0.86, 0.80, 0.74), vec3(0.62, 0.14, 0.12), 0.1 + 0.5 * veins);
     vec3 c = mix(white, iris * (0.7 + 0.6 * noise3(d * 30.0)), smoothstep(0.66, 0.58, ang));
     return mix(c, vec3(0.015), smoothstep(0.3, 0.24, ang));
 }
@@ -190,6 +192,20 @@ vec3 eye_color(vec3 iris, vec3 d) {
 const float HEAD_K = 0.87, HEAD_PIVOT = 1.50, HEAD_LIFT = 0.025;
 vec3 head_space(vec3 p) {
     return vec3(p.x / HEAD_K, HEAD_PIVOT + (p.y - HEAD_PIVOT - HEAD_LIFT) / HEAD_K, p.z / HEAD_K);
+}
+// a living face: pink lips, brows, a little colour in the cheeks
+vec3 living_face(vec3 c, vec3 p) {
+    vec3 h = head_space(p);
+    vec3 q = vec3(abs(h.x), h.y, h.z);
+    float lips = exp(-pow(length((h - vec3(0.0, 1.575, -0.09)) * vec3(1.0, 2.8, 1.4)) / 0.024, 2.0));
+    c = mix(c, c * vec3(0.9, 0.68, 0.66), lips * 0.55);
+    float cheeks = exp(-pow(length(q - vec3(0.055, 1.615, -0.075)) / 0.03, 2.0));
+    c = mix(c, c * vec3(1.02, 0.88, 0.86), cheeks * 0.15);
+    // the brows: a band over each eye, thinning to its outer end
+    float bx = (q.x - 0.041) / 0.024;
+    float by = q.y - (1.6955 + 0.004 * (1.0 - bx * bx));
+    float brow = smoothstep(1.0, 0.7, abs(bx)) * smoothstep(0.0045, 0.002, abs(by)) * step(h.z, -0.06);
+    return mix(c, c * 0.28, brow * (0.75 + 0.25 * noise3(p * 400.0)));
 }
 // the rest of a face and body that paint can do: sunken eyes, dark lips, blood on the mouth and hands, wounds
 vec3 skin_detail(vec3 c, vec3 p, float aux, float wet) {
@@ -314,7 +330,10 @@ void main() {
         } else if (v_umat > 11.5 && v_umat < 12.5) {
             vec3 h = head_space(v_rest);
             vec3 r = h - vec3(0.0, 1.68, 0.01);
+            // a zombie's hair is patchy and thinning, receding at the temples; the living have a tidy hairline,
+            // down to the ears at the sides
             float thr = mix(0.05, -0.075, smoothstep(0.0, 0.1, r.z)) + 0.02 * smoothstep(0.06, 0.1, abs(r.x)) + 0.012 * pow(abs(r.x) / 0.1, 2.0) + 0.04 * (noise3(v_rest * 48.0) - 0.5) + 0.016 * (nz - 0.5);
+            if (v_seed < 0.0) thr = mix(0.062, -0.08, smoothstep(-0.08, 0.04, r.z)) + 0.006 * (noise3(v_rest * 48.0) - 0.5);
             bool hair = u_hairk.x > 0.5 && r.y > thr && h.y > 1.61;
             bool beard = u_hairk.y > 0.5 && r.y < -0.025 && r.z < 0.02 && h.y > 1.5 && !(abs(h.x) < 0.034 && abs(h.y - 1.575) < 0.018);
             if (!(hair || beard)) discard;
@@ -333,14 +352,15 @@ void main() {
     float k = 1.0 - smoothstep(18.0, 60.0, dist);
     bool organic_ = !batch && v_umat > 8.5 && v_umat < 19.5;
     bool hard = !batch && v_umat > 19.5;
-    vec3 albedo = batch ? material(base, v_mat, surf(v_pos, n), k) : (organic_ ? organic(base, v_umat, v_obj + v_seed) : base);
+    bool living = v_seed < 0.0;
+    vec3 albedo = batch ? material(base, v_mat, surf(v_pos, n), k) : (organic_ ? organic(base, v_umat, v_obj + v_seed, living) : base);
     if (organic_) {
         if (v_umat > 13.5) {
-            albedo = eye_color(base, normalize(v_obj));
+            albedo = eye_color(base, normalize(v_obj), living);
         } else if (v_umat > 11.5 && v_umat < 12.5) {
             albedo = base * (0.5 + 0.9 * noise3(v_rest * vec3(240.0, 50.0, 240.0))) * (0.8 + 0.3 * noise3(v_rest * 60.0));
         } else if (v_umat < 9.5 && u_skin > 0.5) {
-            albedo = skin_detail(albedo, v_rest, v_aux, 0.0);
+            albedo = living ? living_face(albedo, v_rest) : skin_detail(albedo, v_rest, v_aux, 0.0);
         } else if (v_umat > 9.5 && v_umat < 10.5 && u_skin > 0.5 && v_rest.y < 0.12 + 0.01 * noise3(v_rest * 50.0)) {
             albedo = u_shoe * (0.6 + 0.6 * noise3(v_rest * 45.0));
         }
@@ -566,10 +586,12 @@ struct GpuMesh {
 struct GpuFigure {
     body: GpuMesh,
     head: GpuMesh,
+    face: GpuMesh,
     hands: [GpuMesh; 2],
     shirt: GpuMesh,
     pants: GpuMesh,
     hair: GpuMesh,
+    crop: GpuMesh,
 }
 
 /// One part of a gun on the GPU, with the look it is drawn in.
@@ -608,7 +630,7 @@ struct GpuGrenade {
     hand: Vec<GpuPiece>,
 }
 
-/// A zombie to draw this frame: its bones, how detailed it is, and what it looks like.
+/// A zombie or another player to draw this frame: its bones, how detailed it is, and what it looks like.
 struct SkinJob {
     bones: Vec<f32>,
     lod: usize,
@@ -1008,6 +1030,66 @@ fn around(pivot: V3, r: &M4) -> M4 {
     mul(&translate(pivot[0], pivot[1], pivot[2]), &mul(r, &translate(-pivot[0], -pivot[1], -pivot[2])))
 }
 
+/// Where `m` puts the point `p`.
+fn apply(m: &M4, p: V3) -> V3 {
+    std::array::from_fn(|i| m[i] * p[0] + m[4 + i] * p[1] + m[8 + i] * p[2] + m[12 + i])
+}
+
+/// The other way from `m`, for a turn and a move with no scaling.
+fn rigid_inverse(m: &M4) -> M4 {
+    let mut r = IDENTITY;
+    for i in 0..3 {
+        for j in 0..3 {
+            r[4 * i + j] = m[4 * j + i];
+        }
+    }
+    let t = turn_dir(&r, [m[12], m[13], m[14]]);
+    r[12..15].copy_from_slice(&[-t[0], -t[1], -t[2]]);
+    r
+}
+
+/// An arm reaching from a skeleton's chest to put its wrist at `wrist` (in the world), the elbow bending towards
+/// `pole` (in the chest's frame): the shoulder and elbow bones, for an arm hanging straight down in the rest pose
+/// (see `draw_zombie`), shoulder at 1.41, elbow 1.13, wrist 0.87. Out of reach, the arm points straight at it.
+fn reach_arm(chest: &M4, side: f32, wrist: V3, pole: V3) -> (M4, M4) {
+    let (l1, l2) = (0.28, 0.26);
+    let s = [side * crate::body::ARM_X, 1.41, 0.0];
+    let t = apply(&rigid_inverse(chest), wrist);
+    let to = [t[0] - s[0], t[1] - s[1], t[2] - s[2]];
+    let d = dot(to, to).sqrt().clamp(0.05, l1 + l2 - 0.002);
+    let dir = norm(to);
+    let pd = dot(pole, dir);
+    let bend = norm([pole[0] - dir[0] * pd, pole[1] - dir[1] * pd, pole[2] - dir[2] * pd]);
+    // the elbow on the circle the two bones can meet on, on the pole's side
+    let ca = ((l1 * l1 + d * d - l2 * l2) / (2.0 * l1 * d)).clamp(-1.0, 1.0);
+    let sa = (1.0 - ca * ca).sqrt();
+    let upper: V3 = std::array::from_fn(|i| dir[i] * ca + bend[i] * sa);
+    let elbow: V3 = std::array::from_fn(|i| s[i] + upper[i] * l1);
+    let fore = norm(std::array::from_fn(|i| s[i] + dir[i] * d - elbow[i]));
+    // the way the forearm folds from it, away from the pole, which a straight arm doesn't show
+    let fd = dot(fore, upper);
+    let across: V3 = std::array::from_fn(|i| fore[i] - upper[i] * fd);
+    let fold = if dot(across, across) > 1e-8 { norm(across) } else { bend.map(|v| -v) };
+    // the arm hangs down -y and its elbow folds it towards -z about x: turn those onto the upper arm and the fold
+    let x = cross(upper, fold);
+    let r = [x[0], x[1], x[2], 0.0, -upper[0], -upper[1], -upper[2], 0.0, -fold[0], -fold[1], -fold[2], 0.0, 0.0, 0.0, 0.0, 1.0];
+    let sh = mul(chest, &around(s, &r));
+    let el = mul(&sh, &around([0.0, 1.13, 0.0], &rot_x(fd.clamp(-1.0, 1.0).acos())));
+    (sh, el)
+}
+
+/// The wrist bone of a hand at `wrist` (in the world) with its fingers running along `fingers` and its palm
+/// facing `palm`, for an arm hanging straight down in the rest pose (see `reach_arm`), where the fingers point
+/// down -y and the palm faces in towards the body.
+fn hand_at(side: f32, wrist: V3, fingers: V3, palm: V3) -> M4 {
+    let y = norm(fingers.map(|v| -v));
+    let pd = dot(palm, y);
+    let x = norm(std::array::from_fn(|i| -side * (palm[i] - y[i] * pd)));
+    let z = cross(x, y);
+    let r = [x[0], x[1], x[2], 0.0, y[0], y[1], y[2], 0.0, z[0], z[1], z[2], 0.0, 0.0, 0.0, 0.0, 1.0];
+    mul(&translate(wrist[0], wrist[1], wrist[2]), &mul(&r, &translate(-side * crate::body::ARM_X, -0.87, 0.0)))
+}
+
 /// Where a gun's moving part is, in gun space: a pump slides back, a bolt lifts before it pulls back, a slide kicks
 /// back as it fires, barrels tip down on their hinge, a cylinder turns and swings out. A break action or a cylinder
 /// opens at the start of a reload and closes at the end.
@@ -1323,10 +1405,12 @@ impl Renderer {
         Ok(GpuFigure {
             body: Self::upload_skinned(gl, &f.body)?,
             head: Self::upload_skinned(gl, &f.head)?,
+            face: Self::upload_skinned(gl, &f.face)?,
             hands: [Self::upload_skinned(gl, &f.hands[0])?, Self::upload_skinned(gl, &f.hands[1])?],
             shirt: Self::upload_skinned(gl, &f.shirt)?,
             pants: Self::upload_skinned(gl, &f.pants)?,
             hair: Self::upload_skinned(gl, &f.hair)?,
+            crop: Self::upload_skinned(gl, &f.crop)?,
         })
     }
 
@@ -1431,14 +1515,16 @@ impl Renderer {
             // outside in: what the clothes and hair cover then fails the depth test instead of being worked out
             // and painted over, and skin is the dearest thing to draw
             draw(&f.shirt, job.shirt, 10.0, 0.0);
+            // the living (a seed below zero: see `draw_mate`) have their hair cut short, and a face of their own
+            let living = job.seed < 0.0;
             if job.hair_kind[0] > 0.5 || job.hair_kind[1] > 0.5 {
-                draw(&f.hair, job.hair, 12.0, 0.0);
+                draw(if living { &f.crop } else { &f.hair }, job.hair, 12.0, 0.0);
             }
             // the trousers have no hem to cut, only a torn leg
             gl.uniform4f(self.u_cut.as_ref(), -1.0, 0.0, 0.0, job.cut[3]);
             draw(&f.pants, job.pants, 10.0, 0.0);
             draw(&f.body, job.skin, 9.0, 0.0);
-            draw(&f.head, job.skin, 9.0, 0.0);
+            draw(if living { &f.face } else { &f.head }, job.skin, 9.0, 0.0);
             draw(&f.hands[0], job.skin, 9.0, 0.0);
             draw(&f.hands[1], job.skin, 9.0, 0.0);
         }
@@ -2223,9 +2309,12 @@ impl Renderer {
         let bob = (ph * 2.0).cos().abs() * 0.03 * amp;
         let pelvis = mul(&mul(&base, &translate(0.0, -bob, 0.0)), &around([0.0, 0.94, 0.0], &rot_y(ph.sin() * 0.1 * amp)));
         let spine = mul(&pelvis, &around([0.0, 0.98, 0.0], &rot_x(-0.08 - 0.1 * amp)));
-        let chest = mul(&spine, &around([0.0, 1.16, 0.0], &rot_x(-0.25 * p.pitch * (1.0 - down))));
-        let head = mul(&chest, &around([0.0, 1.54, 0.0], &rot_x(-0.6 * p.pitch * (1.0 - down))));
-        let jaw = mul(&head, &around(body::head_to_rest([0.0, 1.60, 0.03]), &rot_x(-0.05)));
+        // a long gun in the shoulder turns the chest to the right, the left shoulder forward to reach the
+        // handguard; the head turns back to look along the gun
+        let blade = if p.alive() && !p.aiming && !self.guns[p.weapon].spec.pistol_hold { 0.55 } else { 0.0 };
+        let chest = mul(&spine, &around([0.0, 1.16, 0.0], &mul(&rot_y(-blade), &rot_x(-0.25 * p.pitch * (1.0 - down)))));
+        let head = mul(&chest, &around([0.0, 1.54, 0.0], &mul(&rot_y(blade), &rot_x(-0.6 * p.pitch * (1.0 - down)))));
+        let jaw = head;
         let mut bones = [IDENTITY; body::BONES];
         bones[body::PELVIS] = pelvis;
         bones[body::SPINE] = spine;
@@ -2242,16 +2331,30 @@ impl Renderer {
             bones[body::HIP + k] = hip;
             bones[body::KNEE + k] = knee;
             bones[body::ANKLE + k] = ankle;
-            // both hands on the gun, out in front and following the aim; a grenade in hand, the right arm goes up
-            // and back to throw. Down, the arms lie at the sides
-            let aim = (1.0 - down) * if p.aiming && side > 0.0 { 0.0 } else { 1.0 };
-            let throw = (1.0 - down) * if p.aiming && side > 0.0 { 1.0 } else { 0.0 };
-            let sh_a = (0.75 + 0.7 * p.pitch + if side > 0.0 { 0.0 } else { 0.15 }) * aim + 2.6 * throw + 0.1 * down;
-            let el_a = (if side > 0.0 { 1.0 } else { 0.55 }) * aim + 1.4 * throw;
-            let splay = -0.3 * aim + 0.25 * throw + 0.1 * down;
-            let sh = mul(&chest, &around([side * body::ARM_X, 1.41, 0.0], &mul(&rot_z(side * splay), &rot_x(sh_a))));
-            let el = mul(&sh, &around([0.0, 1.13, 0.0], &rot_x(el_a)));
-            let wr = mul(&el, &around([0.0, 0.87, 0.0], &rot_x(0.2)));
+            // both hands on the gun where `draw_mate_gun` draws it, elbows down; a grenade in hand, the right arm
+            // goes up and back to throw. Down, the arms lie at the sides
+            let throw = p.alive() && p.aiming && side > 0.0;
+            let (sh, el, wr) = if p.alive() && !throw {
+                // the wrist, the way the fingers run and the way the palm faces, in gun space: the right hand
+                // round the grip, the left under the handguard, or on a pistol round the right hand
+                let s = &self.guns[p.weapon].spec;
+                let (at, k, fingers, palm) = if side > 0.0 {
+                    (s.right_at, [0.04, -0.125, 0.15], [0.0, -0.3, -1.0], [-1.0, 0.0, 0.0])
+                } else if s.pistol_hold {
+                    (s.left_at, [-0.045, -0.11, 0.128], [0.3, -0.4, -0.85], [1.0, 0.0, 0.2])
+                } else {
+                    (s.left_at, [-0.05, -0.04, -0.19], [0.75, 0.35, -0.55], [-0.2, 1.0, 0.0])
+                };
+                let gun = self.mate_gun(p);
+                let wrist = apply(&gun, [at[0] + k[0], at[1] + k[1], at[2] + k[2]]);
+                let (sh, el) = reach_arm(&chest, side, wrist, [side * 0.5, -1.0, 0.3]);
+                (sh, el, hand_at(side, wrist, turn_dir(&gun, fingers), turn_dir(&gun, palm)))
+            } else {
+                let (sh_a, el_a, splay) = if throw { (2.6, 1.4, 0.25) } else { (0.1, 0.0, 0.1) };
+                let sh = mul(&chest, &around([side * body::ARM_X, 1.41, 0.0], &mul(&rot_z(side * splay), &rot_x(sh_a))));
+                let el = mul(&sh, &around([0.0, 1.13, 0.0], &rot_x(el_a)));
+                (sh, el, mul(&el, &around([0.0, 0.87, 0.0], &rot_x(0.2))))
+            };
             let rest = around([side * body::ARM_X, body::SHOULDER_Y, 0.0], &rot_z(-side * body::ARM_ANGLE));
             bones[body::SHOULDER + k] = mul(&sh, &rest);
             bones[body::ELBOW + k] = mul(&el, &rest);
@@ -2275,21 +2378,42 @@ impl Renderer {
             wounds: [[0.0; 4]; 3],
             seed: -1.0,
         });
+        // clear eyes, placed on the face as modelled (see `draw_zombie`)
+        if d < 28.0 {
+            let (hk, hp) = (body::HEAD_K, body::HEAD_PIVOT);
+            let modelled = mul(&translate(0.0, hp + body::HEAD_LIFT, 0.0), &mul(&scale(hk, hk, hk), &translate(0.0, -hp, 0.0)));
+            let head = mul(&head, &modelled);
+            let iris = [[0.30, 0.18, 0.08], [0.22, 0.34, 0.42], [0.25, 0.30, 0.14], [0.12, 0.08, 0.05]][(id / 2) % 4];
+            self.seed.set(-1.0);
+            for sx in [-1.0f32, 1.0] {
+                self.ell(&head, [sx * 0.04, 1.668, -0.082], [0.0108, 0.0102, 0.0102], &IDENTITY, iris, 14.0, 0.0, 0.0);
+            }
+        }
     }
 
-    /// Another player's gun, in their hands at the chest, pointing where they aim.
+    /// Where another player's gun is, pointing where they aim: a pistol out in front of the chest in both hands, a
+    /// long gun with its butt in the right shoulder, which `draw_mate` turns back for it, so the stock stays out of
+    /// the chest. A gun with no stock to speak of is held a little out from the shoulder instead.
+    fn mate_gun(&self, p: &crate::sim::Player) -> M4 {
+        let at = p.body.pos;
+        let body = mul(&translate(at[0], at[1], at[2]), &rot_y(-p.yaw));
+        let g = &self.guns[p.weapon];
+        let s = &g.spec;
+        if s.pistol_hold {
+            let held = mul(&translate(0.1, 1.42 + 0.2 * p.pitch.sin(), -0.2), &rot_x(p.pitch));
+            return mul(&body, &mul(&held, &translate(s.hold[0], s.hold[1], s.hold[2])));
+        }
+        let along = g.bounds.1[2].max(0.33);
+        mul(&body, &mul(&translate(0.15, 1.4, -0.03), &mul(&rot_x(p.pitch), &translate(0.0, 0.0, -along))))
+    }
+
+    /// Another player's gun (see `mate_gun`).
     fn draw_mate_gun(&self, p: &crate::sim::Player) {
         if !p.alive() || p.aiming {
             return;
         }
-        let (sy, cy) = p.yaw.sin_cos();
-        let right = [cy, 0.0, sy];
-        let at = p.body.pos;
-        let c = [at[0] + right[0] * 0.12 + sy * 0.3, at[1] + 1.33 + 0.3 * p.pitch.sin(), at[2] + right[2] * 0.12 - cy * 0.3];
-        let spec = self.guns[p.weapon].spec;
-        let gun = mul(&mul(&translate(c[0], c[1], c[2]), &mul(&rot_y(-p.yaw), &rot_x(p.pitch))), &translate(spec.hold[0], spec.hold[1], spec.hold[2]));
         let reload = if p.reload_t > 0.0 { 0.5 } else { 0.0 };
-        self.draw_gun(p.weapon, &gun, 0.0, reload, 0.0, 0.0, 0.0, 0, false);
+        self.draw_gun(p.weapon, &self.mate_gun(p), 0.0, reload, 0.0, 0.0, 0.0, 0, false);
     }
 
     fn draw_piece(&self, model: &M4, p: &GpuPiece) {

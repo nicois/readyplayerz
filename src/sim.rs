@@ -328,7 +328,7 @@ pub struct Player {
 
 impl Player {
     /// Someone not spawned yet (see `Game::respawn_at`).
-    fn new(id: u8) -> Player {
+    pub(crate) fn new(id: u8) -> Player {
         Player {
             id,
             input: Input::default(),

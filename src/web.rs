@@ -179,6 +179,25 @@ impl Client {
         }
     }
 
+    /// Dev view: `n` other players standing in a row `dist` metres in front of the player, the first facing it and
+    /// each next one turned a quarter further round (front, side, back, other side), `turn` more than that.
+    pub fn show_mates(&mut self, n: u32, dist: f32, turn: f32) {
+        let (p, f, yaw) = (self.game.me().body.pos, self.game.me().forward(), self.game.me().yaw);
+        let right = [-f[2], 0.0, f[0]];
+        self.game.bots.clear();
+        self.game.players.truncate(1);
+        for i in 0..n {
+            let off = (i as f32 - (n as f32 - 1.0) / 2.0) * 1.6;
+            let mut m = crate::sim::Player::new(i as u8 + 1);
+            m.body.pos = [p[0] + f[0] * dist + right[0] * off, p[1], p[2] + f[2] * dist + right[2] * off];
+            m.body.on_ground = true;
+            m.yaw = yaw + std::f32::consts::PI + turn + i as f32 * std::f32::consts::FRAC_PI_2;
+            m.weapon = (i as usize * 3) % crate::sim::WEAPON_COUNT;
+            self.game.players.push(m);
+        }
+        self.game.local = 0;
+    }
+
     /// Dev view: replaces the bots with one zombie frozen `s` of the way through climbing the first ledge on the
     /// ground straight ahead of the player, and looks at it from `side` metres to its right (left if negative) and
     /// `back` behind it. False if there is none.
