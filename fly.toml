@@ -12,7 +12,8 @@ primary_region = "arn"
   GAME_PORT = "4433"
   # Fly only routes UDP replies sent from this address
   GAME_BIND = "fly-global-services"
-  PUBLIC_HOST = "readyplayerz-game.fly.dev"
+  # online.readyplayerz.com: an A record (DNS only, not proxied) to the app's dedicated IPv4
+  PUBLIC_HOST = "online.readyplayerz.com"
   # rooms open at once before new ones wait in line: about what a shared-cpu-1x keeps up with (a full room with a
   # full wave takes about 0.25% of a core, and this size is only sure of about 1/16 of one)
   MAX_ROOMS = "20"

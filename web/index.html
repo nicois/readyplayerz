@@ -740,7 +740,7 @@ let lobby = { online: false, error: "" };
 // the game server: the one the page came from when it is served from this machine (./server.sh), otherwise the
 // one on Fly (see fly.toml); ?server=host plays on another
 const local = ["localhost", "127.0.0.1"].includes(location.hostname);
-const server = params.get("server") || (local ? "" : "readyplayerz-game.fly.dev");
+const server = params.get("server") || (local ? "" : "online.readyplayerz.com");
 // the name to go by: set in the room (blank is "Player n"), and remembered for the next one
 let myName = "";
 try { myName = localStorage.getItem("name") || ""; } catch {}
