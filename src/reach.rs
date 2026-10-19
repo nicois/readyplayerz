@@ -268,6 +268,7 @@ fn the_zombies_can_get_at_the_player_anywhere_on_either_map() {
 #[test]
 fn zombies_get_up_to_the_player_everywhere_up_high() {
     let mut failed = Vec::new();
+    let mut through = Vec::new();
     let mut tried = 0;
     for map in 0..map::MAPS {
         let gaps = Gaps::new(map::make(map, 1), [0.0, 0.0, 14.0]);
@@ -309,7 +310,19 @@ fn zombies_get_up_to_the_player_everywhere_up_high() {
             let mut struck = false;
             for _ in 0..(45.0 / crate::sim::STEP) as usize {
                 g.players[0].hp = 100.0;
+                let before: Vec<V3> = g.bots.iter().map(|b| b.body.pos).collect();
                 g.tick(crate::sim::STEP);
+                // and none of them gets there up through a floor or a roof
+                for (b, a) in g.bots.iter().zip(before) {
+                    let (x, z, y) = (b.body.pos[0], b.body.pos[2], b.body.pos[1]);
+                    let column = Aabb { min: [x - 0.05, a[1], z - 0.05], max: [x + 0.05, y, z + 0.05] };
+                    g.world.find(&column, |w| {
+                        if overlaps(&column, w) && w.min[0] < x - 0.05 && w.max[0] > x + 0.05 && w.min[2] < z - 0.05 && w.max[2] > z + 0.05 && a[1] < w.min[1] && y > w.max[1] - 0.05 {
+                            through.push(format!("map {map}: a zombie went from {} up through {:.2?}..{:.2?} to {}", show(a), w.min, w.max, show(b.body.pos)));
+                        }
+                        false
+                    });
+                }
                 // the waves would bring more
                 g.bots.truncate(3);
                 if g.players[0].hp < 100.0 {
@@ -324,6 +337,8 @@ fn zombies_get_up_to_the_player_everywhere_up_high() {
         }
     }
     assert!(failed.is_empty(), "{} of {tried} places up high the zombies never got to:\n{}", failed.len(), failed.join("\n"));
+    through.dedup();
+    assert!(through.is_empty(), "{}", through.join("\n"));
 }
 
 /// Prints the player's way from the middle to TO=x,height,z on MAP made from SEED, marking the places a zombie

@@ -157,12 +157,15 @@ impl Nav {
 
     /// Whether a bot on spot `from` in cell `c` can pull itself up onto a ledge at height `to`: too tall to step
     /// up, within reach, and with room above the cell for the body once it has risen to the ledge's height. The
-    /// ledge itself may hang out over the cell, as the eaves of a roof do over a hedge: the body ends up on it.
+    /// ledge itself may hang out over the cell, as the eaves of a roof do over a hedge: the body ends up on it. But
+    /// nothing may hang over the cell below the ledge's height: that is a ceiling, and the roof on it is not reached
+    /// from inside by going up through it.
     fn can_climb(&self, c: (i32, i32), from: usize, to: f32) -> bool {
-        let rise = to - self.spots[from];
+        let h = self.spots[from];
         let i = self.at(c);
         let solid = &self.solid[self.solid_start[i] as usize..self.solid_start[i + 1] as usize];
-        rise > CLIMB && rise <= LEDGE && !solid.iter().any(|(lo, hi)| *lo < to + HEADROOM + 0.05 && *hi > to + 0.02)
+        let overhead = |&(lo, hi): &(f32, f32)| (lo > h + 0.02 && lo < to - 0.02) || (lo < to + HEADROOM + 0.05 && hi > to + 0.02);
+        to - h > CLIMB && to - h <= LEDGE && !solid.iter().any(overhead)
     }
 
     /// The spots at `c2` a bot standing on spot `from` in `c` can walk to and climb up onto, if any. A cell can

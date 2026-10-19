@@ -756,11 +756,13 @@ fn find_ledge(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), heave: bool, worl
             });
             let top = top + EPS;
             // the body has to fit all the way in, risen beside the ledge and over onto it, not just at the ends, or it
-            // goes through a wall to the floor behind it
-            let clear = (0..=6).all(|k| {
-                let s = k as f32 / 6.0;
-                free([pos[0] + (c[0] - pos[0]) * s, top, pos[2] + (c[1] - pos[2]) * s])
-            });
+            // goes through a wall to the floor behind it, or up through a ceiling to the roof on it
+            let rises = ((top - pos[1]) / 0.3).ceil().max(1.0) as usize;
+            let clear = (1..=rises).all(|k| free([pos[0], pos[1] + (top - pos[1]) * k as f32 / rises as f32, pos[2]]))
+                && (0..=6).all(|k| {
+                    let s = k as f32 / 6.0;
+                    free([pos[0] + (c[0] - pos[0]) * s, top, pos[2] + (c[1] - pos[2]) * s])
+                });
             if top <= pos[1] + reach + 0.05 && clear {
                 let time = pace.0 + pace.1 * (top - pos[1]);
                 // the face is somewhere between this ray and the last one, which missed it
