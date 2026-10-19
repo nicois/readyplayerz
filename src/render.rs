@@ -197,13 +197,16 @@ vec3 head_space(vec3 p) {
 vec3 living_face(vec3 c, vec3 p) {
     vec3 h = head_space(p);
     vec3 q = vec3(abs(h.x), h.y, h.z);
-    float lips = exp(-pow(length((h - vec3(0.0, 1.575, -0.09)) * vec3(1.0, 2.8, 1.4)) / 0.024, 2.0));
+    float lips = exp(-pow(length((h - vec3(0.0, 1.59, -0.09)) * vec3(1.0, 2.8, 1.4)) / 0.024, 2.0));
     c = mix(c, c * vec3(0.9, 0.68, 0.66), lips * 0.55);
+    // where the lips meet, dipping a little at the corners (see body::living_head)
+    float parting = smoothstep(0.0018, 0.0006, abs(h.y - 1.5903 + 3.0 * h.x * h.x)) * smoothstep(0.021, 0.014, abs(h.x)) * step(h.z, -0.075);
+    c = mix(c, c * vec3(0.45, 0.3, 0.3), parting * 0.8);
     float cheeks = exp(-pow(length(q - vec3(0.055, 1.615, -0.075)) / 0.03, 2.0));
     c = mix(c, c * vec3(1.02, 0.88, 0.86), cheeks * 0.15);
     // the brows: a band over each eye, thinning to its outer end
     float bx = (q.x - 0.041) / 0.024;
-    float by = q.y - (1.6955 + 0.004 * (1.0 - bx * bx));
+    float by = q.y - (1.692 + 0.004 * (1.0 - bx * bx));
     float brow = smoothstep(1.0, 0.7, abs(bx)) * smoothstep(0.0045, 0.002, abs(by)) * step(h.z, -0.06);
     return mix(c, c * 0.28, brow * (0.75 + 0.25 * noise3(p * 400.0)));
 }

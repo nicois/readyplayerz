@@ -209,39 +209,22 @@ fn arm(p: V) -> f32 {
     smin(d, hand(q), 0.015)
 }
 
-/// Skull, face, jaw and ears. The face is built up from simple shapes and then carved: eye sockets, and on a
-/// zombie hollow cheeks, an angry squint and an open mouth. A living face (`human`) is fuller, with open eyes and
-/// the mouth shut.
-fn head(p: V, human: bool) -> f32 {
+/// Skull, face, jaw and ears of a zombie. The face is built up from simple shapes and then carved: eye sockets,
+/// hollow cheeks, an angry squint and an open mouth.
+fn head(p: V) -> f32 {
     let q = [p[0].abs(), p[1], p[2]];
     let mut d = ell(p, [0.0, 1.68, 0.012], [0.098, 0.118, 0.108]);
     d = smin(d, ell(p, [0.0, 1.62, -0.028], [0.088, 0.088, 0.084]), 0.02);
-    // cheekbones and the hollows under them, brow ridge, nose (shorter and neater on the living), ears
+    // cheekbones and the hollows under them, brow ridge, nose, ears
     d = smin(d, ell(q, [0.053, 1.638, -0.07], [0.032, 0.024, 0.026]), 0.015);
     d = smin(d, cone(q, [0.008, 1.683, -0.092], [0.064, 1.702, -0.068], 0.014, 0.011), 0.014);
-    if human {
-        d = smin(d, cone(p, [0.0, 1.668, -0.094], [0.0, 1.617, -0.108], 0.007, 0.012), 0.012);
-        d = smin(d, ell(q, [0.014, 1.607, -0.098], [0.01, 0.007, 0.009]), 0.01);
-        d = smin(d, ell(p, [0.0, 1.611, -0.109], [0.011, 0.01, 0.011]), 0.01);
-    } else {
-        d = smin(d, cone(p, [0.0, 1.665, -0.094], [0.0, 1.612, -0.112], 0.008, 0.013), 0.012);
-        d = smin(d, ell(q, [0.015, 1.604, -0.1], [0.011, 0.008, 0.01]), 0.01);
-        d = smin(d, ell(p, [0.0, 1.605, -0.114], [0.012, 0.011, 0.012]), 0.01);
-    }
+    d = smin(d, cone(p, [0.0, 1.665, -0.094], [0.0, 1.612, -0.112], 0.008, 0.013), 0.012);
+    d = smin(d, ell(q, [0.015, 1.604, -0.1], [0.011, 0.008, 0.01]), 0.01);
+    d = smin(d, ell(p, [0.0, 1.605, -0.114], [0.012, 0.011, 0.012]), 0.01);
     d = smin(d, ell(q, [0.097, 1.655, 0.012], [0.01, 0.028, 0.018]), 0.01);
     // jaw and chin
     d = smin(d, cone(q, [0.047, 1.60, 0.0], [0.0, 1.535, -0.07], 0.034, 0.028), 0.02);
     d = smin(d, ell(p, [0.0, 1.533, -0.079], [0.031, 0.024, 0.026]), 0.014);
-    if human {
-        // a fuller jaw and chin, lips meeting in a line, and eyes open under a relaxed lid
-        d = smin(d, ell(q, [0.042, 1.565, -0.045], [0.036, 0.032, 0.036]), 0.025);
-        d = smin(d, ell(p, [0.0, 1.538, -0.082], [0.03, 0.022, 0.024]), 0.015);
-        d = smin(d, ell(p, [0.0, 1.586, -0.089], [0.025, 0.007, 0.011]), 0.008);
-        d = smin(d, ell(p, [0.0, 1.566, -0.087], [0.023, 0.008, 0.011]), 0.008);
-        d = smooth_sub(d, ell(p, [0.0, 1.5765, -0.096], [0.023, 0.0015, 0.012]), 0.003);
-        d = smooth_sub(d, ell(q, [0.04, 1.668, -0.084], [0.019, 0.014, 0.018]), 0.008);
-        return smin(d, ell(q, [0.04, 1.678, -0.0885], [0.0155, 0.0045, 0.0115]), 0.004);
-    }
     d = smin(d, ell(p, [0.0, 1.592, -0.094], [0.029, 0.0075, 0.013]), 0.008);
     d = smin(d, ell(p, [0.0, 1.558, -0.092], [0.027, 0.0085, 0.013]), 0.008);
     // hollow cheeks
@@ -253,6 +236,43 @@ fn head(p: V, human: bool) -> f32 {
     d = smin(d, ell(q, [0.04, 1.6615, -0.089], [0.0145, 0.0035, 0.011]), 0.004);
     d = smooth_sub(d, ell(p, [0.0, 1.574, -0.083], [0.023, 0.0075, 0.03]), 0.006);
     d
+}
+
+/// A living head: the same skull, with a face built on the bones under it rather than on a zombie's lumps. A
+/// mid-face that narrows to the mouth, cheekbones running back to the ears, a jaw from below the ear to a squared
+/// chin, closed lips on the curve of the teeth, and open eyes under a relaxed lid.
+fn living_head(p: V) -> f32 {
+    let q = [p[0].abs(), p[1], p[2]];
+    let mut d = ell(p, [0.0, 1.68, 0.012], [0.098, 0.118, 0.108]);
+    d = smin(d, ell(p, [0.0, 1.64, -0.025], [0.078, 0.07, 0.07]), 0.025);
+    // a soft brow, cheekbones from under the eye back toward the ear, the cheeks over the teeth, the flesh down
+    // the side of the face to the jaw
+    d = smin(d, ell(q, [0.042, 1.695, -0.084], [0.028, 0.01, 0.015]), 0.02);
+    d = smin(d, ell(p, [0.0, 1.69, -0.09], [0.015, 0.01, 0.01]), 0.015);
+    d = smin(d, cone(q, [0.042, 1.648, -0.078], [0.077, 1.645, -0.025], 0.012, 0.009), 0.02);
+    d = smin(d, ell(q, [0.056, 1.638, -0.068], [0.022, 0.016, 0.018]), 0.025);
+    d = smin(d, ell(q, [0.044, 1.626, -0.058], [0.028, 0.028, 0.022]), 0.04);
+    d = smin(d, ell(q, [0.045, 1.608, -0.047], [0.02, 0.03, 0.028]), 0.03);
+    // the mouth and chin are bent back round the curve of the teeth, the corners of the mouth well behind its
+    // middle; the teeth themselves under the lips
+    let b = [p[0], p[1], p[2] - 18.0 * p[0] * p[0]];
+    d = smin(d, ell(b, [0.0, 1.595, -0.068], [0.036, 0.026, 0.022]), 0.03);
+    // the nose, ears
+    d = smin(d, cone(p, [0.0, 1.668, -0.094], [0.0, 1.627, -0.107], 0.007, 0.011), 0.012);
+    d = smin(d, ell(q, [0.0135, 1.617, -0.097], [0.0095, 0.007, 0.009]), 0.01);
+    d = smin(d, ell(p, [0.0, 1.621, -0.108], [0.0105, 0.0095, 0.011]), 0.01);
+    d = smin(d, ell(q, [0.097, 1.655, 0.012], [0.01, 0.028, 0.018]), 0.01);
+    // the jaw: up from its angle to below the ear, along to the chin
+    d = smin(d, cone(q, [0.055, 1.595, 0.002], [0.061, 1.625, 0.006], 0.014, 0.012), 0.03);
+    d = smin(d, cone(q, [0.055, 1.595, 0.002], [0.016, 1.547, -0.074], 0.014, 0.012), 0.03);
+    d = smin(d, ell(b, [0.0, 1.567, -0.074], [0.02, 0.02, 0.015]), 0.02);
+    d = smin(d, ell(b, [0.0, 1.552, -0.085], [0.019, 0.015, 0.014]), 0.02);
+    // closed lips, the upper one in two curves (the shader draws the line between them), and the eyes
+    let bq = [b[0].abs(), b[1], b[2]];
+    d = smin(d, ell(bq, [0.007, 1.5985, -0.089], [0.015, 0.006, 0.011]), 0.008);
+    d = smin(d, ell(b, [0.0, 1.5805, -0.0855], [0.02, 0.009, 0.012]), 0.008);
+    d = smooth_sub(d, ell(q, [0.04, 1.668, -0.084], [0.019, 0.014, 0.018]), 0.008);
+    smin(d, ell(q, [0.04, 1.678, -0.0885], [0.0155, 0.0045, 0.0115]), 0.004)
 }
 
 /// The whole body, hands and head included, in the rest pose.
@@ -269,12 +289,17 @@ fn figure(p: V, human: bool) -> f32 {
     let mut d = 1.0f32;
     if p[1] > 0.68 && p[1] < 1.64 && p[0].abs() < 0.32 {
         d = torso(p);
+        if human {
+            // the throat set back under the jaw, so the chin stands clear of it
+            d = smooth_sub(d, ell(p, [0.0, 1.552, -0.09], [0.06, 0.036, 0.056]), 0.025);
+        }
     }
     if p[1] < 1.12 {
         d = smin(d, legs(p), 0.045);
     }
     if p[1] > 1.36 {
-        d = smin(d, head(to_head(p), human) * HEAD_K, 0.03);
+        let h = to_head(p);
+        d = smin(d, if human { living_head(h) } else { head(h) } * HEAD_K, 0.03);
     }
     if p[0].abs() > 0.1 && p[1] > 0.55 && p[1] < 1.62 {
         d = smin(d, arm(p), 0.02);
@@ -592,7 +617,8 @@ impl Figure {
         let s = scale;
         let body = build(&body_part, [-0.62, -0.02, -0.28], [0.62, 1.52, 0.26], 0.011 * s, false);
         let head = build(&head_part, [-0.13, 1.48, -0.16], [0.13, 1.82, 0.17], 0.0045 * s, false);
-        let face = build(&face_part, [-0.13, 1.48, -0.16], [0.13, 1.82, 0.17], 0.0045 * s, false);
+        // the living face is meshed finer, for its lips and lids
+        let face = build(&face_part, [-0.13, 1.48, -0.16], [0.13, 1.82, 0.17], 0.003 * s, false);
         let hands = [
             build(&hand_part, [-0.62, 0.66, -0.1], [-0.36, 0.98, 0.1], 0.0045 * s, false),
             build(&hand_part, [0.36, 0.66, -0.1], [0.62, 0.98, 0.1], 0.0045 * s, false),
@@ -635,21 +661,29 @@ mod tests {
 
     /// Ray-traces the rest pose from the front, the side, three quarters and the back into `$VIEWS` (a .ppm), to
     /// look at the shape without the game: `VIEWS=out.ppm cargo test --release views -- --ignored`. `$BARE` set
-    /// leaves the clothes and hair off.
+    /// leaves the clothes and hair off; `$FACE` set looks close at a living head instead.
     #[test]
     #[ignore]
     fn views() {
         let out = std::env::var("VIEWS").expect("set VIEWS to the picture to write");
         let bare = std::env::var("BARE").is_ok();
-        let parts: Vec<(&(dyn Fn(V) -> f32 + Sync), [f32; 3])> = if bare {
+        let face = std::env::var("FACE").is_ok();
+        let parts: Vec<(&(dyn Fn(V) -> f32 + Sync), [f32; 3])> = if face {
+            let mut v: Vec<(&(dyn Fn(V) -> f32 + Sync), [f32; 3])> = vec![(&human_skin, [0.78, 0.62, 0.54])];
+            if !bare {
+                v.push((&crop, [0.15, 0.10, 0.07]));
+            }
+            v
+        } else if bare {
             vec![(&skin, [0.78, 0.62, 0.54])]
         } else {
             vec![(&skin, [0.78, 0.62, 0.54]), (&shirt, [0.30, 0.42, 0.55]), (&pants, [0.25, 0.25, 0.30]), (&hair, [0.15, 0.10, 0.07])]
         };
         let scene = |p: V| parts.iter().map(|(f, _)| f(p)).fold(f32::MAX, f32::min);
-        let (w, h, px) = (330usize, 640usize, 1.92 / 640.0);
+        // the whole figure, or 32 cm round the head
+        let (w, h, px, top) = if face { (400usize, 400usize, 0.32 / 400.0, 1.82) } else { (330usize, 640usize, 1.92 / 640.0, 1.9) };
         // looking from where, as a turn round the figure: front (it faces -z), side, three quarters, back
-        let turns = [std::f32::consts::PI, std::f32::consts::FRAC_PI_2, 2.4, 0.0];
+        let turns = if face { [std::f32::consts::PI, 2.6, std::f32::consts::FRAC_PI_2, 0.0] } else { [std::f32::consts::PI, std::f32::consts::FRAC_PI_2, 2.4, 0.0] };
         let mut img = vec![[0u8; 3]; w * h * turns.len()];
         std::thread::scope(|s| {
             for (v, chunk) in img.chunks_mut(w * h).enumerate() {
@@ -661,10 +695,10 @@ mod tests {
                     let right = [ca, 0.0, -sa];
                     for y in 0..h {
                         for x in 0..w {
-                            let (u, t) = ((x as f32 - w as f32 / 2.0) * px, 1.9 - y as f32 * px);
+                            let (u, t) = ((x as f32 - w as f32 / 2.0) * px, top - y as f32 * px);
                             let mut p = [right[0] * u + dir[0] * 1.0, t, right[2] * u + dir[2] * 1.0];
                             let mut col = [0.93, 0.93, 0.9];
-                            if (t * 100.0).rem_euclid(10.0) < 0.3 {
+                            if (t * 100.0).rem_euclid(if face { 1.0 } else { 10.0 }) < 0.3 * px / (1.92 / 640.0) {
                                 col = [0.82, 0.82, 0.8];
                             }
                             for _ in 0..200 {
