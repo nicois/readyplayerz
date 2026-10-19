@@ -29,7 +29,8 @@ jobs:
         with:
           tool: wasm-bindgen@0.2.129
 
-      - run: cargo test --release
+      # the game server's own tests too
+      - run: cargo test --release --workspace
 
       - run: ./build.sh
 

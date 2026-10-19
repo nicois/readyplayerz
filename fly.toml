@@ -13,6 +13,9 @@ primary_region = "arn"
   # Fly only routes UDP replies sent from this address
   GAME_BIND = "fly-global-services"
   PUBLIC_HOST = "readyplayerz-game.fly.dev"
+  # rooms open at once before new ones wait in line: about what a shared-cpu-1x keeps up with (a full room with a
+  # full wave takes about 0.25% of a core, and this size is only sure of about 1/16 of one)
+  MAX_ROOMS = "20"
 
 # /net, which tells the page the game's port and certificate hash, over Fly's https
 [http_service]

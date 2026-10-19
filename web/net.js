@@ -12,11 +12,11 @@ export class Net {
   }
 
   /**
-   * Connects and says hello: to make a room (`room` empty) or join one. `server` is the game server's host (the
-   * one the page came from if empty), which says at /net which port the game is on and, if it made its own
-   * certificate, the hash to trust it by.
+   * Connects and says hello: to make a room on map `map` (`room` empty) or join one. `server` is the game
+   * server's host (the one the page came from if empty), which says at /net which port the game is on and, if it
+   * made its own certificate, the hash to trust it by.
    */
-  async open(room, name, server) {
+  async open(room, name, server, map) {
     if (typeof WebTransport === "undefined") throw new Error("This browser can't play online (it has no WebTransport). Try Chrome, Edge or Firefox.");
     const res = await fetch(server ? `https://${server}/net` : "net", { cache: "no-store" }).catch(() => null);
     if (!res?.ok) throw new Error(server ? "The game server isn't answering. Try again in a minute." : "No game server here: start it with ./server.sh");
@@ -29,7 +29,7 @@ export class Net {
     const bidi = await this.wt.createBidirectionalStream();
     this.stream = bidi.writable.getWriter();
     this.datagrams = this.wt.datagrams.writable.getWriter();
-    await this.stream.write(this.client.net_hello(room, name));
+    await this.stream.write(this.client.net_hello(room, name, map));
     this.pump(bidi.readable.getReader(), b => this.client.net_stream(b));
     this.pump(this.wt.datagrams.readable.getReader(), b => this.client.net_datagram(b));
   }
@@ -60,6 +60,11 @@ export class Net {
   /** The host letting the waves come. */
   start() {
     this.stream?.write(this.client.net_start()).catch(() => {});
+  }
+
+  /** Going by `name` in the room from now on. */
+  rename(name) {
+    this.stream?.write(this.client.net_name(name)).catch(() => {});
   }
 
   close() {

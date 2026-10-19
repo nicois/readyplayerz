@@ -1,4 +1,4 @@
-//! The game server. It serves the page over plain HTTP (for playing on this machine) and runs rooms of up to eight
+//! The game server. It serves the page over plain HTTP (for playing on this machine) and runs rooms of up to six
 //! players over WebTransport: each room is the real game (`arena::sim::host::Room`), on a thread of its own at 60
 //! ticks a second, and each player's session moves the bytes between their browser and their room.
 //!
@@ -8,11 +8,14 @@
 //! `TLS_CERT` and `TLS_KEY` (PEM files for the server's domain) it shows browsers a real certificate; without, it
 //! makes its own, which browsers only take when told its hash, which the page asks `/net` for. A browser won't take
 //! one valid for more than two weeks, so it is made again every week.
+//!
+//! `MAX_ROOMS` (20) is how many rooms can be open at once. Past that, whoever makes a room waits in line for one,
+//! told their place as it changes; joining a room already open never waits.
 
 use arena::net::{self, Frames, Msg};
 use arena::sim::host::Room;
 use arena::sim::{Input, STEP};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::hash::{BuildHasher, Hasher};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -20,18 +23,20 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc as amp, oneshot};
 use wtransport::endpoint::IncomingSession;
 use wtransport::tls::Sha256DigestFmt;
-use wtransport::{Endpoint, Identity, ServerConfig};
+use wtransport::{Endpoint, Identity, RecvStream, SendStream, ServerConfig};
 
-/// A room with nobody in it is closed after this long.
+/// A room with nobody in it is closed after this long, or this much sooner while someone waits for a room.
 const EMPTY_FOR: Duration = Duration::from_secs(60);
-/// Most rooms open at once.
-const MAX_ROOMS: usize = 200;
+const EMPTY_FOR_IN_DEMAND: Duration = Duration::from_secs(10);
+
+type Error = Box<dyn std::error::Error + Send + Sync>;
 
 /// What a session tells its room.
 enum ToRoom {
     Join { name: String, out: amp::UnboundedSender<Out>, reply: oneshot::Sender<Option<u8>> },
     Inputs(u8, u32, Vec<Input>),
     Start(u8),
+    Rename(u8, String),
     Leave(u8),
 }
 
@@ -41,7 +46,56 @@ enum Out {
     Stream(Vec<u8>),
 }
 
-type Rooms = Arc<Mutex<HashMap<String, mpsc::Sender<ToRoom>>>>;
+/// The rooms open, and the line for new ones.
+struct Lobby {
+    max: usize,
+    rooms: HashMap<String, mpsc::Sender<ToRoom>>,
+    /// the tickets of those waiting to make a room, first in line first
+    line: VecDeque<u64>,
+}
+
+/// Whether a room can be made for someone now, or their place in line for one (1 is next).
+#[derive(Debug, PartialEq)]
+enum Turn {
+    Now,
+    Wait(usize),
+}
+
+impl Lobby {
+    fn new(max: usize) -> Lobby {
+        Lobby { max, rooms: HashMap::new(), line: VecDeque::new() }
+    }
+
+    /// Ticket `t` asking for a room, at the back of the line the first time it asks: its turn once it is first in
+    /// line and there is space, when it leaves the line for its room to be made.
+    fn turn(&mut self, t: u64) -> Turn {
+        let place = self.line.iter().position(|&w| w == t).unwrap_or_else(|| {
+            self.line.push_back(t);
+            self.line.len() - 1
+        });
+        if place == 0 && self.rooms.len() < self.max {
+            self.line.pop_front();
+            return Turn::Now;
+        }
+        Turn::Wait(place + 1)
+    }
+
+    /// Whether a room that has had nobody in it for `empty` is to close: after a while, sooner while anyone waits.
+    fn closes(&self, empty: Duration) -> bool {
+        empty > EMPTY_FOR || (empty > EMPTY_FOR_IN_DEMAND && !self.line.is_empty())
+    }
+}
+
+type Rooms = Arc<Mutex<Lobby>>;
+
+/// A place in line, given up when dropped however the session ends.
+struct Ticket(Rooms, u64);
+
+impl Drop for Ticket {
+    fn drop(&mut self) {
+        self.0.lock().unwrap().line.retain(|&t| t != self.1);
+    }
+}
 
 fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
@@ -93,6 +147,10 @@ fn run_room(code: String, mut room: Room, rx: mpsc::Receiver<ToRoom>, rooms: Roo
                 }
                 ToRoom::Inputs(id, first, inputs) => room.inputs(id, first, &inputs),
                 ToRoom::Start(id) => room.start(id),
+                ToRoom::Rename(id, name) => {
+                    room.rename(id, &name);
+                    send_all(&outs, &room.roster());
+                }
                 ToRoom::Leave(id) => {
                     room.leave(id);
                     outs.remove(&id);
@@ -125,10 +183,13 @@ fn run_room(code: String, mut room: Room, rx: mpsc::Receiver<ToRoom>, rooms: Roo
         match (room.is_empty(), empty_since) {
             (false, _) => empty_since = None,
             (true, None) => empty_since = Some(Instant::now()),
-            (true, Some(t)) if t.elapsed() > EMPTY_FOR => {
-                rooms.lock().unwrap().remove(&code);
-                println!("room {code} closed");
-                return;
+            (true, Some(t)) if t.elapsed() > EMPTY_FOR_IN_DEMAND => {
+                let mut lobby = rooms.lock().unwrap();
+                if lobby.closes(t.elapsed()) {
+                    lobby.rooms.remove(&code);
+                    println!("room {code} closed, {} open", lobby.rooms.len());
+                    return;
+                }
             }
             _ => {}
         }
@@ -137,9 +198,47 @@ fn run_room(code: String, mut room: Room, rx: mpsc::Receiver<ToRoom>, rooms: Roo
     }
 }
 
+/// A new room on map `map`, on a thread of its own.
+fn open_room(lobby: &mut Lobby, rooms: &Rooms, map: u8) -> mpsc::Sender<ToRoom> {
+    let code = new_code(&lobby.rooms);
+    let (tx, rx) = mpsc::channel();
+    let (map, seed) = (map.min(arena::map::MAPS - 1), random() as u32);
+    let (rooms, name) = (rooms.clone(), code.clone());
+    // the game is made on its own thread, as it never leaves it
+    std::thread::spawn(move || run_room(name, Room::new(map, seed), rx, rooms));
+    lobby.rooms.insert(code, tx.clone());
+    tx
+}
+
+/// A room made on map `map` as soon as there is space for one: until then the session waits in line, told its
+/// place whenever that changes. None if they went before their turn came.
+async fn make_room(rooms: &Rooms, map: u8, send: &mut SendStream, recv: &mut RecvStream) -> Result<Option<mpsc::Sender<ToRoom>>, Error> {
+    let ticket = Ticket(rooms.clone(), random());
+    let (mut told, mut buf) = (0, [0u8; 256]);
+    loop {
+        let place = {
+            let mut lobby = rooms.lock().unwrap();
+            let Turn::Wait(place) = lobby.turn(ticket.1) else { return Ok(Some(open_room(&mut lobby, rooms, map))) };
+            if told == 0 {
+                println!("all {} rooms taken, {} waiting", lobby.max, lobby.line.len());
+            }
+            place
+        };
+        if place != told {
+            send.write_all(&Msg::Queued { place: place.min(u16::MAX as usize) as u16 }.frame()).await?;
+            told = place;
+        }
+        // nothing is said while waiting: anything read is the end of the stream
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_millis(500)) => {}
+            n = recv.read(&mut buf) => if !matches!(n, Ok(Some(_))) { return Ok(None) },
+        }
+    }
+}
+
 /// One player's session: their hello, then their inputs to the room and the room's snapshots and news to them,
 /// until either side goes.
-async fn session(incoming: IncomingSession, rooms: Rooms) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn session(incoming: IncomingSession, rooms: Rooms) -> Result<(), Error> {
     let conn = incoming.await?.accept().await?;
     let (mut send, mut recv) = conn.accept_bi().await?;
     let (mut frames, mut buf) = (Frames::default(), vec![0u8; 8192]);
@@ -155,30 +254,16 @@ async fn session(incoming: IncomingSession, rooms: Rooms) -> Result<(), Box<dyn 
         send.write_all(&refuse("The game has been updated: reload the page.")).await?;
         return Ok(());
     }
-    let tx = {
-        let mut all = rooms.lock().unwrap();
-        if code.is_empty() {
-            if all.len() >= MAX_ROOMS {
-                None
-            } else {
-                let code = new_code(&all);
-                let (tx, rx) = mpsc::channel();
-                let (map, seed) = (map.min(arena::map::MAPS - 1), random() as u32);
-                let rooms = rooms.clone();
-                let name = code.clone();
-                // the game is made on its own thread, as it never leaves it
-                std::thread::spawn(move || run_room(name, Room::new(map, seed), rx, rooms));
-                all.insert(code, tx.clone());
-                Some(tx)
-            }
-        } else {
-            all.get(&code.to_uppercase()).cloned()
-        }
-    };
-    let Some(tx) = tx else {
-        let why = if code.is_empty() { "The server is full, try again later." } else { "There is no room with that code." };
-        send.write_all(&refuse(why)).await?;
-        return Ok(());
+    let tx = if code.is_empty() {
+        let Some(tx) = make_room(&rooms, map, &mut send, &mut recv).await? else { return Ok(()) };
+        tx
+    } else {
+        let tx = rooms.lock().unwrap().rooms.get(&code.to_uppercase()).cloned();
+        let Some(tx) = tx else {
+            send.write_all(&refuse("There is no room with that code.")).await?;
+            return Ok(());
+        };
+        tx
     };
     let (out, mut outgoing) = amp::unbounded_channel();
     let (reply, id) = oneshot::channel();
@@ -187,7 +272,7 @@ async fn session(incoming: IncomingSession, rooms: Rooms) -> Result<(), Box<dyn 
         send.write_all(&refuse("That room is full.")).await?;
         return Ok(());
     };
-    let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
+    let result: Result<(), Error> = async {
         loop {
             tokio::select! {
                 out = outgoing.recv() => match out {
@@ -204,8 +289,10 @@ async fn session(incoming: IncomingSession, rooms: Rooms) -> Result<(), Box<dyn 
                 n = recv.read(&mut buf) => {
                     let Some(n) = n? else { return Ok(()) };
                     for m in frames.push(&buf[..n]) {
-                        if m == Msg::Start {
-                            tx.send(ToRoom::Start(id))?;
+                        match m {
+                            Msg::Start => tx.send(ToRoom::Start(id))?,
+                            Msg::Name { name } => tx.send(ToRoom::Rename(id, name))?,
+                            _ => {}
                         }
                     }
                 }
@@ -308,7 +395,7 @@ async fn main() {
             }
         });
     }
-    let rooms: Rooms = Arc::default();
+    let rooms: Rooms = Arc::new(Mutex::new(Lobby::new(env_or("MAX_ROOMS", "20").parse().expect("MAX_ROOMS"))));
     tokio::spawn(async move {
         if let Err(e) = serve_http(http_port, web, game_port, hash).await {
             eprintln!("the page can't be served on port {http_port}: {e}");
@@ -323,5 +410,59 @@ async fn main() {
                 eprintln!("a session ended: {e}");
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Ticket `t`'s turn, with its room opened if it came.
+    fn ask(lobby: &mut Lobby, t: u64) -> Turn {
+        let turn = lobby.turn(t);
+        if turn == Turn::Now {
+            lobby.rooms.insert(format!("R{t}"), mpsc::channel().0);
+        }
+        turn
+    }
+
+    #[test]
+    fn rooms_go_in_turn_to_whoever_has_waited_longest() {
+        let mut lobby = Lobby::new(1);
+        assert_eq!(ask(&mut lobby, 1), Turn::Now);
+        assert_eq!(ask(&mut lobby, 2), Turn::Wait(1));
+        assert_eq!(ask(&mut lobby, 3), Turn::Wait(2));
+        // a room closes: someone new doesn't jump the line, nor does the second in it
+        lobby.rooms.clear();
+        assert_eq!(ask(&mut lobby, 4), Turn::Wait(3));
+        assert_eq!(ask(&mut lobby, 3), Turn::Wait(2));
+        assert_eq!(ask(&mut lobby, 2), Turn::Now);
+        assert_eq!(ask(&mut lobby, 3), Turn::Wait(1));
+        assert_eq!(ask(&mut lobby, 4), Turn::Wait(2));
+    }
+
+    #[test]
+    fn whoever_gives_up_waiting_lets_the_rest_move_up() {
+        let rooms: Rooms = Arc::new(Mutex::new(Lobby::new(1)));
+        assert_eq!(ask(&mut rooms.lock().unwrap(), 1), Turn::Now);
+        let first = Ticket(rooms.clone(), 2);
+        assert_eq!(ask(&mut rooms.lock().unwrap(), first.1), Turn::Wait(1));
+        assert_eq!(ask(&mut rooms.lock().unwrap(), 3), Turn::Wait(2));
+        drop(first);
+        assert_eq!(ask(&mut rooms.lock().unwrap(), 3), Turn::Wait(1));
+        rooms.lock().unwrap().rooms.clear();
+        assert_eq!(ask(&mut rooms.lock().unwrap(), 3), Turn::Now);
+    }
+
+    #[test]
+    fn an_empty_room_closes_sooner_while_anyone_waits_for_one() {
+        let mut lobby = Lobby::new(1);
+        let s = Duration::from_secs;
+        assert!(!lobby.closes(s(30)));
+        assert!(lobby.closes(s(61)));
+        ask(&mut lobby, 1);
+        ask(&mut lobby, 2);
+        assert!(!lobby.closes(s(5)));
+        assert!(lobby.closes(s(11)));
     }
 }

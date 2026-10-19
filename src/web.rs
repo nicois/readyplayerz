@@ -1,7 +1,7 @@
 //! Browser glue: owns the game and renderer, and is driven from JS. Playing online, JS moves the bytes (see
 //! `web/net.js`) and the game is a copy of the server's (see `sim::mirror`).
 
-use crate::net::{Frames, Msg, VERSION};
+use crate::net::{Frames, Msg, MAX_PLAYERS, VERSION};
 use crate::render::Renderer;
 use crate::sim::mirror::Mirror;
 use crate::sim::{Game, PRIMARIES, STEP, WEAPONS};
@@ -13,6 +13,7 @@ use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
 struct Online {
     mirror: Mirror,
     room: String,
+    map: u8,
     started: bool,
     /// who is in, the host first
     players: Vec<(u8, String)>,
@@ -33,6 +34,8 @@ pub struct Client {
     frames: Frames,
     /// why the server wouldn't let us in, or the connection was lost
     net_error: String,
+    /// our place in line for a room while the server has none free (1 is next), 0 when not waiting
+    queued: u16,
     /// guns picked for the loadout, still to be told to the server: one an input
     picks: Vec<u8>,
 }
@@ -56,7 +59,7 @@ impl Client {
         let seed = (js_sys::Math::random() * 4_000_000_000.0) as u32;
         let game = Game::new(seed);
         renderer.upload_world(&game)?;
-        Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true, map: 0, seed, online: None, frames: Frames::default(), net_error: String::new(), picks: Vec::new() })
+        Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true, map: 0, seed, online: None, frames: Frames::default(), net_error: String::new(), queued: 0, picks: Vec::new() })
     }
 
     /// The game being played: the room's, online.
@@ -85,6 +88,11 @@ impl Client {
         self.map = map.min(crate::map::MAPS - 1);
         self.end_game();
         Ok(self.renderer.upload_world(&self.game)?)
+    }
+
+    /// The map played alone (0 the town, 1 the suburb).
+    pub fn map(&self) -> u8 {
+        self.map
     }
 
     /// Dev view: a fresh game on the map made from `seed`, so a picture can be taken in the same place again.
@@ -340,11 +348,12 @@ impl Client {
 
     // ---- online ----
 
-    /// The first message on a new connection: to make a room on the current map (`room` empty) or join one.
-    pub fn net_hello(&mut self, room: &str, name: &str) -> Vec<u8> {
+    /// The first message on a new connection: to make a room on map `map` (`room` empty) or join one.
+    pub fn net_hello(&mut self, room: &str, name: &str, map: u8) -> Vec<u8> {
         self.frames = Frames::default();
         self.net_error.clear();
-        Msg::Hello { version: VERSION, room: room.trim().to_uppercase(), map: self.map, name: name.into() }.frame()
+        self.queued = 0;
+        Msg::Hello { version: VERSION, room: room.trim().to_uppercase(), map, name: name.into() }.frame()
     }
 
     /// Bytes from the reliable stream.
@@ -360,16 +369,17 @@ impl Client {
                         mirror.game.pick(w);
                     }
                     self.picks = picked.iter().map(|&w| w as u8).collect();
-                    self.map = map;
                     self.acc = 0.0;
-                    self.online = Some(Online { mirror, room, started: false, players: Vec::new() });
+                    self.queued = 0;
+                    self.online = Some(Online { mirror, room, map, started: false, players: Vec::new() });
                 }
                 Msg::Roster { started, players } => {
                     if let Some(o) = &mut self.online {
                         (o.started, o.players) = (started, players);
                     }
                 }
-                Msg::Refused { why } => self.net_error = why,
+                Msg::Refused { why } => (self.net_error, self.queued) = (why, 0),
+                Msg::Queued { place } => self.queued = place,
                 _ => {}
             }
         }
@@ -399,8 +409,19 @@ impl Client {
         Msg::Start.frame()
     }
 
-    /// Out of the room (or the connection gone, with `why`): back to a game alone, on the same map.
+    /// The most players in a room.
+    pub fn seats(&self) -> usize {
+        MAX_PLAYERS
+    }
+
+    /// Going by `name` in the room from now on, for the stream.
+    pub fn net_name(&self, name: &str) -> Vec<u8> {
+        Msg::Name { name: name.into() }.frame()
+    }
+
+    /// Out of the room (or the connection gone, with `why`): back to a fresh game alone, on the solo map.
     pub fn net_leave(&mut self, why: &str) -> Result<(), JsValue> {
+        self.queued = 0;
         if self.online.take().is_some() {
             self.end_game();
             self.renderer.upload_world(&self.game)?;
@@ -411,17 +432,17 @@ impl Client {
         Ok(())
     }
 
-    /// How it is going online, as JSON: whether in a room, its code, this player's id, whether the waves have
-    /// started, who is in (host first) and the last error.
+    /// How it is going online, as JSON: whether in a room, its code and map, this player's id, whether the waves
+    /// have started, who is in (host first), the last error, and the place in line for a room (0 when not waiting).
     pub fn lobby(&self) -> String {
-        // names and codes are only ever letters, digits, spaces and a few marks (see `sim::host::Room::join`)
+        // names and codes are only ever letters, digits, spaces and a few marks (see `sim::host::clean_name`)
         let q = |s: &str| format!("\"{}\"", s.replace(['"', '\\'], ""));
         match &self.online {
             Some(o) => {
                 let players: Vec<String> = o.players.iter().map(|(id, name)| format!("[{id},{}]", q(name))).collect();
-                format!("{{\"online\":true,\"room\":{},\"id\":{},\"started\":{},\"players\":[{}],\"error\":{}}}", q(&o.room), o.mirror.id, o.started, players.join(","), q(&self.net_error))
+                format!("{{\"online\":true,\"room\":{},\"map\":{},\"id\":{},\"started\":{},\"players\":[{}],\"error\":{}}}", q(&o.room), o.map, o.mirror.id, o.started, players.join(","), q(&self.net_error))
             }
-            None => format!("{{\"online\":false,\"error\":{}}}", q(&self.net_error)),
+            None => format!("{{\"online\":false,\"error\":{},\"queued\":{}}}", q(&self.net_error), self.queued),
         }
     }
 }

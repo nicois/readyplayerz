@@ -31,13 +31,14 @@
   "gamePlatform": "Web browser",
   "applicationCategory": "Game",
   "operatingSystem": "Windows, macOS, Linux",
-  "playMode": "SinglePlayer",
+  "playMode": ["SinglePlayer", "CoOp"],
   "isAccessibleForFree": true,
   "image": "https://readyplayerz.com/og.png",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
 </script>
 <style>
+  html { color-scheme: dark; }
   html, body { margin: 0; height: 100%; background: #12182a; overflow: hidden; font: 14px/1.4 ui-monospace, Menlo, monospace; color: #e8ecff; }
   canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   #hud { position: fixed; inset: 0; pointer-events: none; }
@@ -125,23 +126,57 @@
   #keys dd { margin: 0; }
   @media (max-width: 640px) { .pick { grid-template-columns: 1fr; } #menu h1 { font-size: 40px; } }
   #err { color: #ff8a8a; }
-  /* playing with friends: make or join a room, then the room's lobby */
-  .field { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0; }
-  .field .lbl { width: 110px; font-size: 13px; font-weight: normal; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
-  .field input { font: inherit; font-size: 16px; color: inherit; padding: 8px 10px; width: 220px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.22); border-radius: 4px; }
-  .field input:focus { outline: none; border-color: #ffd36a; }
-  #mp-code { width: 110px; text-transform: uppercase; letter-spacing: .2em; }
-  .btn { padding: 8px 16px; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; border: 1px solid rgba(255,255,255,.3) !important; border-radius: 4px; }
+  /* solo and online: the map cards, and online making or joining a room, then the room's lobby */
+  .lbl { display: block; font-size: 12px; font-weight: normal; letter-spacing: .1em; text-transform: uppercase; opacity: .6; }
+  #menu input { font: inherit; font-size: 16px; color: inherit; padding: 8px 10px; width: 220px; box-sizing: border-box; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.22); border-radius: 4px; }
+  #menu input:focus { outline: none; border-color: #ffd36a; }
+  #mp-code { width: 120px; font-size: 20px; text-transform: uppercase; letter-spacing: .3em; }
+  .btn { padding: 9px 18px; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; border: 1px solid rgba(255,255,255,.3) !important; border-radius: 4px; white-space: nowrap; }
   .btn:hover { border-color: #ffd36a !important; background: rgba(255,211,106,.12) !important; }
   .btn.main { border-color: #ffd36a !important; background: rgba(255,211,106,.16) !important; }
+  .btn.danger { color: #ff9a8a; border-color: rgba(255,154,138,.35) !important; }
+  .btn.danger:hover { border-color: #ff9a8a !important; background: rgba(255,154,138,.1) !important; }
   .btn:disabled { opacity: .4; cursor: default; }
-  #mp-room-code { font-size: 44px; letter-spacing: .3em; color: #ffd36a; margin: 0 0 6px; }
-  #mp-link { width: min(520px, 100%); font-size: 13px; }
-  #mp-players { list-style: none; margin: 16px 0; padding: 0; font-size: 16px; }
-  #mp-players li { padding: 4px 0; }
-  #mp-players small { margin-left: 8px; font-size: 12px; opacity: .6; }
-  #mp-status { min-height: 1.4em; font-size: 13px; color: #ffd36a; }
-  #mp-error { min-height: 1.4em; font-size: 13px; color: #ff8a8a; }
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 20px; }
+  .panels { display: grid; grid-template-columns: minmax(0, 3fr) auto minmax(0, 2fr); gap: 16px; align-items: start; }
+  .or { align-self: center; font-size: 13px; letter-spacing: .1em; text-transform: uppercase; opacity: .45; }
+  .panel > .lbl { margin-bottom: 8px; }
+  .actions.tight { margin-top: 0; }
+  .you { margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,.12); }
+  .you .lbl { margin-bottom: 8px; }
+  .you span { display: block; margin-top: 6px; font-size: 12px; opacity: .5; }
+  .panel { padding: 18px 20px 20px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 8px; }
+  .panel h3 { margin: 0; font-size: 18px; letter-spacing: .1em; text-transform: uppercase; }
+  .panel .hint { margin: 6px 0 16px; }
+  .panel .actions { margin-top: 16px; }
+  .maps { display: grid; grid-template-columns: repeat(2, minmax(0, 300px)); gap: 14px; }
+  .maps.small { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .mapcard { display: flex; flex-direction: column; overflow: hidden; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.16) !important; border-radius: 6px; }
+  .mapcard img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; opacity: .8; transition: opacity .15s; }
+  .mapcard div { padding: 10px 12px 12px; }
+  .mapcard h3 { margin: 0; font-size: 20px; letter-spacing: .06em; text-transform: none; }
+  .mapcard span { display: block; margin-top: 4px; font-size: 12px; opacity: .6; }
+  .maps.small .mapcard h3 { font-size: 15px; }
+  .maps.small .mapcard span { display: none; }
+  .mapcard:hover:not(:disabled) { border-color: rgba(255,211,106,.6) !important; }
+  .mapcard:hover img, .mapcard.on img { opacity: 1; }
+  .mapcard.on { border-color: #ffd36a !important; background: rgba(255,211,106,.1); box-shadow: 0 0 0 1px #ffd36a; }
+  .mapcard:disabled:not(.on) { opacity: .4; cursor: default; }
+  .room { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: start; }
+  #mp-room-code { margin: 2px 0 14px; font-size: 48px; line-height: 1; letter-spacing: .3em; color: #ffd36a; }
+  .link { display: flex; gap: 8px; margin-bottom: 20px; }
+  #mp-link { flex: 1; min-width: 0; width: auto; font-size: 13px; opacity: .8; }
+  #mp-players { list-style: none; margin: 8px 0 0; padding: 0; font-size: 16px; }
+  #mp-players li { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,.07); }
+  #mp-players li:last-child { border-bottom: 0; }
+  #mp-players i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  #mp-players small { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 1px 6px; border: 1px solid rgba(255,255,255,.25); border-radius: 3px; opacity: .7; }
+  #mp-players li.empty { opacity: .3; font-size: 13px; }
+  .room-map { padding: 0; overflow: hidden; }
+  .room-map .mapcard { border: 0 !important; border-radius: 0; background: none; cursor: default; }
+  #mp-status { min-height: 1.4em; margin: 18px 0 0; font-size: 13px; color: #ffd36a; }
+  #mp-error { min-height: 1.4em; margin: 4px 0 0; font-size: 13px; color: #ff8a8a; }
+  @media (max-width: 760px) { .panels, .room { grid-template-columns: 1fr; } .or { justify-self: center; } }
   /* stamina, above the weapon slots: only shown while it isn't full, red while winded */
   #stamina { position: absolute; left: 50%; bottom: 70px; width: 160px; height: 4px; margin-left: -80px; background: rgba(0,0,0,.35); border-radius: 2px; overflow: hidden; opacity: 0; transition: opacity .4s; }
   #stamina.show { opacity: 1; transition: opacity .1s; }
@@ -192,8 +227,9 @@
     <h1>readyplayerz</h1>
     <p class="sub">Survive the waves. They don't stop. Health comes back if you stay clear for a while.</p>
     <nav>
-      <button class="item" id="play">Play</button>
-      <button class="item" data-go="s-mp">Play with friends<small id="mp-sum"></small></button>
+      <button class="item" id="resume">Resume<small id="resume-sum"></small></button>
+      <button class="item" data-go="s-solo">Solo<small id="solo-sum"></small></button>
+      <button class="item" data-go="s-mp">Online<small id="mp-sum"></small></button>
       <button class="item" data-go="s-loadout">Loadout<small id="sum"></small></button>
       <button class="item" data-go="s-settings">Settings</button>
       <button class="item danger" id="end">End game</button>
@@ -201,19 +237,47 @@
     <p class="note pending"></p>
     <p id="err"></p>
   </section>
+  <section class="screen" id="s-solo">
+    <header><button class="back">&lsaquo; Back</button><h2>Solo</h2></header>
+    <p class="sub">Just you against the waves. Pick where to make your stand.</p>
+    <div class="maps" id="solo-maps"></div>
+    <div class="actions"><button class="btn main" id="solo-play">Play</button><button class="btn danger" id="solo-end">End game</button></div>
+    <p class="note" id="solo-note"></p>
+  </section>
   <section class="screen" id="s-mp">
-    <header><button class="back">&lsaquo; Back</button><h2>Play with friends</h2></header>
+    <header><button class="back">&lsaquo; Back</button><h2>Online</h2></header>
     <div id="mp-out">
-      <p class="sub">Make a room and send your friends the link, or type in the code of a friend's room. Everyone fights the same waves together.</p>
-      <div class="field"><b class="lbl">Your name</b><input id="mp-name" maxlength="16" placeholder="Player"></div>
-      <div class="field"><button class="btn main" id="mp-create">Make a room</button></div>
-      <div class="field"><input id="mp-code" maxlength="4" placeholder="CODE"><button class="btn" id="mp-join">Join room</button></div>
+      <p class="sub">Team up with up to five friends against the same waves. No sign-up: make a room and send the link, or join a friend's.</p>
+      <div class="panels">
+        <div class="panel">
+          <h3>Make a room</h3>
+          <p class="hint">You'll get a link to send your friends, and start the game when they're in.</p>
+          <b class="lbl">Map</b>
+          <div class="maps small" id="mp-maps"></div>
+          <div class="actions"><button class="btn main" id="mp-create"></button></div>
+        </div>
+        <div class="or">or</div>
+        <div class="panel">
+          <h3>Join a friend</h3>
+          <p class="hint">Type in the four-letter code of their room. Got an invite link? Just open it.</p>
+          <b class="lbl">Room code</b>
+          <div class="actions tight"><input id="mp-code" maxlength="4" placeholder="ABCD" autocomplete="off" spellcheck="false"><button class="btn main" id="mp-join" disabled>Join</button></div>
+        </div>
+      </div>
     </div>
     <div id="mp-in" style="display:none">
-      <p id="mp-room-code"></p>
-      <div class="field"><input id="mp-link" readonly><button class="btn" id="mp-copy">Copy invite link</button></div>
-      <ul id="mp-players"></ul>
-      <div class="field"><button class="btn main" id="mp-start">Start the game</button><button class="btn" id="mp-play">Jump in</button><button class="btn" id="mp-leave">Leave room</button></div>
+      <div class="room">
+        <div class="panel">
+          <b class="lbl">Room</b>
+          <p id="mp-room-code"></p>
+          <div class="link"><input id="mp-link" readonly><button class="btn" id="mp-copy">Copy invite link</button></div>
+          <b class="lbl" id="mp-count"></b>
+          <ul id="mp-players"></ul>
+          <div class="you"><b class="lbl">Your name</b><input id="mp-name" maxlength="16" autocomplete="off" spellcheck="false"><span>Shown to your team. Change it any time.</span></div>
+        </div>
+        <div class="panel room-map"><div id="mp-room-map"></div></div>
+      </div>
+      <div class="actions"><button class="btn main" id="mp-start">Start the game</button><button class="btn main" id="mp-play">Jump in</button><button class="btn danger" id="mp-leave">Leave room</button></div>
     </div>
     <p id="mp-status"></p>
     <p id="mp-error"></p>
@@ -507,8 +571,28 @@ const pendingText = () => {
   return later.length ? `${later.join(" and ")} from your next life` : inPlay ? "Loadout changes are carried from your next life" : "";
 };
 
+// the maps, by number (see src/map.rs), each with a picture for its card
+const MAPS = [
+  { name: "Playground", pic: "maps/playground.webp", about: "A ruined town round a clock tower, with a yard, trenches and a hill. Close and quick." },
+  { name: "Suburb", pic: "maps/suburb.webp", about: "Streets of houses, a school and a strip mall in a ring of wooded hills. Wide open." },
+];
+// a row of map cards, picking one calls `pick` with its number; returns a function that marks map `on` and, with
+// `locked`, makes the others unpickable
+function mapCards(parent, pick) {
+  const cards = MAPS.map((m, i) => {
+    const b = el("button", "mapcard", `<img src="${m.pic}" alt=""><div><h3>${m.name}</h3><span>${m.about}</span></div>`);
+    b.addEventListener("click", () => pick(i));
+    parent.appendChild(b);
+    return b;
+  });
+  return (on, locked = false) => cards.forEach((b, i) => {
+    b.classList.toggle("on", i === on);
+    b.disabled = locked && i !== on;
+  });
+}
+
 // screens, and where Back goes from each
-const BACK = { "s-loadout": "s-main", "s-settings": "s-main", "s-pick": "s-loadout", "s-mp": "s-main" };
+const BACK = { "s-loadout": "s-main", "s-settings": "s-main", "s-pick": "s-loadout", "s-mp": "s-main", "s-solo": "s-main" };
 let screen = "s-main";
 function show(id) {
   screen = id;
@@ -589,7 +673,11 @@ const shownCarried = [0, primaries];
 // opens a menu screen (pick2 is the sidearm's picker)
 const params = new URLSearchParams(location.search);
 if (params.has("gfx")) setQuality(Number(params.get("gfx"))); // 0 low, 1 medium, 2 high
+// the map played alone is the one picked last time, unless ?map says
+let savedMap = 0;
+try { savedMap = Number(localStorage.getItem("map")) || 0; } catch {}
 if (params.has("map")) client.set_map(Number(params.get("map")));
+else if (savedMap > 0 && savedMap < MAPS.length) client.set_map(savedMap);
 if (params.has("seed")) client.set_seed(Number(params.get("seed")));
 if (params.has("demo")) client.set_paused(false);
 if (params.has("calm")) client.remove_bots();
@@ -625,31 +713,63 @@ if (params.has("climb")) {
 // ?dev hands the game to the console (and to test scripts) as `client`
 if (params.has("dev")) window.client = client;
 const locked = () => document.pointerLockElement === canvas;
-// ending the game stays on the menu, ready to pick a loadout and start again
-$("end").addEventListener("click", () => {
-  client.end_game();
-  sound.cancel();
-  show("s-main");
+const play = () => { sound.start(); canvas.requestPointerLock(); };
+// ending the game stays on the menu, ready to pick a loadout or a map and start again
+const endGame = () => { client.end_game(); sound.cancel(); };
+$("end").addEventListener("click", () => { endGame(); show("s-main"); });
+$("resume").addEventListener("click", play);
+
+// ---- solo: the map to play alone on, behind the menu as it is picked. A game under way keeps its map until ended
+const markSolo = mapCards($("solo-maps"), i => {
+  if (i === client.map() || (loadoutNow().inPlay && !lobby.online)) return;
+  client.set_map(i);
+  try { localStorage.setItem("map", i); } catch {}
 });
-$("play").addEventListener("click", () => { sound.start(); canvas.requestPointerLock(); });
+$("solo-end").addEventListener("click", endGame);
+// playing alone while in a room leaves it
+$("solo-play").addEventListener("click", () => { if (lobby.online) leaveRoom(); play(); });
 document.addEventListener("pointerlockchange", () => {
   menu.style.display = locked() ? "none" : "flex";
   client.set_paused(!locked());
   music.setInPlay(locked());
   if (!locked()) { client.release_all(); sound.cancel(); show(lobby.online ? "s-mp" : "s-main"); }
 });
-// ---- playing with friends: a room on the game server (see net.js), made here or joined by its code or link
+// ---- online: a room on the game server (see net.js), made here on the map picked or joined by its code or link
 let net = null;
 let lobby = { online: false, error: "" };
 // the game server: the one the page came from when it is served from this machine (./server.sh), otherwise the
 // one on Fly (see fly.toml); ?server=host plays on another
 const local = ["localhost", "127.0.0.1"].includes(location.hostname);
 const server = params.get("server") || (local ? "" : "readyplayerz-game.fly.dev");
-try { $("mp-name").value = localStorage.getItem("name") || ""; } catch {}
+// the name to go by: set in the room (blank is "Player n"), and remembered for the next one
+let myName = "";
+try { myName = localStorage.getItem("name") || ""; } catch {}
+$("mp-name").value = myName;
+let renaming = 0;
+$("mp-name").addEventListener("input", () => {
+  // only what the room keeps of a name (see sim::host `clean_name`), so the field shows what the team sees
+  const f = $("mp-name");
+  if (/[^\p{L}\p{N} ._-]/u.test(f.value)) f.value = f.value.replace(/[^\p{L}\p{N} ._-]/gu, "");
+  myName = f.value.trim();
+  try { localStorage.setItem("name", myName); } catch {}
+  // told to the room once typing stops for a moment
+  clearTimeout(renaming);
+  renaming = setTimeout(() => net?.rename(myName), 400);
+});
+$("mp-name").addEventListener("keydown", e => { if (e.key === "Enter") e.target.blur(); });
 const mpStatus = t => ($("mp-status").textContent = t);
+// most players in a room, and each one's colour, the shirt they wear (see render.rs `draw_mate`)
+const SEATS = client.seats();
+const SHIRTS = ["#2a4d9e", "#bf611a", "#387333", "#80338c", "#b39e26", "#1f808c", "#9e292e", "#d9d9d9"];
+// the map a room is made on: picked apart from the one played alone, and remembered too
+let roomMap = 0;
+try { roomMap = Math.min(MAPS.length - 1, Number(localStorage.getItem("roomMap")) || 0); } catch {}
+const markRoomMap = mapCards($("mp-maps"), i => {
+  if (lobby.queued) return;
+  roomMap = i;
+  try { localStorage.setItem("roomMap", i); } catch {}
+});
 async function joinRoom(code) {
-  const name = $("mp-name").value.trim();
-  try { localStorage.setItem("name", name); } catch {}
   net?.close();
   client.net_leave("");
   $("mp-error").textContent = "";
@@ -663,7 +783,7 @@ async function joinRoom(code) {
   });
   net = n;
   try {
-    await n.open(code, name, server);
+    await n.open(code, myName, server, roomMap);
   } catch (e) {
     n.lost(e.message || String(e));
   }
@@ -675,16 +795,22 @@ function leaveRoom() {
   history.replaceState(null, "", location.pathname + location.search.replace(/[?&]room=[^&]*/, "").replace(/^&/, "?"));
   drawRoom();
 }
-// the lobby screen from where things stand
+// the lobby screen from where things stand; `drawn` is what the room's view shows, so it's only redrawn on a change
+const drawn = { players: "", map: -1 };
 function drawRoom() {
   lobby = JSON.parse(client.lobby());
   const inRoom = lobby.online;
   $("mp-out").style.display = inRoom ? "none" : "block";
   $("mp-in").style.display = inRoom ? "block" : "none";
   $("mp-error").textContent = lobby.error;
-  $("mp-sum").textContent = inRoom ? `Room ${lobby.room} · ${lobby.players.length} in` : "";
+  $("mp-sum").textContent = inRoom ? `Room ${lobby.room} · ${lobby.players.length} of ${SEATS} in` : "Play with friends";
   if (!inRoom) {
-    if (!net) mpStatus("");
+    // every room on the server taken: waiting in line for one, and the button to stop waiting
+    const q = lobby.queued;
+    $("mp-create").textContent = q ? "Stop waiting" : `Make a room on ${MAPS[roomMap].name}`;
+    markRoomMap(roomMap, q > 0);
+    if (q) mpStatus(`All games are taken right now. You're ${q === 1 ? "next" : ordinal(q)} in line, and the room is made as soon as one is free.`);
+    else if (!net) mpStatus("");
     return;
   }
   const host = lobby.players[0]?.[0] === lobby.id;
@@ -695,16 +821,33 @@ function drawRoom() {
     // the address bar shows the room too, so a reload comes back to it
     history.replaceState(null, "", link);
   }
-  const names = lobby.players.map(([id, name], i) => `<li>${name}${id === lobby.id ? "<small>you</small>" : ""}${i === 0 ? "<small>host</small>" : ""}</li>`);
-  if ($("mp-players").innerHTML !== names.join("")) $("mp-players").innerHTML = names.join("");
+  // who is in, each in their shirt's colour, then the seats still open
+  const names = lobby.players.map(([id, name], i) => `<li><i style="background:${SHIRTS[id % SHIRTS.length]}"></i>${name}${id === lobby.id ? "<small>you</small>" : ""}${i === 0 ? "<small>host</small>" : ""}</li>`);
+  const list = names.join("") + "<li class='empty'>Open seat</li>".repeat(Math.max(0, SEATS - names.length));
+  if (drawn.players !== list) $("mp-players").innerHTML = drawn.players = list;
+  $("mp-count").textContent = `Players · ${lobby.players.length} of ${SEATS}`;
+  // blank, the name field shows the one the room gave instead
+  $("mp-name").placeholder = `Player ${lobby.id + 1}`;
+  if (drawn.map !== lobby.map) {
+    const m = MAPS[lobby.map];
+    $("mp-room-map").innerHTML = `<div class="mapcard"><img src="${m.pic}" alt=""><div><b class="lbl">Map</b><h3>${m.name}</h3><span>${m.about}</span></div></div>`;
+    drawn.map = lobby.map;
+  }
   $("mp-start").style.display = host && !lobby.started ? "" : "none";
   mpStatus(lobby.started ? "The game is under way: jump in." : host ? "Start the game when everyone is in. You can jump in and look around until then." : "Waiting for the host to start the game. You can jump in and look around until then.");
 }
-$("mp-create").addEventListener("click", () => joinRoom(""));
-$("mp-join").addEventListener("click", () => { const c = $("mp-code").value.trim().toUpperCase(); if (c) joinRoom(c); });
+const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
+$("mp-create").addEventListener("click", () => (lobby.queued ? leaveRoom() : joinRoom("")));
+$("mp-join").addEventListener("click", () => { const c = $("mp-code").value; if (c.length === 4) joinRoom(c); });
+// a code is four letters: anything else typed or pasted is dropped, and Join waits for all four
+$("mp-code").addEventListener("input", () => {
+  const c = $("mp-code");
+  c.value = c.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4);
+  $("mp-join").disabled = c.value.length < 4;
+});
 $("mp-code").addEventListener("keydown", e => { if (e.key === "Enter") $("mp-join").click(); });
 $("mp-start").addEventListener("click", () => net?.start());
-$("mp-play").addEventListener("click", () => { sound.start(); canvas.requestPointerLock(); });
+$("mp-play").addEventListener("click", play);
 $("mp-leave").addEventListener("click", leaveRoom);
 $("mp-copy").addEventListener("click", async () => {
   try { await navigator.clipboard.writeText($("mp-link").value); mpStatus("Link copied: send it to your friends."); }
@@ -781,8 +924,18 @@ function loop(t) {
     slots[s].classList.toggle("on", weapon === w);
   });
   $("sum").textContent = `${names[picked]} · ${names[picked2]}`;
-  $("end").style.display = inPlay && !lobby.online ? "block" : "none";
-  $("play").textContent = lobby.online ? "Jump in" : inPlay ? "Resume" : "Play";
+  // the main menu and the solo screen: a game alone under way can be resumed or ended, a room jumped back into
+  const soloOn = inPlay && !lobby.online;
+  const soloMap = MAPS[client.map()].name;
+  $("end").style.display = soloOn ? "block" : "none";
+  $("resume").style.display = soloOn || lobby.online ? "" : "none";
+  $("resume").firstChild.textContent = lobby.online ? "Jump in" : "Resume";
+  $("resume-sum").textContent = lobby.online ? `Room ${lobby.room} · ${MAPS[lobby.map].name}` : `${wave ? `Wave ${wave} · ` : ""}${soloMap}`;
+  $("solo-sum").textContent = soloMap;
+  $("solo-play").textContent = lobby.online ? "Leave the room and play" : soloOn ? "Resume" : "Play";
+  $("solo-end").style.display = soloOn ? "" : "none";
+  $("solo-note").textContent = soloOn ? `Your game on ${soloMap} is paused. End it to play another map.` : lobby.online ? "You're in an online room: playing solo leaves it." : "";
+  markSolo(client.map(), soloOn);
   const scopeOn = scoped && ads > 0.85;
   $("scope").style.display = scopeOn ? "block" : "none";
   $("cross").style.display = scopeOn || ads > 0.5 ? "none" : "block";

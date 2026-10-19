@@ -26,6 +26,13 @@ struct Seat {
     ack: u32,
 }
 
+/// The name player `id` is shown by: letters, digits, spaces and a few marks only, so it is safe to show anywhere,
+/// and "Player n" when that leaves nothing.
+fn clean_name(name: &str, id: u8) -> String {
+    let name: String = name.chars().filter(|c| c.is_alphanumeric() || " -_.".contains(*c)).take(16).collect();
+    if name.trim().is_empty() { format!("Player {}", id + 1) } else { name.trim().to_string() }
+}
+
 pub struct Room {
     pub game: Game,
     pub map: u8,
@@ -59,12 +66,16 @@ impl Room {
             return None;
         }
         let id = (0..=u8::MAX).find(|id| self.seats.iter().all(|s| s.id != *id))?;
-        // letters, digits, spaces and a few marks only, so a name is safe to show anywhere
-        let name: String = name.chars().filter(|c| c.is_alphanumeric() || " -_.".contains(*c)).take(16).collect();
-        let name = if name.trim().is_empty() { format!("Player {}", id + 1) } else { name.trim().to_string() };
-        self.seats.push(Seat { id, name, queue: BTreeMap::new(), next: 0, waited: 0, ack: 0 });
+        self.seats.push(Seat { id, name: clean_name(name, id), queue: BTreeMap::new(), next: 0, waited: 0, ack: 0 });
         self.game.add_player(id);
         Some(id)
+    }
+
+    /// Player `id` going by `name` from now on.
+    pub fn rename(&mut self, id: u8, name: &str) {
+        if let Some(s) = self.seats.iter_mut().find(|s| s.id == id) {
+            s.name = clean_name(name, id);
+        }
     }
 
     pub fn leave(&mut self, id: u8) {
@@ -216,5 +227,49 @@ impl Room {
     /// After the snapshots have gone out: the shots in them are not sent again.
     pub fn sent(&mut self) {
         self.shots.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn room() -> Room {
+        Room::with(Game::with_walls(1, map::perimeter()), 0, 1)
+    }
+
+    fn names(room: &Room) -> Vec<(u8, String)> {
+        let Msg::Roster { players, .. } = room.roster() else { unreachable!() };
+        players
+    }
+
+    #[test]
+    fn a_room_seats_six_and_whoever_has_been_in_longest_hosts_it() {
+        let mut r = room();
+        let ids: Vec<u8> = (0..MAX_PLAYERS).map(|_| r.join("").unwrap()).collect();
+        assert_eq!(ids, [0, 1, 2, 3, 4, 5]);
+        assert_eq!(r.join("one too many"), None);
+        assert_eq!(r.game.players.len(), 6);
+        // only the host starts it
+        r.start(1);
+        assert!(!r.game.waves_on());
+        // the host going hands it on, and their seat is the next one taken
+        r.leave(0);
+        assert_eq!(r.host(), Some(1));
+        assert_eq!(r.join(""), Some(0));
+        r.start(1);
+        assert!(r.game.waves_on());
+    }
+
+    #[test]
+    fn names_keep_only_what_is_safe_to_show_and_blank_is_player_n() {
+        let mut r = room();
+        r.join("<b>Val</b> \"x\"");
+        r.join("   ");
+        r.join("Ä-1_b.c with a much too long name");
+        assert_eq!(names(&r), [(0, "bValb x".into()), (1, "Player 2".into()), (2, "Ä-1_b.c with a m".into())]);
+        r.rename(1, "Friend");
+        r.rename(0, "");
+        assert_eq!(names(&r)[..2], [(0, "Player 1".into()), (1, "Friend".into())]);
     }
 }

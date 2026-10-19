@@ -2,7 +2,8 @@
 //! wasm client share it.
 //!
 //! There are two kinds of message. A few go on one reliable stream per player, each with a u16 length in front:
-//! joining a room (`Hello`, answered by `Welcome` or `Refused`), who is in it (`Roster`) and starting it (`Start`).
+//! joining a room (`Hello`, answered by `Welcome` or `Refused`, after `Queued` while the server has no space for
+//! another room), who is in it (`Roster`), a player's new name (`Name`) and starting it (`Start`).
 //! Everything else goes as unreliable datagrams, which may be lost or come out of order, so each one stands on its
 //! own: a client's last few inputs (`Inputs`), and the server's snapshots of the game, each split into as many
 //! datagrams as it takes (see `encode_snapshot`), every one of them a list of records about one thing each.
@@ -12,7 +13,7 @@ use crate::sim::{Input, V3};
 /// Bumped whenever the format changes, so an old page is told to reload instead of misreading.
 pub const VERSION: u8 = 1;
 /// Most players in a room.
-pub const MAX_PLAYERS: usize = 8;
+pub const MAX_PLAYERS: usize = 6;
 /// How many of its latest inputs a client sends each time, so a lost datagram or two loses none of them.
 pub const RESEND: usize = 8;
 /// The most a datagram carries: well under what QUIC fits in one packet on any link, tunnels and proxies on the way
@@ -134,12 +135,16 @@ pub enum Msg {
     Hello { version: u8, room: String, map: u8, name: String },
     /// client, the room's host: let the waves come
     Start,
+    /// client: call me `name` from now on
+    Name { name: String },
     /// server: you are in, as player `id`, in a game on map `map` made from `seed`
     Welcome { id: u8, room: String, map: u8, seed: u32 },
     /// server: who is in the room, the host first
     Roster { started: bool, players: Vec<(u8, String)> },
     /// server: no way in, and why
     Refused { why: String },
+    /// server: every room is taken; you are `place` in line for the next (1 is next)
+    Queued { place: u16 },
 }
 
 impl Msg {
@@ -149,6 +154,7 @@ impl Msg {
         match self {
             Msg::Hello { version, room, map, name } => w.u8(1).u8(*version).str(room).u8(*map).str(name),
             Msg::Start => w.u8(2),
+            Msg::Name { name } => w.u8(3).str(name),
             Msg::Welcome { id, room, map, seed } => w.u8(10).u8(*id).str(room).u8(*map).u32(*seed),
             Msg::Roster { started, players } => {
                 w.u8(11).u8(*started as u8).u8(players.len() as u8);
@@ -158,6 +164,7 @@ impl Msg {
                 &mut w
             }
             Msg::Refused { why } => w.u8(12).str(why),
+            Msg::Queued { place } => w.u8(13).u16(*place),
         };
         let mut out = (w.0.len() as u16).to_le_bytes().to_vec();
         out.extend_from_slice(&w.0);
@@ -169,6 +176,7 @@ impl Msg {
         Some(match r.u8()? {
             1 => Msg::Hello { version: r.u8()?, room: r.str()?, map: r.u8()?, name: r.str()? },
             2 => Msg::Start,
+            3 => Msg::Name { name: r.str()? },
             10 => Msg::Welcome { id: r.u8()?, room: r.str()?, map: r.u8()?, seed: r.u32()? },
             11 => {
                 let started = r.u8()? != 0;
@@ -177,6 +185,7 @@ impl Msg {
                 Msg::Roster { started, players }
             }
             12 => Msg::Refused { why: r.str()? },
+            13 => Msg::Queued { place: r.u16()? },
             _ => return None,
         })
     }
@@ -488,9 +497,11 @@ mod tests {
         let msgs = vec![
             Msg::Hello { version: VERSION, room: "ABCD".into(), map: 1, name: "Val".into() },
             Msg::Start,
+            Msg::Name { name: "Friend".into() },
             Msg::Welcome { id: 3, room: "ABCD".into(), map: 1, seed: 1234567 },
             Msg::Roster { started: true, players: vec![(0, "Val".into()), (3, "Friend".into())] },
             Msg::Refused { why: "No such room".into() },
+            Msg::Queued { place: 300 },
         ];
         let bytes: Vec<u8> = msgs.iter().flat_map(|m| m.frame()).collect();
         let mut f = Frames::default();
