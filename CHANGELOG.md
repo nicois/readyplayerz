@@ -2,6 +2,12 @@
 
 ## 2026-10-20
 
+### Analytics on PostHog (`a2a08f1`)
+- The page now reports to PostHog, through our own subdomain `t.readyplayerz.com` (PostHog's managed proxy), so retention, funnels and load problems can be seen.
+- Tracked: the game loading (how long, the GPU) or failing to, phones and old browsers turned away, games started and ended (wave, kills, time played, fps), each wave reached, rooms made, joined, lost and waited for, invites copied, loadout and settings changes, and uncaught errors.
+- PostHog's script is only fetched once the game is on screen, clicks aren't tracked (in play each one is a shot) and session recording is off, so play isn't slowed.
+- Nothing is sent from localhost or with `?dev`, `?demo` or `?showcase`.
+
 ### Grenades come from the ammo boxes; the boxes thin to two thirds of a wave (`deb3833`)
 - A life starts with two grenades and the ammo boxes are now the only way to get more: walking over one adds a grenade, to a cap of four (was five).
 - The once-a-minute grenade auto grant, and the HUD's "next grenade in Xs" countdown, are gone.
