@@ -27,10 +27,15 @@ layout(location=9) in vec4 i_misc;
 // skinned bodies: the four bones that move a vertex and by how much
 layout(location=11) in vec4 a_bi;
 layout(location=12) in vec4 a_bw;
+// a gun drawn whole: where the vertex is in its own part, and that part's colour and material, finish and glow
+layout(location=10) in vec3 a_obj;
+layout(location=13) in vec4 a_look;
+layout(location=14) in vec2 a_finish;
 uniform mat4 u_vp;
 uniform mat4 u_model;
 uniform mat4 u_lvp;
 uniform float u_inst;
+uniform float u_whole;
 uniform float u_skin;
 uniform mat4 u_bones[17];
 uniform float u_view;
@@ -57,6 +62,7 @@ flat out float v_unlit;
 flat out float v_seed;
 void main() {
     bool inst = u_inst > 0.5;
+    bool whole = u_whole > 0.5;
     mat4 M = inst ? mat4(i_m0, i_m1, i_m2, i_m3) : u_model;
     vec3 lp = a_pos;
     vec3 ln = a_nrm;
@@ -71,7 +77,7 @@ void main() {
     } else {
         w = M * vec4(lp, 1.0);
         // the part's own position in metres, so skin patterns move with the limb
-        v_obj = lp * vec3(length(M[0].xyz), length(M[1].xyz), length(M[2].xyz));
+        v_obj = (whole ? a_obj : lp) * vec3(length(M[0].xyz), length(M[1].xyz), length(M[2].xyz));
         v_rest = v_obj;
         v_aux = 9.0;
     }
@@ -80,10 +86,10 @@ void main() {
     v_nrm = u_batch > 0.5 ? ln : transpose(inverse(mat3(M))) * ln;
     v_col = a_col;
     v_mat = a_mat;
-    v_ucol = inst ? i_col.rgb : u_color;
-    v_umat = inst ? i_col.w : u_mat;
-    v_ushiny = inst ? i_misc.x : u_shiny;
-    v_unlit = inst ? i_misc.y : u_unlit;
+    v_ucol = inst ? i_col.rgb : whole ? a_look.rgb : u_color;
+    v_umat = inst ? i_col.w : whole ? a_look.w : u_mat;
+    v_ushiny = inst ? i_misc.x : whole ? a_finish.x : u_shiny;
+    v_unlit = inst ? i_misc.y : whole ? a_finish.y : u_unlit;
     v_seed = inst ? i_misc.z : u_seed;
     if (u_view > 0.5) {
         // the gun is drawn in the camera's own space, but it should be lit and shadowed where it is in the world
@@ -619,6 +625,42 @@ struct GpuGun {
     spec: crate::gunmodel::Spec,
     /// the box round every part, at rest
     bounds: (V3, V3),
+    /// every part at rest in one mesh, for a gun no one is using (see `upload_whole`)
+    whole: GpuWhole,
+}
+
+/// A gun at rest as one mesh, each vertex carrying the look of the piece it came from.
+struct GpuWhole {
+    vao: WebGlVertexArrayObject,
+    count: i32,
+}
+
+/// Floats a vertex of a `GpuWhole` takes: position, normal, where it is in its own part, colour and material,
+/// shine and glow.
+const WHOLE_STRIDE: usize = 15;
+
+/// What `pose_gun` puts somewhere: one group of a gun's pieces, or one of the hands.
+enum Group {
+    Body,
+    Trigger,
+    Action,
+    /// the magazine's pieces from the first to before the second, or to the end
+    Mag(usize, usize),
+    Right,
+    Left,
+}
+
+impl Group {
+    /// This group's pieces out of a gun's; none for a hand.
+    fn of<'a, P>(&self, body: &'a [P], trigger: &'a [P], action: &'a [P], mag: &'a [P]) -> &'a [P] {
+        match *self {
+            Group::Body => body,
+            Group::Trigger => trigger,
+            Group::Action => action,
+            Group::Mag(a, b) => &mag[a..b.min(mag.len())],
+            Group::Right | Group::Left => &[],
+        }
+    }
 }
 
 /// The hands every gun shares.
@@ -706,6 +748,7 @@ pub struct Renderer {
     figures: Vec<GpuFigure>,
     jobs: RefCell<Vec<SkinJob>>,
     u_skin: Option<WebGlUniformLocation>,
+    u_whole: Option<WebGlUniformLocation>,
     u_seed_f: Option<WebGlUniformLocation>,
     shadow_pass: Cell<bool>,
     /// draw calls and triangles so far this frame, for the picture and for the sun's shadow (see `counts`)
@@ -1257,6 +1300,71 @@ fn loader_at(r: &Rounds, reload: f32) -> Option<M4> {
     r.loader_held(reload).then(|| mul(&translate(a[0], a[1], a[2]), &mul(&bring(r, u, l), &translate(l[0], l[1], l[2]))))
 }
 
+/// Where each group of a gun's pieces goes, and with `hands` the hands, handed to `put` in the order they are
+/// drawn: the magazine comes out and goes back in during a reload while the left hand goes to fetch it, the
+/// trigger is pulled when it fires, and the pump, bolt or slide cycles after a shot. `turn` is how many chambers a
+/// cylinder has turned through, fractions while it is turning, and `fired` how many rounds have gone since the
+/// last reload.
+#[allow(clippy::too_many_arguments)]
+fn pose_gun(
+    s: &crate::gunmodel::Spec,
+    gun: &M4,
+    recoil: f32,
+    reload: f32,
+    mag_out: f32,
+    cycle: f32,
+    turn: f32,
+    fired: usize,
+    hands: bool,
+    mut put: impl FnMut(&M4, Group),
+) {
+    use crate::gunmodel::Action;
+    let at = |v: [f32; 3], k: f32| translate(v[0] * k, v[1] * k, v[2] * k);
+    put(gun, Group::Body);
+    let pull = ((recoil - 0.6) * 5.0).clamp(0.0, 1.0);
+    put(&mul(gun, &around(s.trigger_pivot, &rot_x(-0.35 * pull))), Group::Trigger);
+    let pose = action_pose(s, recoil, reload, cycle, turn);
+    let action = mul(gun, &pose);
+    put(&action, Group::Action);
+    if let Some(r) = &s.rounds {
+        // one round in each chamber, riding in the part that opens. Only the player's own reload is played
+        // through: someone else's gun is just shown open, its rounds home
+        let played = if hands { reload } else { 0.0 };
+        let (open, turn) = (mul(gun, &opened(s, reload)), turned(s, turn));
+        for k in 0..r.chambers.len() {
+            if let Some((brought, at, spent)) = round_at(r, k, fired, played) {
+                put(&mul(&open, &mul(&brought, &mul(&turn, &at))), Group::Mag(0, if spent { r.case } else { r.parts }));
+            }
+        }
+        if let Some(at) = loader_at(r, played) {
+            put(&mul(&open, &at), Group::Mag(r.parts, usize::MAX));
+        }
+    } else {
+        put(&mul(gun, &mul(&at(s.mag_out, mag_out), &around(s.mag_pivot, &rot_x(s.mag_tilt * mag_out)))), Group::Mag(0, usize::MAX));
+    }
+    if !hands {
+        return;
+    }
+
+    put(&mul(gun, &at(s.right_at, 1.0)), Group::Right);
+    // the left hand lets go, takes the magazine and comes back; on a pump it rides the forend
+    let go = ease(0.0, 0.2, reload) - ease(0.78, 1.0, reload);
+    let reach = if s.pistol_hold { [0.0, -0.07, 0.02] } else { [0.0, -0.085, 0.23] };
+    let mut hand = mul(gun, &mul(&at(s.left_at, 1.0), &mul(&at(reach, go), &at(s.mag_out, 0.6 * mag_out))));
+    if s.action == Action::Pump {
+        hand = mul(&hand, &pose);
+    }
+    if let Some(r) = &s.rounds {
+        // a break action's hand is on the forend, so it rides the barrels down, and lifts them shut again by it;
+        // a revolver's stays upright as it brings the speedloader along the swung out cylinder
+        let (hold, along) = r.hand_at(fired, reload);
+        let (base, along) = if s.action == Action::Break { (action, along) } else { (*gun, turn_dir(&opened(s, reload), along)) };
+        let to = std::array::from_fn(|i| hold[i] + along[i]);
+        hand = mul(&base, &mul(&at(s.left_at, 1.0), &at(to, 1.0)));
+    }
+    put(&hand, Group::Left);
+}
+
 /// One piece of the viewmodel, in gun space: -z is the muzzle, +z the stock, +y up.
 struct Part {
     min: V3,
@@ -1304,6 +1412,7 @@ impl Renderer {
                     trigger: Self::upload_pieces(&gl, &g.trigger)?,
                     action: Self::upload_pieces(&gl, &g.action)?,
                     spec: g.spec,
+                    whole: Self::upload_whole(&gl, g)?,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -1392,6 +1501,7 @@ impl Renderer {
             figures,
             jobs: RefCell::new(Vec::new()),
             u_skin: u("u_skin"),
+            u_whole: u("u_whole"),
             u_seed_f: u("u_seed"),
             shadow_pass: Cell::new(false),
             counted: Cell::new([0; 4]),
@@ -1456,6 +1566,43 @@ impl Renderer {
             width,
             height,
         })
+    }
+
+    /// Gun `g` at rest, as `pose_gun` lays it out without hands, in one mesh: each piece moved to where it rests,
+    /// keeping where it is in its own part and its look on every vertex, so the gun draws in one go and looks
+    /// just as it does piece by piece.
+    fn upload_whole(gl: &GL, g: &crate::gunmodel::Gun) -> Result<GpuWhole, String> {
+        let (mut verts, mut idx) = (Vec::new(), Vec::new());
+        pose_gun(&g.spec, &IDENTITY, 0.0, 0.0, 0.0, 0.0, 0.0, 0, false, |m, group| {
+            for p in group.of(&g.body, &g.trigger, &g.action, &g.mag) {
+                let first = (verts.len() / WHOLE_STRIDE) as u32;
+                for v in p.mesh.verts.chunks(6) {
+                    let (at, n) = (apply(m, [v[0], v[1], v[2]]), turn_dir(m, [v[3], v[4], v[5]]));
+                    verts.extend_from_slice(&at);
+                    verts.extend_from_slice(&n);
+                    verts.extend_from_slice(&v[..3]);
+                    verts.extend_from_slice(&[p.color[0], p.color[1], p.color[2], p.mat, p.shiny, p.glow]);
+                }
+                idx.extend(p.mesh.idx.iter().map(|i| first + i));
+            }
+        });
+        let vao = gl.create_vertex_array().ok_or("vao")?;
+        gl.bind_vertex_array(Some(&vao));
+        let vb = gl.create_buffer().ok_or("buffer")?;
+        gl.bind_buffer(GL::ARRAY_BUFFER, Some(&vb));
+        unsafe {
+            gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(&verts), GL::STATIC_DRAW);
+        }
+        for (loc, size, off) in [(0, 3, 0), (1, 3, 12), (10, 3, 24), (13, 4, 36), (14, 2, 52)] {
+            gl.enable_vertex_attrib_array(loc);
+            gl.vertex_attrib_pointer_with_i32(loc, size, GL::FLOAT, false, (WHOLE_STRIDE * 4) as i32, off);
+        }
+        let ib = gl.create_buffer().ok_or("buffer")?;
+        gl.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, Some(&ib));
+        unsafe {
+            gl.buffer_data_with_array_buffer_view(GL::ELEMENT_ARRAY_BUFFER, &js_sys::Uint32Array::view(&idx), GL::STATIC_DRAW);
+        }
+        Ok(GpuWhole { vao, count: idx.len() as i32 })
     }
 
     fn upload_pieces(gl: &GL, pieces: &[crate::gunmodel::Piece]) -> Result<Vec<GpuPiece>, String> {
@@ -2720,60 +2867,26 @@ impl Renderer {
         }
     }
 
-    /// A gun with its hands: the magazine comes out and goes back in during a reload while the left hand goes to
-    /// fetch it, the trigger is pulled when it fires, and the pump, bolt or slide cycles after a shot.
-    /// `turn` is how many chambers a cylinder has turned through, fractions while it is turning, and `fired` how
-    /// many rounds have gone since the last reload.
+    /// A gun, posed as `pose_gun` says. One no one is holding, at rest, as everyone else's is but in a reload and
+    /// the crates' always are, is drawn whole in one go rather than piece by piece.
     #[allow(clippy::too_many_arguments)]
     fn draw_gun(&self, idx: usize, gun: &M4, recoil: f32, reload: f32, mag_out: f32, cycle: f32, turn: f32, fired: usize, hands: bool) {
-        use crate::gunmodel::Action;
         let g = &self.guns[idx];
-        let s = &g.spec;
-        let at = |v: [f32; 3], k: f32| translate(v[0] * k, v[1] * k, v[2] * k);
-        self.draw_pieces(gun, &g.body);
-        let pull = ((recoil - 0.6) * 5.0).clamp(0.0, 1.0);
-        self.draw_pieces(&mul(gun, &around(s.trigger_pivot, &rot_x(-0.35 * pull))), &g.trigger);
-        let pose = action_pose(s, recoil, reload, cycle, turn);
-        let action = mul(gun, &pose);
-        self.draw_pieces(&action, &g.action);
-        if let Some(r) = &s.rounds {
-            // one round in each chamber, riding in the part that opens. Only the player's own reload is played
-            // through: someone else's gun is just shown open, its rounds home
-            let played = if hands { reload } else { 0.0 };
-            let (open, turn) = (mul(gun, &opened(s, reload)), turned(s, turn));
-            for k in 0..r.chambers.len() {
-                if let Some((brought, at, spent)) = round_at(r, k, fired, played) {
-                    self.draw_pieces(&mul(&open, &mul(&brought, &mul(&turn, &at))), &g.mag[..if spent { r.case } else { r.parts }]);
-                }
-            }
-            if let Some(at) = loader_at(r, played) {
-                self.draw_pieces(&mul(&open, &at), &g.mag[r.parts..]);
-            }
-        } else {
-            let mag = mul(gun, &mul(&at(s.mag_out, mag_out), &around(s.mag_pivot, &rot_x(s.mag_tilt * mag_out))));
-            self.draw_pieces(&mag, &g.mag);
-        }
-        if !hands {
+        if !hands && recoil == 0.0 && reload == 0.0 && mag_out == 0.0 && cycle == 0.0 && turn == 0.0 && fired == 0 {
+            let gl = &self.gl;
+            gl.bind_vertex_array(Some(&g.whole.vao));
+            gl.uniform_matrix4fv_with_f32_array(self.u_model.as_ref(), false, gun);
+            gl.uniform1f(self.u_whole.as_ref(), 1.0);
+            gl.draw_elements_with_i32(GL::TRIANGLES, g.whole.count, GL::UNSIGNED_INT, 0);
+            self.count(g.whole.count / 3);
+            gl.uniform1f(self.u_whole.as_ref(), 0.0);
             return;
         }
-
-        self.draw_pieces(&mul(gun, &at(s.right_at, 1.0)), &self.hands.right);
-        // the left hand lets go, takes the magazine and comes back; on a pump it rides the forend
-        let go = ease(0.0, 0.2, reload) - ease(0.78, 1.0, reload);
-        let reach = if s.pistol_hold { [0.0, -0.07, 0.02] } else { [0.0, -0.085, 0.23] };
-        let mut hand = mul(gun, &mul(&at(s.left_at, 1.0), &mul(&at(reach, go), &at(s.mag_out, 0.6 * mag_out))));
-        if s.action == Action::Pump {
-            hand = mul(&hand, &pose);
-        }
-        if let Some(r) = &s.rounds {
-            // a break action's hand is on the forend, so it rides the barrels down, and lifts them shut again by it;
-            // a revolver's stays upright as it brings the speedloader along the swung out cylinder
-            let (hold, along) = r.hand_at(fired, reload);
-            let (base, along) = if s.action == Action::Break { (action, along) } else { (*gun, turn_dir(&opened(s, reload), along)) };
-            let to = std::array::from_fn(|i| hold[i] + along[i]);
-            hand = mul(&base, &mul(&at(s.left_at, 1.0), &at(to, 1.0)));
-        }
-        self.draw_pieces(&hand, if s.pistol_hold { &self.hands.pistol_left } else { &self.hands.left });
+        pose_gun(&g.spec, gun, recoil, reload, mag_out, cycle, turn, fired, hands, |m, group| match group {
+            Group::Right => self.draw_pieces(m, &self.hands.right),
+            Group::Left => self.draw_pieces(m, if g.spec.pistol_hold { &self.hands.pistol_left } else { &self.hands.left }),
+            _ => self.draw_pieces(m, group.of(&g.body, &g.trigger, &g.action, &g.mag)),
+        });
     }
 
     /// Throws out into the world the rounds a reload empties from the chambers: `action` is where the part that

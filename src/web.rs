@@ -156,6 +156,8 @@ impl Client {
             "ShiftLeft" | "ShiftRight" => i.sprint = down,
             "KeyR" => i.reload = down,
             "KeyG" => i.throw = down,
+            // once a press: the step that takes the crate lets it go
+            "KeyE" if down => i.take = true,
             _ if down => {
                 // 1 primary, 2 sidearm; the loadout itself is picked in the menu
                 if let Some(n) = code.strip_prefix("Digit").and_then(|d| d.parse::<usize>().ok()) {
@@ -435,6 +437,9 @@ impl Client {
             g.players.iter().filter(|p| p.alive()).count() as f32,
             g.players.len() as f32,
             p.reserve[p.weapon] as f32,
+            // the gun in the weapon crate in reach, or -1, and the one taking it would leave behind (NO_GUN none)
+            g.crate_in_reach(g.local).map_or(-1.0, |k| g.crates[k].1 as f32),
+            p.loadout[g.take_slot(g.local)] as f32,
         ]
     }
 

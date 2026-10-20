@@ -16,6 +16,9 @@ const GRAVITY: f32 = 22.0;
 const JUMP: f32 = 7.5;
 const WALK: f32 = 6.0;
 const SPRINT: f32 = 9.0;
+/// How fast a runner goes, the slowest and the fastest: between a walk and a sprint, and quicker than sprinting
+/// each time the bar comes back, which averages about 6.8.
+const RUNNER_SPEED: (f32, f32) = (7.0, 7.8);
 /// Metres between footsteps.
 pub const STRIDE: f32 = 2.1;
 /// Seconds of sprinting on a full bar of stamina, and seconds for an empty bar to fill again once rested.
@@ -91,6 +94,9 @@ const KILL_STOP: f32 = 0.1;
 /// A weapon crate chimes every this many seconds, heard this far off, so it can be found by ear.
 const CHIME_EVERY: f32 = 2.5;
 const HEAR_CHIME: f32 = 45.0;
+/// A weapon crate's gun can be taken (see `Input::take`) from this far off, along the ground and up or down.
+const TAKE_REACH: f32 = 1.6;
+const TAKE_RISE: f32 = 1.2;
 
 /// Things that happened this tick that a client may want to play a sound for.
 /// Each event is `[code, a, b]` in `Game::events`.
@@ -125,7 +131,7 @@ pub mod ev {
     pub const BLAST: f32 = 18.0;
     /// someone else's shot: a = distance, b = 4 × weapon + pan (as for GROWL)
     pub const FAR_SHOT: f32 = 19.0;
-    /// an ammo box goes into the reserves
+    /// an ammo box goes into the reserves (a = 0), or a weapon crate's gun into a slot (a = 1 + the gun)
     pub const PICKUP: f32 = 20.0;
     /// a melee weapon swung: a = which way (see `Player::swings`)
     pub const SWING: f32 = 21.0;
@@ -266,6 +272,8 @@ pub struct Input {
     pub ads: bool,
     pub reload: bool,
     pub throw: bool,
+    /// take the gun out of the weapon crate in reach, this step (see `Game::crate_in_reach`)
+    pub take: bool,
     pub look_dx: f32,
     pub look_dy: f32,
     /// where the player looks, yaw and pitch, instead of turning by `look_dx` and `look_dy`: from a client over
@@ -1275,13 +1283,15 @@ impl Game {
         let pos = self.zombie_spawn();
         let (r, w) = (self.rng.f(), self.wave as f32);
         let p_brute = if self.wave >= 3 { (0.03 * w).min(0.15) } else { 0.0 };
-        let p_run = (0.1 + 0.04 * w).min(0.4);
+        let p_run = (0.21 + 0.045 * w).min(0.6);
+        // runners are quicker than a walk and slower than a sprint, so one can be put off but not got away from;
+        // walkers can be walked away from, but close in on anyone who stops
         let (kind, hp, speed, scale) = if r < p_brute {
             (2, 320.0, self.rng.range(2.0, 2.4), 1.25)
         } else if r < p_brute + p_run {
-            (1, 60.0, self.rng.range(5.0, 5.8), 0.95)
+            (1, 60.0, self.rng.range(RUNNER_SPEED.0, RUNNER_SPEED.1), 0.95)
         } else {
-            (0, 100.0, self.rng.range(2.5, 3.4), 1.0)
+            (0, 100.0, self.rng.range(3.5, 4.5), 1.0)
         };
         let phase = self.rng.range(0.0, 6.28);
         let mut z = Bot::zombie(pos, phase);
@@ -1949,7 +1959,7 @@ impl Game {
         if self.role == Role::Solo {
             let p = &mut self.players[0];
             let inp = p.input;
-            (p.input.look_dx, p.input.look_dy) = (0.0, 0.0);
+            (p.input.look_dx, p.input.look_dy, p.input.take) = (0.0, 0.0, false);
             self.step_player(0, inp, dt);
         }
         if self.role != Role::Mirror {
@@ -2094,7 +2104,9 @@ impl Game {
         }
         // with the step, so a client playing its player ahead picks up on the same input the server does
         self.tick_boxes(pi);
-        self.tick_crates(pi);
+        if inp.take {
+            self.take_crate(pi);
+        }
     }
 
     /// Walk over an ammo box standing or walking and a magazine of its rounds goes into the reserves, so far as
@@ -2125,23 +2137,38 @@ impl Game {
         }
     }
 
-    /// Walk over a weapon crate standing or walking and its gun takes the place of the one carried in its slot,
-    /// loaded, with full reserves, and raised. Running over one, or over one with a gun already carried, leaves it be.
-    fn tick_crates(&mut self, pi: usize) {
-        let p = &self.players[pi];
-        if !p.alive() || p.sprinting {
-            return;
-        }
-        let body = aabb_at(p.body.pos, HW, H);
-        let Some(k) = self.crates.iter().position(|&(at, gun)| !p.loadout.contains(&gun) && overlaps(&body, &aabb_at(at, 0.45, 0.5))) else {
-            return;
-        };
+    /// The nearest weapon crate player `i` can take a gun from: in reach, alive, and with a gun not already carried.
+    pub fn crate_in_reach(&self, i: usize) -> Option<usize> {
+        let p = self.players.get(i).filter(|p| p.alive())?;
+        let at = p.body.pos;
+        self.crates
+            .iter()
+            .enumerate()
+            .filter(|(_, (c, gun))| !p.loadout.contains(gun) && (c[1] - at[1]).abs() < TAKE_RISE)
+            .map(|(k, (c, _))| (k, (c[0] - at[0]).hypot(c[2] - at[2])))
+            .filter(|&(_, d)| d < TAKE_REACH)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(k, _)| k)
+    }
+
+    /// The slot a gun out of a crate goes into: an empty one if there is, otherwise the one of the gun in hand,
+    /// so the pistol can be swapped for a rifle as well as for another sidearm.
+    pub fn take_slot(&self, i: usize) -> usize {
+        let p = &self.players[i];
+        p.loadout.iter().position(|&w| w == NO_GUN).unwrap_or(if p.weapon == p.loadout[1] { 1 } else { 0 })
+    }
+
+    /// Take the gun out of the weapon crate in reach: it goes into `take_slot`, loaded, with full reserves, and
+    /// raised, and the gun it replaces is left behind.
+    fn take_crate(&mut self, pi: usize) {
+        let Some(k) = self.crate_in_reach(pi) else { return };
         let (_, gun) = self.crates.remove(k);
+        let slot = self.take_slot(pi);
         let p = &mut self.players[pi];
-        p.loadout[if gun < PRIMARIES { 0 } else { 1 }] = gun;
+        p.loadout[slot] = gun;
         p.ammo[gun] = WEAPONS[gun].mag;
         p.reserve[gun] = 2 * WEAPONS[gun].mag;
-        self.events.push([ev::PICKUP, 0.0, 0.0]);
+        self.events.push([ev::PICKUP, 1.0 + gun as f32, 0.0]);
         self.select_for(pi, gun);
     }
 
@@ -2938,6 +2965,48 @@ mod tests {
         assert!(shots >= 6, "a brute died in {shots} shots");
     }
 
+    /// A runner closes in on anyone walking away from it, whatever they hold, and falls behind a sprint, but only
+    /// until the sprint runs out: then it catches up.
+    #[test]
+    fn a_runner_catches_a_walk_and_is_put_off_by_a_sprint_but_not_for_long() {
+        let fastest = WEAPONS.iter().map(|w| w.speed).fold(0.0, f32::max);
+        let slowest = WEAPONS.iter().map(|w| w.speed).fold(f32::INFINITY, f32::min);
+        assert!(RUNNER_SPEED.0 > WALK * fastest, "a runner is outwalked with the quickest gun");
+        assert!(RUNNER_SPEED.1 < SPRINT * slowest, "a runner outruns a sprint with the slowest gun");
+
+        let chase = |sprint: bool| {
+            let mut g = arena();
+            g.wave_t = f32::INFINITY;
+            // walking off down the arena, away from a runner ten metres behind
+            g.players[0].body.pos = [0.0, 0.0, 60.0];
+            g.players[0].yaw = 0.0;
+            g.players[0].input.w = true;
+            g.players[0].input.sprint = sprint;
+            let mut z = Bot::zombie([0.0, 0.0, 70.0], 0.0);
+            (z.kind, z.hp, z.speed) = (1, 60.0, RUNNER_SPEED.0);
+            g.bots.push(z);
+            let gap = |g: &Game| {
+                let (a, b) = (g.bots[0].body.pos, g.players[0].body.pos);
+                (a[0] - b[0]).hypot(a[2] - b[2])
+            };
+            let start = gap(&g);
+            idle(&mut g, SPRINT_TIME);
+            let after = gap(&g);
+            let caught = (0..(25.0 / STEP) as usize).position(|_| {
+                g.tick(STEP);
+                g.players[0].hp < 100.0
+            });
+            (after - start, caught.map(|k| k as f32 * STEP))
+        };
+        let (closed, caught) = chase(false);
+        assert!(closed < -1.0, "walking, a runner only closed {} m", -closed);
+        assert!(caught.is_some(), "walking, a runner never caught up");
+        let (opened, caught) = chase(true);
+        assert!(opened > 3.0, "sprinting only opened {opened} m on a runner");
+        let caught = caught.expect("winded, a runner never caught up");
+        assert!(caught > 2.0, "a sprint bought only {caught} s");
+    }
+
     #[test]
     fn sprint_runs_out_leaves_you_winded_and_comes_back() {
         let mut g = arena();
@@ -3593,36 +3662,46 @@ mod tests {
         assert_eq!(g.players[0].loadout, [NO_GUN, PISTOL], "the next life starts with the pistol again");
     }
 
-    /// Walking over a weapon crate takes its gun into its slot, loaded and raised; running over one, or over one
-    /// with a gun already carried, leaves it.
+    /// A weapon crate's gun is taken with the take key, in reach: into an empty slot first, then in place of the
+    /// gun in hand, whatever kind either is. Walking over one, or taking one with a gun already carried, leaves it.
     #[test]
-    fn a_weapon_crate_puts_its_gun_in_its_slot() {
+    fn a_weapon_crate_is_taken_into_an_empty_slot_or_the_hand() {
         let mut g = arena();
         g.bots.clear();
         g.wave_t = f32::INFINITY;
         g.set_loot(true);
+        let take = |g: &mut Game| {
+            g.players[0].input.take = true;
+            idle(g, 0.1);
+        };
         let p = g.players[0].body.pos;
         g.crates.push(([p[0] + 0.5, p[1], p[2]], 4));
-        g.players[0].input.sprint = true;
-        g.players[0].input.w = true;
         idle(&mut g, 0.2);
-        assert_eq!(g.crates.len(), 1, "not taken while running");
-        g.players[0].input = Input::default();
-        let p = g.players[0].body.pos;
-        g.crates[0].0 = [p[0] + 0.5, p[1], p[2]];
-        idle(&mut g, 0.1);
-        assert!(g.crates.is_empty(), "the crate was walked over");
-        assert_eq!((g.players[0].weapon, g.players[0].loadout), (4, [4, PISTOL]), "the AK-47 is the primary, raised");
+        assert_eq!(g.crates.len(), 1, "not taken just by standing on it");
+        assert_eq!(g.crate_in_reach(0), Some(0));
+        g.crates[0].0 = [p[0] + 3.0, p[1], p[2]];
+        assert_eq!(g.crate_in_reach(0), None, "out of reach");
+        take(&mut g);
+        assert_eq!(g.crates.len(), 1);
+        g.crates[0].0 = [p[0] + 1.0, p[1], p[2]];
+        take(&mut g);
+        assert!(g.crates.is_empty(), "taken");
+        assert_eq!((g.players[0].weapon, g.players[0].loadout), (4, [4, PISTOL]), "the AK-47 in the empty slot, raised");
         assert_eq!((g.players[0].ammo[4], g.players[0].reserve[4]), (WEAPONS[4].mag, 2 * WEAPONS[4].mag));
-        assert!(g.events.iter().any(|e| e[0] == ev::PICKUP));
-        // a sidearm takes the pistol's place
+        assert!(g.events.iter().any(|e| e[0] == ev::PICKUP && e[1] == 5.0), "the pickup says which gun");
+        assert!(!g.players[0].input.take, "the key takes once");
+        // holding the AK-47 a sidearm replaces it; holding the pistol a rifle replaces that
         g.crates.push(([p[0] + 0.5, p[1], p[2]], 9));
-        idle(&mut g, 0.1);
-        assert_eq!(g.players[0].loadout, [4, 9], "the Revolver replaces the pistol");
+        take(&mut g);
+        assert_eq!((g.players[0].weapon, g.players[0].loadout), (9, [9, PISTOL]), "the Revolver in the AK-47's place");
+        g.select_slot(1);
+        g.crates.push(([p[0] + 0.5, p[1], p[2]], 2));
+        take(&mut g);
+        assert_eq!((g.players[0].weapon, g.players[0].loadout), (2, [9, 2]), "the Shotgun in the pistol's place");
         // the gun already carried stays in its crate
-        g.crates.push(([p[0] + 0.5, p[1], p[2]], 4));
-        idle(&mut g, 0.1);
-        assert_eq!(g.crates.len(), 1, "an AK-47 already carried is left");
+        g.crates.push(([p[0] + 0.5, p[1], p[2]], 9));
+        take(&mut g);
+        assert_eq!(g.crates.len(), 1, "a Revolver already carried is left");
     }
 
     /// Each wave tops up the weapon crates playing for loot, and only then; none holds the pistol.

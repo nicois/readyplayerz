@@ -11,7 +11,7 @@
 use crate::sim::{Input, Pose, V3, WEAPON_COUNT};
 
 /// Bumped whenever the format changes, so an old page is told to reload instead of misreading.
-pub const VERSION: u8 = 4;
+pub const VERSION: u8 = 5;
 /// The room asked for in a `Hello` to quick match: never a room's code, which is only letters.
 pub const QUICK: &str = "*";
 /// Most players in a room.
@@ -226,7 +226,7 @@ pub fn encode_inputs(first: u32, inputs: &[Input]) -> Vec<u8> {
     let mut w = W::default();
     w.u8(INPUTS).u32(first).u8(inputs.len() as u8);
     for i in inputs {
-        let keys = [i.w, i.a, i.s, i.d, i.jump, i.sprint, i.fire, i.ads, i.reload, i.throw];
+        let keys = [i.w, i.a, i.s, i.d, i.jump, i.sprint, i.fire, i.ads, i.reload, i.throw, i.take];
         w.u16(keys.iter().enumerate().map(|(k, &on)| (on as u16) << k).sum());
         let [yaw, pitch] = i.view.unwrap_or([0.0; 2]);
         w.f32(yaw).f32(pitch).u8(i.select.unwrap_or(255)).u8(i.pick.unwrap_or(255)).f32(i.seen);
@@ -257,6 +257,7 @@ pub fn decode_inputs(b: &[u8]) -> Option<(u32, Vec<Input>)> {
             ads: on(7),
             reload: on(8),
             throw: on(9),
+            take: on(10),
             look_dx: 0.0,
             look_dy: 0.0,
             view: Some([yaw, pitch]),

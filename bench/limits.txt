@@ -28,16 +28,16 @@ server_tick_ms_max 14
 # from run to run, within a percent; the times change with whatever else the machine is doing, so their limits
 # only catch a large step backwards.
 
-# draw calls and triangles a frame, for the picture: on average (420, 551k) and at most (532, 743k)
-draw_calls 485
-draw_calls_max 620
-triangles 640000
-triangles_max 870000
-# and for the sun's shadow, on average (236, 251k)
-shadow_draw_calls 270
-shadow_triangles 285000
-# frames a second, at least (34 to 51 depending on how busy the machine is), and a frame's time: the slowest in
-# twenty (38 to 58 ms) and the game's own code's share on average (18 to 29 ms)
+# draw calls and triangles a frame, for the picture: on average (267, 425k) and at most (461, 593k)
+draw_calls 310
+draw_calls_max 540
+triangles 490000
+triangles_max 690000
+# and for the sun's shadow, on average (211, 213k)
+shadow_draw_calls 245
+shadow_triangles 250000
+# frames a second, at least (34 to 83 depending on how busy the machine is), and a frame's time: the slowest in
+# twenty (28 to 58 ms) and the game's own code's share on average (11 to 29 ms)
 fps 25
 frame_ms_p95 70
 code_ms 40
