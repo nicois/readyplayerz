@@ -49,8 +49,8 @@ pub fn input(g: &Game, k: usize, n: u32) -> Input {
             let dy = b.body.pos[1] + 1.2 - eye[1];
             inp.view = Some([dx.atan2(-dz), dy.atan2(d)]);
             // pulled and let go every few ticks, as a semi-automatic only fires again once it is let go
-            inp.fire = (n / 20 + k as u32) % 3 != 0 && n % 6 < 3;
-            let left = (secs / 2.0 + k as f32) as u32 % 2 == 0;
+            inp.fire = !(n / 20 + k as u32).is_multiple_of(3) && n % 6 < 3;
+            let left = ((secs / 2.0 + k as f32) as u32).is_multiple_of(2);
             (inp.a, inp.d) = (left, !left);
             inp.s = d < 4.0;
         }

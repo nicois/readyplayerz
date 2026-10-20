@@ -117,7 +117,7 @@ fn load_six_players_against_a_full_horde_stay_within_the_limits() {
     let mut sum = Parts::default();
     let (mut zombies_sent, mut alive_seen) = (0usize, 0usize);
     // bytes on the wire to each player in each second, for the worst second
-    let mut second = vec![0usize; MAX_PLAYERS];
+    let mut second = [0usize; MAX_PLAYERS];
     let mut worst_second = 0usize;
     let mut ticks_ms = Vec::new();
 

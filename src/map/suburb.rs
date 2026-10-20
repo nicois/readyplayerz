@@ -110,12 +110,14 @@ struct Street {
 
 impl B {
     /// A box in a lot's own coordinates.
+    #[allow(clippy::too_many_arguments)]
     fn lot_box(&mut self, l: &Lot, u0: f32, y0: f32, v0: f32, u1: f32, y1: f32, v1: f32, col: Col) {
         let (z0, z1) = l.zs(v0, v1);
         self.bx(u0, y0, z0, u1, y1, z1, col);
     }
 
     /// A wall running back into a lot at `u`, from `v0` to `v1`, with openings placed along v.
+    #[allow(clippy::too_many_arguments)]
     fn lot_side(
         &mut self,
         l: &Lot,
@@ -339,7 +341,7 @@ impl B {
                     });
                 }
                 // the wall the flight runs up stays whole, so the steps never cut across a window
-                if !(two && s == 0 && u == outer) && !(garage && s == 0 && u == inner) {
+                if !(two && s == 0 && u == outer || garage && s == 0 && u == inner) {
                     windows(&mut ops, v0, v1);
                 }
                 self.lot_side(&l, u, v0, v1, T, y0, y1, &ops, col);
@@ -1516,8 +1518,8 @@ mod tests {
     fn every_house_can_be_walked_into_and_up() {
         // both ways round, on lots as narrow and as wide as the rows make them
         let mut upstairs = 0;
-        for seed in 1..16 {
-            let (dir, w) = if seed % 2 == 0 {
+        for seed in 1..16u32 {
+            let (dir, w) = if seed.is_multiple_of(2) {
                 (1.0, 19.0)
             } else {
                 (-1.0, 23.25)
@@ -1677,9 +1679,9 @@ mod tests {
     fn house_ascii() {
         let seed = std::env::var("SEED")
             .ok()
-            .and_then(|s| s.parse().ok())
+            .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(2);
-        let (dir, w) = if seed % 2 == 0 {
+        let (dir, w) = if seed.is_multiple_of(2) {
             (1.0, 19.0)
         } else {
             (-1.0, 23.25)

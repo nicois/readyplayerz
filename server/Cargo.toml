@@ -7,3 +7,9 @@ edition = "2021"
 arena = { path = ".." }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "fs", "io-util"] }
 wtransport = { version = "0.7", features = ["self-signed", "quinn"] }
+
+[lints.clippy]
+all = "deny"
+# the server is a small binary: a poisoned lock or a mis-set env var should fail loudly
+unwrap_used = "allow"
+expect_used = "allow"

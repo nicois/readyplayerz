@@ -467,6 +467,8 @@ pub fn ray_aabb(o: V3, d: V3, b: &Aabb) -> Option<f32> {
 pub struct Rng(pub u32);
 
 impl Rng {
+    /// Not an `Iterator`: a raw u32, so the clashing name is allowed.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> u32 {
         let mut x = self.0;
         x ^= x << 13;
@@ -908,6 +910,9 @@ pub struct Shot {
 /// How long the server keeps where the zombies were, to check shots against where a client saw them.
 const HISTORY: usize = 30;
 
+/// The zombies' hit boxes (id, body, head) in one tick.
+type BotFrame = Vec<(u32, Aabb, Aabb)>;
+
 pub struct Game {
     pub role: Role,
     /// half the side of the map, see `Map::half`
@@ -954,7 +959,7 @@ pub struct Game {
     /// steps played
     pub tick_n: u32,
     /// on the server, the zombies' hit boxes (id, body, head) at each of the last `HISTORY` ticks, newest last
-    history: std::collections::VecDeque<(u32, Vec<(u32, Aabb, Aabb)>)>,
+    history: std::collections::VecDeque<(u32, BotFrame)>,
     /// on a client, how many zombies are left to kill this wave, as the server says
     pub remote_left: Option<u32>,
     rng: Rng,
@@ -3118,7 +3123,7 @@ impl Game {
                     -d[2] / d[0].hypot(d[2]).max(1e-4) * HW * 0.9,
                     d[0] / d[0].hypot(d[2]).max(1e-4) * HW * 0.9,
                 ];
-                let along = next.map_or(true, |to| {
+                let along = next.is_none_or(|to| {
                     (to[0] - b.body.pos[0]) * dx + (to[2] - b.body.pos[2]) * dz > 0.0
                 });
                 b.direct = target[1] - b.body.pos[1] < 1.1
@@ -4410,8 +4415,8 @@ mod tests {
         let g = arena();
         assert_eq!(g.players[0].ammo, full_ammo());
         assert_eq!(g.players[0].reserve, full_reserve());
-        for i in 0..WEAPON_COUNT {
-            assert_eq!(g.players[0].reserve[i], 2 * WEAPONS[i].mag);
+        for (i, w) in WEAPONS.iter().enumerate() {
+            assert_eq!(g.players[0].reserve[i], 2 * w.mag);
         }
     }
 

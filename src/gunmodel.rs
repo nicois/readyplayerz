@@ -570,6 +570,7 @@ const SPEC: Spec = Spec {
 
 /// A block that changes size along its length, as for a stock: `x` half widths and `y` bottom and top at `z0`
 /// and at `z1`.
+#[allow(clippy::too_many_arguments)]
 fn taper(m: &mut Mesh, z0: f32, x0: f32, y0: [f32; 2], z1: f32, x1: f32, y1: [f32; 2], bevel: f32) {
     m.hex(
         [
@@ -609,6 +610,12 @@ impl Hands {
             left: left_hand(),
             pistol_left: pistol_left_hand(),
         }
+    }
+}
+
+impl Default for Hands {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -935,6 +942,8 @@ fn curved_magazine() -> Vec<Piece> {
 // ---- SMG --------------------------------------------------------------------------------------
 
 /// A compact 9mm: squared-off receiver, short slotted handguard, a suppressor, a red dot and a folding stock.
+// The -0.318s and friends are model dimensions, not approximations of pi.
+#[allow(clippy::approx_constant)]
 fn smg() -> Gun {
     let sight_y = 0.066;
     let (

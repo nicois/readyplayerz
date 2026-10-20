@@ -225,6 +225,7 @@ impl B {
         self.m.push(mat);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn bx(&mut self, x0: f32, y0: f32, z0: f32, x1: f32, y1: f32, z1: f32, col: Col) {
         self.put([x0, y0, z0], [x1, y1, z1], col);
     }
@@ -274,6 +275,7 @@ impl B {
 
     /// A wall along `axis` (0 = x, 2 = z) from `a0` to `a1`, centred on `at` on the other axis,
     /// with openings cut out of it.
+    #[allow(clippy::too_many_arguments)]
     fn wall(
         &mut self,
         axis: usize,
@@ -287,7 +289,7 @@ impl B {
         col: Col,
     ) {
         let mut sorted: Vec<&Op> = ops.iter().collect();
-        sorted.sort_by(|a, b| a.c.partial_cmp(&b.c).unwrap());
+        sorted.sort_by(|a, b| a.c.total_cmp(&b.c));
         let mut cur = a0;
         for o in sorted {
             let (lo, hi) = (o.c - o.w / 2.0, o.c + o.w / 2.0);
@@ -299,6 +301,7 @@ impl B {
         self.seg(axis, cur, a1, at, thick, y0, y1, col);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn seg(
         &mut self,
         axis: usize,
@@ -347,6 +350,7 @@ impl B {
 
     /// Stairs from (x, z), the middle of the bottom edge, going in `dir` (0 +x, 1 -x, 2 +z, 3 -z). Solid ones are
     /// built up from `base`; open ones are a zig-zag of steel with room underneath, like a real flight indoors.
+    #[allow(clippy::too_many_arguments)]
     fn stairs(
         &mut self,
         x: f32,
@@ -377,6 +381,7 @@ impl B {
     /// marked in `doors` (north = -z, south, west = -x, east), windows all round, and a flat roof.
     /// Stairs climb along the north wall on even floors and the south wall on odd ones, from every floor of a
     /// building with more than one, so the roof can always be reached.
+    #[allow(clippy::too_many_arguments)]
     fn building(
         &mut self,
         x0: f32,
@@ -1499,8 +1504,6 @@ mod tests {
 
 #[cfg(test)]
 mod tower {
-    use super::*;
-
     #[test]
     fn the_stair_round_the_clock_tower_climbs_all_the_way_to_the_balcony() {
         let mut g = crate::sim::Game::new(1);

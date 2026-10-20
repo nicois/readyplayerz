@@ -8,6 +8,7 @@ use crate::grid::Grid;
 use crate::map::{self, Map};
 use crate::nav::Nav;
 use crate::sim::{overlaps, Aabb, STRIKE_DOWN, STRIKE_UP, V3};
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 
 /// A body's height: a top needs this much clear above it to be stood on.
@@ -263,8 +264,8 @@ impl Places {
         let mut queue = VecDeque::from([first]);
         while let Some(i) = queue.pop_front() {
             for j in self.steps(i) {
-                if !from.contains_key(&j) {
-                    from.insert(j, i);
+                if let Entry::Vacant(e) = from.entry(j) {
+                    e.insert(i);
                     queue.push_back(j);
                 }
             }
@@ -337,13 +338,12 @@ impl Gaps {
             p.iter()
                 .copied()
                 .max_by(|a, b| self.places.spots[*a].h.total_cmp(&self.places.spots[*b].h))
-                .unwrap()
         };
         let mut patches: Vec<(V3, usize)> = self
             .places
             .patches(missed)
             .iter()
-            .map(|p| (self.places.at(top(p)), p.len()))
+            .filter_map(|p| top(p).map(|i| (self.places.at(i), p.len())))
             .collect();
         patches.sort_by(|a, b| b.0[1].total_cmp(&a.0[1]));
         patches

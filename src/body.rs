@@ -742,7 +742,10 @@ fn weights(p: V, segs: &[Seg]) -> ([f32; 4], [f32; 4]) {
         // paired bones only matter on their own side; near the middle either will do, but not below the crotch,
         // where the inside of one thigh would follow the other leg
         let paired = (HIP..BONES).contains(&s.bone);
-        if paired && ((s.bone - HIP) % 2 == 0) != side_left && (p[0].abs() > 0.03 || p[1] < 0.84) {
+        if paired
+            && (s.bone - HIP).is_multiple_of(2) != side_left
+            && (p[0].abs() > 0.03 || p[1] < 0.84)
+        {
             continue;
         }
         let h = to_head(p);
@@ -752,7 +755,7 @@ fn weights(p: V, segs: &[Seg]) -> ([f32; 4], [f32; 4]) {
         let d = (dist_to_segment(p, s.a, s.b) - s.r).max(0.0);
         cand.push((s.bone, d));
     }
-    cand.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    cand.sort_by(|a, b| a.1.total_cmp(&b.1));
     let near = cand[0].1;
     let mut idx = [0.0f32; 4];
     let mut w = [0.0f32; 4];
@@ -789,7 +792,7 @@ pub(crate) fn surface_nets(
 
     // blocks of 8 cells: sample one only if the surface could pass through it
     const B: usize = 8;
-    let blocks = [0, 1, 2].map(|a| (n[a] + B - 1) / B);
+    let blocks = [0, 1, 2].map(|a| n[a].div_ceil(B));
     let reach = (B as f32 * h) * 0.5 * 3f32.sqrt() * 1.35 + h;
     for bk in 0..blocks[2] {
         for bj in 0..blocks[1] {
@@ -839,14 +842,14 @@ pub(crate) fn surface_nets(
             for i in 0..n[0] - 1 {
                 let mut d = [0.0f32; 8];
                 let mut ok = true;
-                for c in 0..8 {
+                for (c, slot) in d.iter_mut().enumerate() {
                     let o = corner(c);
                     let v = field[at(i + o[0], j + o[1], k + o[2])];
                     if v.is_nan() {
                         ok = false;
                         break;
                     }
-                    d[c] = v;
+                    *slot = v;
                 }
                 if !ok || d.iter().all(|v| *v > 0.0) || d.iter().all(|v| *v <= 0.0) {
                     continue;
@@ -1155,6 +1158,7 @@ mod tests {
     /// leaves the clothes and hair off; `$FACE` set looks close at a living head instead.
     #[test]
     #[ignore]
+    #[allow(clippy::type_complexity)]
     fn views() {
         let out = std::env::var("VIEWS").expect("set VIEWS to the picture to write");
         let bare = std::env::var("BARE").is_ok();

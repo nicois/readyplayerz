@@ -434,8 +434,7 @@ impl Mirror {
         (p.hp, p.kills, p.deaths, p.respawn_t) = (own.hp, own.kills, own.deaths, own.respawn_t);
 
         let mut then = None;
-        while self.pending.front().is_some_and(|(n, _, _)| *n <= own.ack) {
-            let (n, _, kit) = self.pending.pop_front().unwrap();
+        while let Some((n, _, kit)) = self.pending.pop_front().filter(|(n, _, _)| *n <= own.ack) {
             if n == own.ack {
                 then = kit;
             }

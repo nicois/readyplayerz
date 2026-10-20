@@ -121,7 +121,7 @@ impl Nav {
                     .filter(|t| *t > g)
                     .collect();
                 tops.push(g);
-                tops.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                tops.sort_by(|a, b| a.total_cmp(b));
                 tops.dedup_by(|a, b| (*a - *b).abs() < 0.01);
                 for h in tops {
                     if !spans
@@ -256,7 +256,7 @@ impl Nav {
         let c2 = (c.0 + d.0, c.1 + d.1);
         self.in_cell(c2)
             .filter(|&s| !self.on_ground(c2, s) && self.can_climb(c, from, self.spots[s]))
-            .min_by(|a, b| self.spots[*a].partial_cmp(&self.spots[*b]).unwrap())
+            .min_by(|a, b| self.spots[*a].total_cmp(&self.spots[*b]))
     }
 
     /// Whether a body passing the corner of cell `side`, at height `top`, clears everything in it: nothing there
@@ -292,8 +292,7 @@ impl Nav {
             .min_by(|a, b| {
                 (self.spots[*a] - h)
                     .abs()
-                    .partial_cmp(&(self.spots[*b] - h).abs())
-                    .unwrap()
+                    .total_cmp(&(self.spots[*b] - h).abs())
             })?;
         if d.0 != 0 && d.1 != 0 {
             let t = self.spots[to];
@@ -353,8 +352,7 @@ impl Nav {
         let own = self.in_cell(c).min_by(|a, b| {
             (self.spots[*a] - p[1])
                 .abs()
-                .partial_cmp(&(self.spots[*b] - p[1]).abs())
-                .unwrap()
+                .total_cmp(&(self.spots[*b] - p[1]).abs())
         });
         // more than a jump above anything in its own cell, it is perched on the corner of something in the next,
         // as the canopy of a tree overhangs past the trunk: taken to be on the ground under it, it would stand

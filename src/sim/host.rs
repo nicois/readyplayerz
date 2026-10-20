@@ -213,7 +213,9 @@ impl Room {
             if !s.queue.contains_key(&s.next) && !s.queue.is_empty() {
                 s.waited += 1;
                 if s.waited > GAP_WAIT {
-                    s.next = *s.queue.keys().next().unwrap();
+                    if let Some(&k) = s.queue.keys().next() {
+                        s.next = k;
+                    }
                 }
             }
             let plays = if s.queue.len() > QUEUE { 2 } else { 1 };
@@ -234,7 +236,7 @@ impl Room {
 
     /// Whether this tick sends snapshots.
     pub fn snapshot_due(&self) -> bool {
-        self.game.tick_n % SNAPSHOT_EVERY == 0
+        self.game.tick_n.is_multiple_of(SNAPSHOT_EVERY)
     }
 
     /// The game as each player in the room is to see it now, as datagrams, by player id. What everyone is sent is
@@ -242,9 +244,9 @@ impl Room {
     pub fn snapshots(&self) -> Vec<(u8, Vec<Vec<u8>>)> {
         let g = &self.game;
         let shared = net::encode_records(&self.shared_snapshot());
-        let (world, rest) = shared
-            .split_first()
-            .expect("a snapshot always says how the game is going");
+        let Some((world, rest)) = shared.split_first() else {
+            return Vec::new();
+        };
         let mates: Vec<(u8, Vec<u8>)> = g
             .players
             .iter()

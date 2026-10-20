@@ -849,9 +849,9 @@ mod tests {
             pos: [i as f32, 0.0, -2.0 * i as f32],
             face: 1.0,
             kind: (i % 3) as u8,
-            alive: i % 2 == 0,
+            alive: i.is_multiple_of(2),
             speed: 3.0,
-            pose: (i % 5 == 0).then_some((0.5, 1.0, 0.5, 0.25)),
+            pose: i.is_multiple_of(5).then_some((0.5, 1.0, 0.5, 0.25)),
             ..Default::default()
         };
         let s = Snapshot {

@@ -28,3 +28,10 @@ default-members = ["."]
 [profile.release]
 opt-level = 3
 lto = true
+
+[lints.clippy]
+# every default clippy lint is an error; the few deliberate exceptions are allowed at the site
+all = "deny"
+# unwraps and expects stay in tests only
+unwrap_used = "deny"
+expect_used = "deny"
