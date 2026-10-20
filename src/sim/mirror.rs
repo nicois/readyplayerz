@@ -401,7 +401,9 @@ impl Mirror {
         self.loot.retain(|_, (_, _, tick)| *tick + 60 >= newest);
         self.taken.retain(|(s, at)| self.loot.contains_key(s) && clock - at < 120.0);
         let g = &mut self.game;
-        (g.boxes, g.crates) = (Vec::new(), Vec::new());
+        // refilled in place every frame, so it never allocates once it has room for them all
+        g.boxes.clear();
+        g.crates.clear();
         for (s, &(at, gun, _)) in &self.loot {
             if self.taken.iter().any(|(t, _)| t == s) {
                 continue;
@@ -554,8 +556,9 @@ mod tests {
             }
             self.room.tick();
             if self.room.snapshot_due() {
-                for (k, c) in self.clients.iter().enumerate() {
-                    for d in self.room.snapshot_for(c.id) {
+                for (id, datagrams) in self.room.snapshots() {
+                    let Some(k) = self.clients.iter().position(|c| c.id == id) else { continue };
+                    for d in datagrams {
                         self.down.push_back((self.now + self.lag, k, d));
                     }
                 }

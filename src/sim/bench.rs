@@ -1,7 +1,7 @@
 //! The game the benches play: a full team on the Suburb against the most zombies the game lets be up at once,
 //! each player shooting the nearest in bursts and throwing a grenade now and then, nobody going down and nobody
 //! running out, so the load stays the same all through. The network bench (`load.rs`) plays it on the server's
-//! room; the drawing bench (`?bench` on the page) plays it alone, with the others stepped on this machine.
+//! room; the drawing bench (`?horde` on the page) plays it alone, with the others stepped on this machine.
 
 use super::*;
 

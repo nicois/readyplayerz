@@ -550,6 +550,9 @@ fn grade_rgb(c: [f32; 3]) -> [f32; 3] {
 /// The fog starts here and is fully opaque at FOG_END; past that there is only haze, so nothing is drawn.
 const FOG_START: f32 = 45.0;
 const FOG_END: f32 = 150.0;
+/// A weapon crate's gun is drawn turning over it from this close: further off it is a few pixels, and its beam says
+/// where it is.
+const CRATE_GUN_FAR: f32 = 40.0;
 /// Overcast sky and the colour the fog fades to, so the horizon melts into it.
 const HAZE: [f32; 3] = [0.52, 0.56, 0.62];
 /// Shadow map: its side in texels, and half the width of the area it covers around the player, in metres.
@@ -691,6 +694,8 @@ pub struct Renderer {
     pub gun_yaw: Cell<f32>,
     /// Draws only this gun on a flat grey, for the loadout's pictures (see `draw_showcase`).
     pub showcase: Cell<Option<(usize, f32)>>,
+    /// Dev view: draws only this gun, flat and to scale, for working on its shape (see `draw_bench`).
+    pub bench: Cell<Option<Bench>>,
     guns: Vec<GpuGun>,
     hands: GpuHands,
     grenade: GpuGrenade,
@@ -749,6 +754,8 @@ pub struct Renderer {
     world: Option<WorldMesh>,
     inst_e: (WebGlVertexArrayObject, WebGlBuffer),
     list_e: RefCell<Vec<f32>>,
+    /// the debris, laid out as `list_e` is, refilled every frame
+    list_d: RefCell<Vec<f32>>,
     seed: Cell<f32>,
     u_inst: Option<WebGlUniformLocation>,
     u_lvp: Option<WebGlUniformLocation>,
@@ -896,6 +903,27 @@ fn ortho(half: f32, far: f32) -> M4 {
     m[14] = -1.0;
     m
 }
+
+/// A flat view `2 * hx` across and `2 * hy` up, of what lies from 0 to `far` in front.
+fn ortho_box(hx: f32, hy: f32, far: f32) -> M4 {
+    let mut m = ortho(hy, far);
+    m[0] = 1.0 / hx;
+    m
+}
+
+/// What the dev bench shows (see `Renderer::draw_bench`).
+#[derive(Clone, Copy)]
+pub struct Bench {
+    pub gun: usize,
+    /// the middle of the picture along the bore and up it, and half its width, in metres of gun space
+    pub z: f32,
+    pub y: f32,
+    pub half: f32,
+    pub hands: bool,
+}
+
+/// How much of the bench's picture the side view takes, from the top; the top view has the rest.
+pub const BENCH_SIDE: f32 = 0.62;
 
 fn norm(v: V3) -> V3 {
     let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
@@ -1353,6 +1381,7 @@ impl Renderer {
             gun_offset: Cell::new(None),
             gun_yaw: Cell::new(0.05),
             showcase: Cell::new(None),
+            bench: Cell::new(None),
             guns,
             hands,
             grenade,
@@ -1396,6 +1425,7 @@ impl Renderer {
             quality: 0,
             inst_e,
             list_e: RefCell::new(Vec::new()),
+            list_d: RefCell::new(Vec::new()),
             seed: Cell::new(0.0),
             shadow_fbo,
             shadow_tex,
@@ -1554,23 +1584,26 @@ impl Renderer {
     /// Draws everything queued by `ell`, and empties nothing: the same lists are drawn once for the
     /// sun's shadow and once for the picture.
     fn flush(&self) {
+        self.draw_ellipsoids(&self.list_e.borrow());
+        self.flush_bodies();
+    }
+
+    /// Ellipsoids laid out as `queue` lays them out, all in one draw.
+    fn draw_ellipsoids(&self, l: &[f32]) {
+        if l.is_empty() {
+            return;
+        }
         let gl = &self.gl;
         gl.uniform1f(self.u_inst.as_ref(), 1.0);
-        {
-            let l = self.list_e.borrow();
-            if !l.is_empty() {
-                let (vao, buf) = &self.inst_e;
-                gl.bind_vertex_array(Some(vao));
-                gl.bind_buffer(GL::ARRAY_BUFFER, Some(buf));
-                unsafe {
-                    gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(&l), GL::DYNAMIC_DRAW);
-                }
-                gl.draw_arrays_instanced(GL::TRIANGLES, 0, self.sphere_count, (l.len() / 24) as i32);
-                self.count(self.sphere_count / 3 * (l.len() / 24) as i32);
-            }
+        let (vao, buf) = &self.inst_e;
+        gl.bind_vertex_array(Some(vao));
+        gl.bind_buffer(GL::ARRAY_BUFFER, Some(buf));
+        unsafe {
+            gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(l), GL::DYNAMIC_DRAW);
         }
+        gl.draw_arrays_instanced(GL::TRIANGLES, 0, self.sphere_count, (l.len() / 24) as i32);
+        self.count(self.sphere_count / 3 * (l.len() / 24) as i32);
         gl.uniform1f(self.u_inst.as_ref(), 0.0);
-        self.flush_bodies();
     }
 
     /// Draws the queued zombie bodies: skin, hands, head, then clothes and hair, each posed by the zombie's bones.
@@ -1645,6 +1678,13 @@ impl Renderer {
         gl.uniform1f(self.u_unlit.as_ref(), unlit);
         gl.draw_arrays(GL::LINES, 0, (pts.len() / 3) as i32);
         self.count(0);
+    }
+
+    /// Where gun `i`'s parts reach, low corner then high, and its sight line's height and muzzle, for the bench.
+    pub fn gun_bounds(&self, i: usize) -> Vec<f32> {
+        let g = &self.guns[i];
+        let (lo, hi) = g.bounds;
+        vec![lo[0], lo[1], lo[2], hi[0], hi[1], hi[2], g.spec.sight_y, g.spec.muzzle_z]
     }
 
     /// Bakes the ground and every wall into one buffer. Call once the game exists; the map never changes.
@@ -1943,6 +1983,45 @@ impl Renderer {
         self.present(t);
     }
 
+    /// Gun `b.gun` drawn flat, with no perspective, from its right side in the top `BENCH_SIDE` of the picture and
+    /// from above below it, the muzzle to the right in both and their lengths lined up. The picture's width is
+    /// `2 * b.half` metres of gun space, centred on `b.z` along the bore and, from the side, `b.y` up it; the page
+    /// draws a ruler over it at the same scale.
+    fn draw_bench(&self, t: &Targets, b: &Bench) {
+        let gl = &self.gl;
+        let c = grade_rgb([0.42; 3]);
+        gl.clear_color(c[0], c[1], c[2], 1.0);
+        gl.clear(GL::COLOR_BUFFER_BIT | GL::DEPTH_BUFFER_BIT);
+        gl.use_program(Some(&self.prog));
+        self.finish.set(gl, t.w, t.h, 0.0, true);
+        gl.uniform2f(self.u_fogr.as_ref(), 1e4, 2e4);
+        gl.uniform1f(self.u_batch.as_ref(), 0.0);
+        gl.uniform1f(self.u_shon.as_ref(), 0.0);
+        gl.uniform1f(self.u_dark.as_ref(), 0.0);
+        gl.uniform1f(self.u_flash.as_ref(), 0.0);
+        // looked at from far off along the view, so the highlights fall as they would from a long way away
+        gl.uniform3f(self.u_eye.as_ref(), 0.0, 0.0, 20.0);
+        gl.uniform1f(self.u_view.as_ref(), 1.0);
+        gl.uniform3f(self.u_eyew.as_ref(), 0.0, 1.6, 0.0);
+        let (w, h) = (t.w as f32, t.h as f32);
+        let side_h = (h * BENCH_SIDE).round();
+        // the right side, muzzle to the right: x across is -z, depth is x; then the top, the left side up
+        let side = mul(&rot_y(-std::f32::consts::FRAC_PI_2), &translate(0.0, -b.y, -b.z));
+        let top = mul(&rot_x(std::f32::consts::FRAC_PI_2), &side);
+        for (view, y0, vh) in [(side, h - side_h, side_h), (top, 0.0, h - side_h)] {
+            gl.viewport(0, y0 as i32, w as i32, vh as i32);
+            let half_y = b.half * vh / w;
+            let fwd = norm([-SUN[0], -0.45, -SUN[2]]);
+            let (s, u) = view_axes(fwd, 0.0);
+            gl.uniform_matrix3fv_with_f32_array(self.u_envrot.as_ref(), false, &[s[0], s[1], s[2], u[0], u[1], u[2], -fwd[0], -fwd[1], -fwd[2]]);
+            gl.uniform_matrix4fv_with_f32_array(self.u_vp.as_ref(), false, &ortho_box(b.half, half_y, 2.0));
+            self.draw_gun(b.gun, &mul(&translate(0.0, 0.0, -1.0), &view), 0.0, 0.0, 0.0, 0.0, 0.0, 0, b.hands);
+        }
+        gl.viewport(0, 0, t.w as i32, t.h as i32);
+        gl.uniform1f(self.u_view.as_ref(), 0.0);
+        self.present(t);
+    }
+
     /// The sun's view of the area around `centre`, snapped to whole texels so shadows don't shimmer as it moves.
     fn light_vp(&self, centre: V3) -> M4 {
         let l = norm(SUN);
@@ -2051,6 +2130,10 @@ impl Renderer {
             self.draw_showcase(t, gun, bg, aspect);
             return;
         }
+        if let Some(b) = self.bench.get() {
+            self.draw_bench(t, &b);
+            return;
+        }
         gl.clear_color(self.haze[0], self.haze[1], self.haze[2], 1.0);
         gl.clear(GL::COLOR_BUFFER_BIT | GL::DEPTH_BUFFER_BIT);
 
@@ -2091,32 +2174,46 @@ impl Renderer {
 
         self.draw_world(eye, &vp);
         self.flush();
-        for d in &g.debris {
-            // drops shrink away at the end of their life
-            let k = (d.life / 0.6).min(1.0);
-            let h = [d.half[0] * k, d.half[1] * k, d.half[2] * k];
-            let spin = mul(&rot_y(d.rot[1]), &mul(&rot_x(d.rot[0]), &rot_z(d.rot[2])));
-            let model = mul(&translate(d.pos[0], d.pos[1], d.pos[2]), &mul(&spin, &scale(h[0], h[1], h[2])));
-            self.draw_mesh(&self.sphere_vao, self.sphere_count, &model, d.color, d.glow, 0.3, 0.0);
+        // the debris, up to `sim::MAX_DEBRIS` of it, in one draw; it casts no shadow, so it isn't in `list_e`
+        {
+            let mut l = self.list_d.borrow_mut();
+            l.clear();
+            for d in &g.debris {
+                // drops shrink away at the end of their life
+                let k = (d.life / 0.6).min(1.0);
+                let h = [d.half[0] * k, d.half[1] * k, d.half[2] * k];
+                let spin = mul(&rot_y(d.rot[1]), &mul(&rot_x(d.rot[0]), &rot_z(d.rot[2])));
+                let model = mul(&translate(d.pos[0], d.pos[1], d.pos[2]), &mul(&spin, &scale(h[0], h[1], h[2])));
+                l.extend_from_slice(&model);
+                l.extend_from_slice(&[d.color[0], d.color[1], d.color[2], 0.0, 0.3, d.glow, 0.0, 0.0]);
+            }
         }
+        self.draw_ellipsoids(&self.list_d.borrow());
         self.draw_grenades(g);
         for (_, m) in g.players.iter().enumerate().filter(|(i, _)| *i != g.local) {
             self.draw_mate_gun(m);
         }
         self.draw_brass(None);
+        // boxes and crates behind the view or lost in the haze aren't drawn, and a crate's gun only near enough to make
+        // out: each of its pieces is a draw of its own
+        let off = |at: V3| [at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]];
+        let shown = |at: V3, far: f32| dot(off(at), fwd) > -1.0 && dot(off(at), off(at)) < far * far;
         // the ammo crates: a drab box with a yellow band
-        for at in &g.boxes {
+        for &at in g.boxes.iter().filter(|&&at| shown(at, self.fog_end)) {
             let m = box_model([at[0] - 0.35, at[1], at[2] - 0.35], [at[0] + 0.35, at[1] + 0.7, at[2] + 0.35]);
             self.draw_model(&m, [0.38, 0.36, 0.22], 0.0, 0.1);
             let m = box_model([at[0] - 0.40, at[1] + 0.28, at[2] - 0.40], [at[0] + 0.40, at[1] + 0.42, at[2] + 0.40]);
             self.draw_model(&m, [0.98, 0.75, 0.2], 0.0, 0.2);
         }
         // the weapon crates: a dark case with a red band, and its gun turning over it to show what is inside
-        for &(at, gun) in &g.crates {
+        for &(at, gun) in g.crates.iter().filter(|&&(at, _)| shown(at, self.fog_end)) {
             let m = box_model([at[0] - 0.45, at[1], at[2] - 0.45], [at[0] + 0.45, at[1] + 0.5, at[2] + 0.45]);
             self.draw_model(&m, [0.16, 0.18, 0.2], 0.0, 0.25);
             let m = box_model([at[0] - 0.5, at[1] + 0.18, at[2] - 0.5], [at[0] + 0.5, at[1] + 0.3, at[2] + 0.5]);
             self.draw_model(&m, [0.85, 0.12, 0.1], 0.3, 0.2);
+            if !shown(at, CRATE_GUN_FAR) {
+                continue;
+            }
             let (lo, hi) = self.guns[gun].bounds;
             let mid = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0];
             let bob = 1.1 + 0.08 * (g.time * 2.0 + at[0]).sin();

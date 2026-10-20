@@ -5,8 +5,16 @@
 ### A load bench: what six players against a full horde cost the network and the GPU
 - `./bench.sh` plays six players against the most zombies the game lets be up (24, wave 6's mix) on the Suburb, all by script and the same every run, and holds the results to the limits in `bench/limits.txt`; it fails if one is passed, and adds a line of the results to `bench/history.tsv` to compare changes by.
 - Network (`src/sim/load.rs`, a `cargo test` on the server's own room, a minute of play): the bytes each player is sent a second, on average and in the worst second, all six together, what each sends back, a snapshot's size and datagrams, and what it is spent on (zombies, mates, own record, shots, loot); and the server's tick times, as CPU time. `./bench.sh net` runs only this.
-- Drawing (`?bench` on the page, run by the script in headless Chrome on the real GPU at 1920x993, no vsync): frames a second, frame times, the game code's share, the GPU's time where the browser tells it, and the draw calls and triangles a frame for the picture and for the sun's shadow, which the renderer now counts.
-- First results: each player is sent 26.9 KB/s (161 KB/s out of the server for the room), 849 bytes a snapshot of which 601 are zombies, 944 at most: 56 bytes short of a second datagram. A frame draws 487 calls and 554k triangles, plus 234 calls and 246k triangles for the shadow; 34 fps on an M1 with the machine busy.
+- Drawing (`?horde` on the page, run by the script in headless Chrome on the real GPU at 1920x993, no vsync): frames a second, frame times, the game code's share, the GPU's time where the browser tells it, and the draw calls and triangles a frame for the picture and for the sun's shadow, which the renderer now counts.
+- First results: each player is sent 26.9 KB/s (161 KB/s out of the server for the room), 849 bytes a snapshot of which 601 are zombies, 944 at most: 56 bytes short of a second datagram. A frame draws 420 calls and 551k triangles, plus 236 calls and 251k triangles for the shadow; 34 to 51 fps on an M1, depending on how busy the machine is.
+
+### The guns are proportioned like the real ones
+- Every gun's trigger moved back 5.3 cm, to 7.4 cm from the back of the grip as on a real gun (it was 12.7), with the trigger guards shortened to match. The rifles' triggers were buried in the magwell; they now hang into the guard where they can be seen.
+- Magazines are as deep front to back as their rounds are long: the Carbine's and AK-47's grew from under 4 cm to 6, the Sniper's from 4.6 to 8, and their magwells with them. The SMG's sits right ahead of the guard instead of 6 cm in front of it.
+- Shorter where they were long: the Carbine has a 16-inch barrel (89 cm overall, was 94), the AK-47's barrel stands 37 cm out of the receiver (91 cm overall, was 100), the Pistol's slide is a real 18.5 cm (was 22), the Desert Eagle's barrel is six inches (27 cm overall, was 30).
+- The Sniper's cheek riser sits on the stock instead of floating over it; the Revolver's trigger guard reaches its grip, and its underlug is slimmer.
+- The loadout pictures are made again from the new models.
+- Dev: `?bench=i[,hands]` draws gun `i` flat and to scale, from the side and from above, under a centimetre ruler with the bore, the sight line and the muzzle marked (`&half=m` fixes the scale, to compare guns); `?hold=i` puts gun `i` in hand whatever the loadout.
 
 ### One map: the Suburb
 - The Playground (the ruined town) is no longer played: solo and online both play the Suburb, and the map pickers show only its card. A map saved from before, or asked for by a page from before, is the Suburb too, on the server as well.

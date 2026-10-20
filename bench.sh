@@ -3,7 +3,7 @@
 # bench/history.tsv so changes can be compared. Two benches, both six players against a full horde on the Suburb:
 #
 #   network  `cargo test` plays it on the server's own room and measures what goes over the wire (src/sim/load.rs)
-#   drawing  headless Chrome plays it on the page, on this machine's GPU, and measures the frames (?bench)
+#   drawing  headless Chrome plays it on the page, on this machine's GPU, and measures the frames (?horde)
 #
 # `./bench.sh net` runs only the first. The drawing bench builds the game first; CHROME says where Chrome is, and
 # GFX the quality (0 low, 1 medium, 2 high; 2 by default) at 1920x1080. It fails if any limit is passed.
@@ -30,7 +30,7 @@ if [ "$1" != net ]; then
   # on the real GPU, and without vsync or a frame cap, so a frame takes what it costs
   "$chrome" --headless=new --use-angle=metal --enable-webgl --ignore-gpu-blocklist --disable-gpu-vsync \
     --disable-frame-rate-limit --enable-logging=stderr --v=0 --user-data-dir="$out/profile" \
-    --window-size=1920,1080 "http://127.0.0.1:$port/?bench&gfx=${GFX:-2}" >"$out/chrome.log" 2>&1 &
+    --window-size=1920,1080 "http://127.0.0.1:$port/?horde&gfx=${GFX:-2}" >"$out/chrome.log" 2>&1 &
   browser=$!
   # warm-up and measuring take under half a minute; past a minute something is wrong
   for _ in $(seq 60); do

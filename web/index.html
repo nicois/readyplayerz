@@ -767,6 +767,7 @@ if (params.has("sidearm")) client.pick(primaries + Number(params.get("sidearm"))
 if (params.get("screen") === "pick" || params.get("screen") === "pick2") openPicker(params.get("screen") === "pick2" ? 1 : 0);
 else if (params.has("screen")) show(`s-${params.get("screen")}`);
 if (params.has("slot")) client.key("Digit" + params.get("slot"), true);
+if (params.has("hold")) client.hold(Number(params.get("hold"))); // gun i in hand, whatever the loadout
 if (params.has("clean")) menu.style.visibility = "hidden";
 if (params.has("ads")) client.mouse_button(2, true); // holds aim, to look at the sights
 if (params.has("run")) { client.key("KeyW", true); client.key("ShiftLeft", true); } // holds sprint, to look at the run
@@ -782,6 +783,52 @@ if (params.has("showcase")) {
   document.querySelectorAll("body > :not(canvas)").forEach(e => (e.style.display = "none"));
 }
 
+// ?bench=i[,hands] draws gun i flat and to scale, from the side above and from on top below, under a centimetre
+// ruler, to work on its shape; &half=m fixes the width shown to 2m metres, so guns can be compared at one scale
+if (params.has("bench")) {
+  const [i, hands = 0] = params.get("bench").split(",").map(Number);
+  const [lx, ly, lz, hx, hy, hz, sightY, muzzleZ] = client.gun_bounds(i);
+  // the side view's split matches render::BENCH_SIDE
+  const [W, H] = [innerWidth, innerHeight], sideH = Math.round(H * 0.62);
+  const half = Number(params.get("half")) || Math.max(hz - lz, (hy - ly) * W / sideH) * 0.56;
+  const [zc, yc] = [(lz + hz) / 2, (ly + hy) / 2];
+  client.bench(i, zc, yc, half, hands > 0);
+  document.querySelectorAll("body > :not(canvas)").forEach(e => (e.style.display = "none"));
+  const ruler = document.createElement("canvas");
+  ruler.style.cssText = "position:fixed;inset:0;pointer-events:none";
+  document.body.append(ruler);
+  [ruler.width, ruler.height] = [W * devicePixelRatio, H * devicePixelRatio];
+  const c = ruler.getContext("2d");
+  c.scale(devicePixelRatio, devicePixelRatio);
+  const ppm = W / (2 * half);
+  const sx = z => W / 2 - (z - zc) * ppm;
+  const sy = y => sideH / 2 - (y - yc) * ppm;
+  const ty = x => sideH + (H - sideH) / 2 + x * ppm;
+  const line = (x0, y0, x1, y1, style, width = 1) => { c.strokeStyle = style; c.lineWidth = width; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); };
+  c.font = "11px ui-monospace, Menlo, monospace";
+  for (let cm = Math.floor((zc - half) * 100); cm <= (zc + half) * 100; cm++) {
+    const x = sx(cm / 100), major = cm % 10 === 0;
+    if (cm % 5 && ppm < 600) continue;
+    line(x, 0, x, H, major ? "rgba(255,255,255,.28)" : cm % 5 ? "rgba(255,255,255,.06)" : "rgba(255,255,255,.12)");
+    if (major) { c.fillStyle = "rgba(255,255,255,.7)"; c.fillText(`${-cm}`, x + 3, 12); }
+  }
+  for (let cm = -60; cm <= 60; cm++) {
+    const major = cm % 10 === 0, style = major ? "rgba(255,255,255,.28)" : cm % 5 ? "rgba(255,255,255,.06)" : "rgba(255,255,255,.12)";
+    if (cm % 5 && ppm < 600) continue;
+    const y = sy(cm / 100);
+    if (y > 0 && y < sideH) line(0, y, W, y, style);
+    const t = ty(cm / 100);
+    if (t > sideH && t < H) line(0, t, W, t, style);
+  }
+  line(0, sideH, W, sideH, "rgba(0,0,0,.5)", 2);
+  // the bore, the sight line and the muzzle
+  line(0, sy(0), W, sy(0), "rgba(255,120,90,.6)");
+  line(0, sy(sightY), W, sy(sightY), "rgba(120,220,255,.6)");
+  line(sx(muzzleZ), 0, sx(muzzleZ), H, "rgba(255,120,90,.6)");
+  c.fillStyle = "#fff";
+  c.font = "14px ui-monospace, Menlo, monospace";
+  c.fillText(`${names[i]}  ${Math.round((hz - lz) * 1000)} mm long, ${Math.round((hy - ly) * 1000)} high, ${Math.round((hx - lx) * 1000)} wide · cm from the bore over the trigger`, 10, sideH - 10);
+}
 if (params.has("at")) {
   const [x, z, yaw = 0, y = 0, pitch = 0] = params.get("at").split(",").map(Number);
   client.teleport(x, y, z, yaw, pitch);
@@ -802,60 +849,60 @@ if (params.has("climb")) {
 }
 // ?dev hands the game to the console (and to test scripts) as `client`
 if (params.has("dev")) window.client = client;
-// ?bench[=players] plays the drawing bench: a full team (six, or `players`) against a full horde, all played by
+// ?horde[=players] plays the drawing bench: a full team (six, or `players`) against a full horde, all played by
 // script, the same game every time (see sim::bench), at the quality ?gfx says and no lower. After `warm` seconds it
 // measures for `secs` and logs one line, "bench" and the results as JSON, for ./bench.sh
-const bench = params.has("bench") ? { warm: 12, secs: 15, t0: 0, frames: [], code: [], gpu: [], calls: [], tris: [], shadowCalls: [], shadowTris: [], zombies: [], pending: [] } : null;
-if (bench) {
-  client.bench(Number(params.get("bench")) || 6);
+const horde = params.has("horde") ? { warm: 12, secs: 15, t0: 0, frames: [], code: [], gpu: [], calls: [], tris: [], shadowCalls: [], shadowTris: [], zombies: [], pending: [] } : null;
+if (horde) {
+  client.horde(Number(params.get("horde")) || 6);
   menu.style.visibility = "hidden";
   const gl = canvas.getContext("webgl2");
   // the GPU's own time for each frame, where the browser tells it
-  bench.timer = gl.getExtension("EXT_disjoint_timer_query_webgl2");
+  horde.timer = gl.getExtension("EXT_disjoint_timer_query_webgl2");
   const info = gl.getExtension("WEBGL_debug_renderer_info");
-  bench.gpuName = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
-  bench.gl = gl;
+  horde.gpuName = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+  horde.gl = gl;
 }
-// one frame of the bench: `draw` draws it, and what it took is kept once the warm-up is over
-function benchFrame(t, dt, draw) {
-  const { gl, timer } = bench;
-  if (bench.done) return draw();
-  const q = timer && !bench.pending.length ? gl.createQuery() : null;
+// one frame of the drawing bench: `draw` draws it, and what it took is kept once the warm-up is over
+function hordeFrame(t, dt, draw) {
+  const { gl, timer } = horde;
+  if (horde.done) return draw();
+  const q = timer && !horde.pending.length ? gl.createQuery() : null;
   if (q) gl.beginQuery(timer.TIME_ELAPSED_EXT, q);
   const t0 = performance.now();
   draw();
   const code = performance.now() - t0;
-  if (q) { gl.endQuery(timer.TIME_ELAPSED_EXT); bench.pending.push(q); }
-  for (const p of bench.pending.splice(0)) {
-    if (!gl.getQueryParameter(p, gl.QUERY_RESULT_AVAILABLE)) { bench.pending.push(p); continue; }
-    if (!gl.getParameter(timer.GPU_DISJOINT_EXT) && bench.t0) bench.gpu.push(gl.getQueryParameter(p, gl.QUERY_RESULT) / 1e6);
+  if (q) { gl.endQuery(timer.TIME_ELAPSED_EXT); horde.pending.push(q); }
+  for (const p of horde.pending.splice(0)) {
+    if (!gl.getQueryParameter(p, gl.QUERY_RESULT_AVAILABLE)) { horde.pending.push(p); continue; }
+    if (!gl.getParameter(timer.GPU_DISJOINT_EXT) && horde.t0) horde.gpu.push(gl.getQueryParameter(p, gl.QUERY_RESULT) / 1e6);
     gl.deleteQuery(p);
   }
-  if (!bench.t0) {
-    if (t > bench.warm * 1000) bench.t0 = t;
+  if (!horde.t0) {
+    if (t > horde.warm * 1000) horde.t0 = t;
     return;
   }
   const [calls, tris, shadowCalls, shadowTris, zombies, players, kills] = client.draw_counts();
-  Object.entries({ frames: dt, code, calls, tris, shadowCalls, shadowTris, zombies }).forEach(([k, v]) => bench[k].push(v));
-  Object.assign(bench, { players, kills });
-  if (t - bench.t0 < bench.secs * 1000) return;
+  Object.entries({ frames: dt, code, calls, tris, shadowCalls, shadowTris, zombies }).forEach(([k, v]) => horde[k].push(v));
+  Object.assign(horde, { players, kills });
+  if (t - horde.t0 < horde.secs * 1000) return;
   const avg = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
   const p95 = a => a.length ? [...a].sort((x, y) => x - y)[Math.floor(a.length * 0.95)] : null;
   const max = a => a.length ? Math.max(...a) : null;
   const r = {
-    fps: bench.frames.length * 1000 / (t - bench.t0),
-    frame_ms: avg(bench.frames), frame_ms_p95: p95(bench.frames),
-    code_ms: avg(bench.code), code_ms_p95: p95(bench.code),
-    gpu_ms: avg(bench.gpu), gpu_ms_p95: p95(bench.gpu),
-    draw_calls: avg(bench.calls), draw_calls_max: max(bench.calls),
-    triangles: avg(bench.tris), triangles_max: max(bench.tris),
-    shadow_draw_calls: avg(bench.shadowCalls), shadow_triangles: avg(bench.shadowTris),
-    zombies: avg(bench.zombies), players: bench.players, kills: bench.kills,
-    width: canvas.width, height: canvas.height, gfx: quality, gpu: bench.gpuName,
+    fps: horde.frames.length * 1000 / (t - horde.t0),
+    frame_ms: avg(horde.frames), frame_ms_p95: p95(horde.frames),
+    code_ms: avg(horde.code), code_ms_p95: p95(horde.code),
+    gpu_ms: avg(horde.gpu), gpu_ms_p95: p95(horde.gpu),
+    draw_calls: avg(horde.calls), draw_calls_max: max(horde.calls),
+    triangles: avg(horde.tris), triangles_max: max(horde.tris),
+    shadow_draw_calls: avg(horde.shadowCalls), shadow_triangles: avg(horde.shadowTris),
+    zombies: avg(horde.zombies), players: horde.players, kills: horde.kills,
+    width: canvas.width, height: canvas.height, gfx: quality, gpu: horde.gpuName,
   };
   console.log("bench " + JSON.stringify(r));
   document.title = "bench done";
-  bench.done = true;
+  horde.done = true;
 }
 const locked = () => document.pointerLockElement === canvas;
 const play = () => { sound.start(); canvas.requestPointerLock(); };
@@ -1104,13 +1151,21 @@ addEventListener("wheel", e => { if (locked() && e.deltaY) client.cycle_weapon(e
 // isn't in it)
 const perf = params.has("perf") ? { n: 0, cpu: 0, worst: 0, since: 0 } : null;
 
+// the HUD's writes to the page, each made only when it changes: a frame that rewrites text or styles that are
+// already so still costs the browser a style pass
+const wrote = new Map();
+const changed = (k, v) => wrote.get(k) !== v && (wrote.set(k, v), true);
+const text = (id, v) => { if (changed(id, v)) $(id).textContent = v; };
+const html = (id, v) => { if (changed(id + "<", v)) $(id).innerHTML = v; };
+const css = (id, key, v) => { if (changed(id + "." + key, v)) $(id).style.setProperty(key, v); };
+
 let lastFrame = 0;
 let lobbyFrames = 0;
 function loop(t) {
   const t0 = performance.now();
-  // the bench is drawn at the size it is asked for, whatever that costs
-  if (lastFrame && !bench) autoFrame(t, t - lastFrame);
-  if (bench) benchFrame(t, t - lastFrame, () => client.frame(t));
+  // the drawing bench is drawn at the size it is asked for, whatever that costs
+  if (lastFrame && !horde) autoFrame(t, t - lastFrame);
+  if (horde) hordeFrame(t, t - lastFrame, () => client.frame(t));
   else client.frame(t);
   lastFrame = t;
   net?.flush();
@@ -1140,11 +1195,11 @@ function loop(t) {
     }
   }
   const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped, killt, px, pz, pyaw, wave, left, carried, picked, inPlay, spread, stamina, winded, carried2, picked2, grenades, down, standing, team, reserve] = client.hud();
-  $("hp").textContent = Math.ceil(hp);
-  $("am").textContent = ammo;
-  $("mg").textContent = reserve;
+  text("hp", Math.ceil(hp));
+  text("am", ammo);
+  text("mg", reserve);
   // a melee weapon has no rounds to count
-  $("rounds").style.display = mag > 0 ? "" : "none";
+  css("rounds", "display", mag > 0 ? "" : "none");
   [carried, carried2].forEach((w, s) => {
     if (w !== shownCarried[s]) {
       shownCarried[s] = w;
@@ -1156,41 +1211,40 @@ function loop(t) {
   // the main menu and the solo screen: a game alone under way can be resumed or ended, a room jumped back into
   const soloOn = inPlay && !lobby.online;
   const soloMap = MAPS[client.map()].name;
-  $("end").style.display = soloOn ? "block" : "none";
-  $("resume").style.display = soloOn || lobby.online ? "" : "none";
-  $("resume").firstChild.textContent = lobby.online ? "Jump in" : "Resume";
-  $("resume-sum").textContent = lobby.online ? `Room ${lobby.room} · ${MAPS[lobby.map].name}` : `${wave ? `Wave ${wave} · ` : ""}${soloMap}`;
-  $("solo-sum").textContent = soloMap;
-  $("solo-play").textContent = lobby.online ? "Leave the room and play" : soloOn ? "Resume" : "Play";
-  $("solo-end").style.display = soloOn ? "" : "none";
-  $("solo-note").textContent = soloOn ? `Your game on ${soloMap} is paused. End it to play another map.` : lobby.online ? "You're in an online room: playing solo leaves it." : "";
-  markSolo(client.map(), soloOn);
+  css("end", "display", soloOn ? "block" : "none");
+  css("resume", "display", soloOn || lobby.online ? "" : "none");
+  if (changed("resume^", lobby.online)) $("resume").firstChild.textContent = lobby.online ? "Jump in" : "Resume";
+  text("resume-sum", lobby.online ? `Room ${lobby.room} · ${MAPS[lobby.map].name}` : `${wave ? `Wave ${wave} · ` : ""}${soloMap}`);
+  text("solo-sum", soloMap);
+  text("solo-play", lobby.online ? "Leave the room and play" : soloOn ? "Resume" : "Play");
+  css("solo-end", "display", soloOn ? "" : "none");
+  text("solo-note", soloOn ? `Your game on ${soloMap} is paused. End it to play another map.` : lobby.online ? "You're in an online room: playing solo leaves it." : "");
+  if (changed("solo-maps", `${client.map()} ${soloOn}`)) markSolo(client.map(), soloOn);
   const scopeOn = scoped && ads > 0.85;
-  $("scope").style.display = scopeOn ? "block" : "none";
-  $("cross").style.display = scopeOn || ads > 0.5 ? "none" : "block";
-  // the spread is a fraction of half the screen's height, so the ring's diameter is that times the height
-  $("sfill").style.width = `${stamina * 100}%`;
+  css("scope", "display", scopeOn ? "block" : "none");
+  css("cross", "display", scopeOn || ads > 0.5 ? "none" : "block");
+  css("sfill", "width", `${Math.round(stamina * 1000) / 10}%`);
   $("stamina").classList.toggle("show", stamina < 1 && respawn <= 0);
   $("stamina").classList.toggle("winded", winded > 0);
-  $("ring").style.setProperty("--d", `${Math.max(14, spread * innerHeight)}px`);
-  $("rl").textContent = reloading ? "reloading..." : "";
-  $("gr").textContent = `${grenades} grenade${grenades === 1 ? "" : "s"} [G]`;
-  $("kd").textContent = `${kills} kills / ${deaths} deaths`;
+  // the spread is a fraction of half the screen's height, so the ring's diameter is that times the height
+  css("ring", "--d", `${Math.round(Math.max(14, spread * innerHeight))}px`);
+  text("rl", reloading ? "reloading..." : "");
+  text("gr", `${grenades} grenade${grenades === 1 ? "" : "s"} [G]`);
+  text("kd", `${kills} kills / ${deaths} deaths`);
   const waiting = !lobby.online || lobby.started ? "Get ready..." : lobby.startsIn ? `Starting in ${lobby.startsIn}` : lobby.matched ? "Waiting for another player" : "Waiting for the host to start";
   const squad = team > 1 ? ` \u00b7 ${standing} of ${team} standing` : "";
-  $("score").textContent = (left > 0 ? `Wave ${wave} \u00b7 ${left} left` : wave === 0 ? waiting : `Wave ${wave} cleared`) + squad;
-  $("flash").style.opacity = flash;
-  const dead = $("dead");
+  text("score", (left > 0 ? `Wave ${wave} \u00b7 ${left} left` : wave === 0 ? waiting : `Wave ${wave} cleared`) + squad);
+  css("flash", "opacity", String(Math.round(flash * 100) / 100));
   // down with others still standing: back for the next wave; everyone down: the game starts over
   const benched = down > 0 && standing > 0;
   watchGame(t, wave, kills, deaths, inPlay > 0, respawn > 0 && !benched, team);
-  dead.style.display = respawn > 0 || benched ? "block" : "none";
+  css("dead", "display", respawn > 0 || benched ? "block" : "none");
   // it is played for loot: every life starts with only the pistol
   const next = `<small>Next life: the ${names[primaries]} &middot; find the rest in weapon crates</small>`;
   if (benched) {
-    dead.innerHTML = `You're down. Back when the next wave starts` + next;
+    html("dead", `You're down. Back when the next wave starts` + next);
   } else if (respawn > 0) {
-    dead.innerHTML = `Overrun on wave ${wave}. Restarting in ${respawn.toFixed(1)}` + next;
+    html("dead", `Overrun on wave ${wave}. Restarting in ${respawn.toFixed(1)}` + next);
   }
   if (!loaded) {
     // the first frame has been drawn: show it on the next one

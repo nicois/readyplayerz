@@ -482,7 +482,9 @@ const BRASS: [f32; 3] = [0.55, 0.42, 0.18];
 const BLUED: [f32; 3] = [0.09, 0.095, 0.11];
 
 /// The carbine's grip and trigger: where the shared right hand closes, so every long gun has them in this place.
-const TRIGGER_PIVOT: V = [0.0, -0.062, -0.031];
+/// The trigger is 7.4 cm ahead of the back of the grip, a real gun's reach, and the guard round it ends a
+/// centimetre and a half ahead, leaving the magwell room right in front.
+const TRIGGER_PIVOT: V = [0.0, -0.062, 0.022];
 
 /// The pistol grip, tilted back, with a thin front strap and a base screw; `dy` raises it.
 fn pistol_grip(grip: &mut Mesh, dy: f32) {
@@ -500,14 +502,14 @@ fn pistol_grip(grip: &mut Mesh, dy: f32) {
 
 /// A rifle's trigger guard, from just ahead of the trigger back to the grip.
 fn trigger_guard(guard: &mut Mesh) {
-    guard.bx([-0.0026, -0.0845, -0.071], [0.0026, -0.062, -0.0665], 0.0006);
-    guard.bx([-0.0026, -0.0845, -0.071], [0.0026, -0.0805, 0.056], 0.0006);
+    guard.bx([-0.0026, -0.0845, -0.018], [0.0026, -0.062, -0.0135], 0.0006);
+    guard.bx([-0.0026, -0.0845, -0.018], [0.0026, -0.0805, 0.056], 0.0006);
     guard.bx([-0.0026, -0.0845, 0.052], [0.0026, -0.055, 0.057], 0.0006);
 }
 
 fn rifle_trigger() -> Vec<Piece> {
     let mut t = Mesh::default();
-    t.bx([-0.0022, -0.064, -0.0345], [0.0022, -0.040, -0.0275], 0.0006);
+    t.bx([-0.0022, -0.076, 0.0185], [0.0022, -0.050, 0.0255], 0.0006);
     vec![piece(t, STEEL, [0.28, 0.28, 0.30], 0.8)]
 }
 
@@ -546,7 +548,7 @@ fn carbine() -> Gun {
     // lower receiver with magwell, trigger guard, selector and release
     recv.bx([-0.0175, -0.062, -0.115], [0.0175, -0.010, 0.062], 0.0018);
     recv.bx([-0.0145, -0.036, 0.062], [0.0145, -0.004, 0.116], 0.0014);
-    recv.bx([-0.0158, -0.098, -0.088], [0.0158, -0.060, -0.002], 0.0016);
+    recv.bx([-0.0158, -0.098, -0.093], [0.0158, -0.060, -0.020], 0.0016);
     recv.cyl([0.0175, -0.044, -0.012], [0.0232, -0.044, -0.012], 0.0046, 0.0046, 12);
     recv.cyl([-0.0175, -0.030, 0.050], [-0.0235, -0.030, 0.050], 0.0058, 0.0058, 12);
     recv.bx([-0.0245, -0.034, 0.050], [-0.0225, -0.027, 0.074], 0.0006);
@@ -584,16 +586,16 @@ fn carbine() -> Gun {
         }
     }
 
-    // barrel, gas block, flip-up front sight, and the muzzle device with its slots
-    barrel.cyl([0.0, 0.0, -0.595], [0.0, 0.0, -0.405], 0.0078, 0.0078, 18);
+    // barrel, gas block, flip-up front sight, and the muzzle device with its slots: a 16-inch barrel
+    barrel.cyl([0.0, 0.0, -0.545], [0.0, 0.0, -0.405], 0.0078, 0.0078, 18);
     dark.bx([-0.0098, -0.0098, -0.442], [0.0098, 0.0098, -0.411], 0.0014);
     dark.bx([-0.0052, 0.0098, -0.436], [0.0052, 0.062, -0.419], 0.0009);
     dark.bx([-0.0012, 0.062, -0.4295], [0.0012, sight_y, -0.4255], 0.0003);
     dark.bx([-0.0098, 0.062, -0.4325], [-0.0052, 0.0715, -0.4235], 0.0006);
     dark.bx([0.0052, 0.062, -0.4325], [0.0098, 0.0715, -0.4235], 0.0006);
-    tube_parts.tube([0.0, 0.0, -0.642], [0.0, 0.0, -0.585], 0.0096, 0.0062, 20);
+    tube_parts.tube([0.0, 0.0, -0.592], [0.0, 0.0, -0.535], 0.0096, 0.0062, 20);
     for k in 0..3 {
-        let z = -0.633 + k as f32 * 0.016;
+        let z = -0.583 + k as f32 * 0.016;
         dark.bx([-0.0102, -0.0028, z], [-0.0088, 0.0028, z + 0.009], 0.0004);
         dark.bx([0.0088, -0.0028, z], [0.0102, 0.0028, z + 0.009], 0.0004);
         dark.bx([-0.0028, 0.0088, z], [0.0028, 0.0102, z + 0.009], 0.0004);
@@ -623,12 +625,12 @@ fn carbine() -> Gun {
         trigger: rifle_trigger(),
         action: Vec::new(),
         spec: Spec {
-            muzzle_z: -0.645,
+            muzzle_z: -0.595,
             sight_y,
             action: Action::Fixed,
             trigger_pivot: TRIGGER_PIVOT,
             mag_out: [0.0, -0.24, 0.05],
-            mag_pivot: [0.0, -0.09, -0.045],
+            mag_pivot: [0.0, -0.09, -0.057],
             mag_tilt: 0.3,
             right_at: [0.0; 3],
             left_at: [0.0; 3],
@@ -639,15 +641,16 @@ fn carbine() -> Gun {
     }
 }
 
-/// A curved 30-round magazine, in segments that follow its bend forward.
+/// A curved 30-round magazine, in segments that follow its bend forward, deep enough front to back for the
+/// rounds lying in it.
 fn curved_magazine() -> Vec<Piece> {
     let mut m = Mesh::default();
     let mut lips = Mesh::default();
     let mut plate = Mesh::default();
     // each segment starts where the one above ended and leans a little further forward
-    let (seg_len, mut a, mut c) = (0.031f32, 0.0f32, [0.0f32, -0.074, -0.0455]);
+    let (seg_len, mut a, mut c) = (0.031f32, 0.0f32, [0.0f32, -0.074, -0.057]);
     for k in 0..5 {
-        let (hw, hd) = (0.0129 - 0.0002 * k as f32, 0.0182);
+        let (hw, hd) = (0.0122 - 0.0002 * k as f32, 0.0300);
         let mut cs = corners([-hw, -seg_len, -hd], [hw, 0.0, hd]);
         for p in &mut cs {
             *p = add(xr(*p, a), c);
@@ -656,8 +659,8 @@ fn curved_magazine() -> Vec<Piece> {
         c = add(c, xr([0.0, -seg_len * 0.97, 0.0], a));
         a += 0.05;
     }
-    lips.bx([-0.0122, -0.0715, -0.0600], [0.0122, -0.0620, -0.0310], 0.0008);
-    let mut cs = corners([-0.0140, -0.0095, -0.0198], [0.0140, 0.0, 0.0198]);
+    lips.bx([-0.0115, -0.0715, -0.083], [0.0115, -0.0620, -0.031], 0.0008);
+    let mut cs = corners([-0.0133, -0.0095, -0.0316], [0.0133, 0.0, 0.0316]);
     for p in &mut cs {
         *p = add(xr(*p, a - 0.05), add(c, [0.0, -0.002, 0.0]));
     }
@@ -682,14 +685,14 @@ fn smg() -> Gun {
     steel.bx([-0.0245, 0.010, -0.150], [-0.0165, 0.021, -0.128], 0.0012);
     steel.bx([-0.0275, 0.008, -0.146], [-0.0240, 0.023, -0.132], 0.0010);
     // lower: trigger housing, a magwell ahead of the trigger guard, selectors both sides and the mag release
-    recv.bx([-0.0165, -0.062, -0.140], [0.0165, -0.012, 0.070], 0.0018);
-    recv.bx([-0.0145, -0.098, -0.137], [0.0145, -0.060, -0.075], 0.0016);
+    recv.bx([-0.0165, -0.062, -0.100], [0.0165, -0.012, 0.070], 0.0018);
+    recv.bx([-0.0145, -0.098, -0.082], [0.0145, -0.060, -0.022], 0.0016);
     recv.bx([-0.014, -0.036, 0.070], [0.014, -0.004, 0.090], 0.0014);
     for side in [-1.0f32, 1.0] {
-        recv.cyl([side * 0.0165, -0.044, -0.012], [side * 0.0222, -0.044, -0.012], 0.0046, 0.0046, 12);
-        recv.bx([side * 0.0165 - 0.001, -0.050, -0.012], [side * 0.0165 + 0.001, -0.046, 0.004], 0.0004);
+        recv.cyl([side * 0.0165, -0.044, 0.042], [side * 0.0222, -0.044, 0.042], 0.0046, 0.0046, 12);
+        recv.bx([side * 0.0165 - 0.001, -0.050, 0.042], [side * 0.0165 + 0.001, -0.046, 0.058], 0.0004);
     }
-    dark.bx([0.0145, -0.072, -0.072], [0.0170, -0.062, -0.062], 0.0006);
+    dark.bx([0.0145, -0.072, -0.021], [0.0170, -0.062, -0.013], 0.0006);
     trigger_guard(&mut guard);
     pistol_grip(&mut grip, 0.0);
 
@@ -745,7 +748,7 @@ fn smg() -> Gun {
     ];
     Gun {
         body,
-        mag: box_mag(0.0105, -0.072, -0.235, -0.130, -0.082, 0.05, [0.12, 0.125, 0.135]),
+        mag: box_mag(0.0105, -0.072, -0.235, -0.073, -0.031, 0.05, [0.12, 0.125, 0.135]),
         trigger: rifle_trigger(),
         action: Vec::new(),
         spec: Spec {
@@ -754,7 +757,7 @@ fn smg() -> Gun {
             action: Action::Fixed,
             trigger_pivot: TRIGGER_PIVOT,
             mag_out: [0.0, -0.26, 0.03],
-            mag_pivot: [0.0, -0.15, -0.106],
+            mag_pivot: [0.0, -0.15, -0.052],
             mag_tilt: 0.15,
             right_at: [0.0; 3],
             left_at: [0.0, 0.0, 0.02],
@@ -900,7 +903,7 @@ fn sniper() -> Gun {
 
     // chassis: the bed under the action, a magwell ahead of the guard, and a long free-floating forend
     chassis.bx([-0.0195, -0.062, -0.147], [0.0195, -0.008, 0.075], 0.002);
-    chassis.bx([-0.0175, -0.080, -0.130], [0.0175, -0.060, -0.072], 0.0015);
+    chassis.bx([-0.0175, -0.080, -0.112], [0.0175, -0.060, -0.021], 0.0015);
     chassis.bx([-0.023, -0.034, -0.505], [0.023, 0.012, -0.147], 0.003);
     for k in 0..5 {
         let z = -0.480 + k as f32 * 0.064;
@@ -908,7 +911,7 @@ fn sniper() -> Gun {
             dark.bx([side * 0.023 - 0.0005, -0.022, z], [side * 0.023 + 0.0005, 0.0, z + 0.040], 0.0004);
         }
     }
-    dark.bx([0.0175, -0.076, -0.070], [0.0195, -0.066, -0.060], 0.0005);
+    dark.bx([0.0175, -0.076, -0.120], [0.0195, -0.066, -0.112], 0.0005);
     trigger_guard(&mut guard);
     pistol_grip(&mut grip, 0.0);
 
@@ -937,7 +940,7 @@ fn sniper() -> Gun {
         ],
         0.0035,
     );
-    chassis.bx([-0.0135, 0.014, 0.175], [0.0135, 0.034, 0.320], 0.004);
+    chassis.bx([-0.0135, 0.004, 0.175], [0.0135, 0.034, 0.320], 0.004);
     dark.bx([-0.0195, -0.094, 0.342], [0.0195, 0.022, 0.357], 0.003);
 
     // the scope: main tube, objective bell and eyepiece, turret saddle and turrets, glass at both ends, two rings
@@ -984,7 +987,7 @@ fn sniper() -> Gun {
     ];
     Gun {
         body,
-        mag: box_mag(0.0135, -0.066, -0.118, -0.124, -0.078, 0.0, [0.09, 0.09, 0.10]),
+        mag: box_mag(0.0135, -0.066, -0.118, -0.106, -0.027, 0.0, [0.09, 0.09, 0.10]),
         trigger: rifle_trigger(),
         action: vec![piece(bolt, STEEL, [0.26, 0.26, 0.28], 0.9), piece(knob, POLYMER, [0.07, 0.07, 0.08], 0.4)],
         spec: Spec {
@@ -993,7 +996,7 @@ fn sniper() -> Gun {
             action: Action::Bolt,
             trigger_pivot: TRIGGER_PIVOT,
             mag_out: [0.0, -0.16, 0.0],
-            mag_pivot: [0.0, -0.10, -0.10],
+            mag_pivot: [0.0, -0.10, -0.066],
             mag_tilt: 0.12,
             right_at: [0.0; 3],
             left_at: [0.0, -0.011, -0.105],
@@ -1029,11 +1032,11 @@ fn ak47() -> Gun {
         dark.cyl([0.0168, y, z], [0.0176, y, z], 0.0018, 0.0018, 8);
         dark.cyl([-0.0168, y, z], [-0.0176, y, z], 0.0018, 0.0018, 8);
     }
-    recv.bx([-0.0155, -0.060, -0.098], [0.0155, -0.046, -0.042], 0.0012);
+    recv.bx([-0.0155, -0.060, -0.106], [0.0155, -0.046, -0.034], 0.0012);
     // the trigger housing under the back half, which the grip and the guard hang from
-    recv.bx([-0.0150, -0.062, -0.042], [0.0150, -0.046, 0.100], 0.0015);
+    recv.bx([-0.0150, -0.062, -0.034], [0.0150, -0.046, 0.100], 0.0015);
     // the paddle magazine release ahead of the guard
-    steel.bx([-0.004, -0.066, -0.040], [0.004, -0.052, -0.030], 0.0008);
+    steel.bx([-0.004, -0.066, -0.031], [0.004, -0.052, -0.021], 0.0008);
     trigger_guard(&mut guard);
     pistol_grip(&mut grip, 0.0);
 
@@ -1055,17 +1058,18 @@ fn ak47() -> Gun {
     steel.bx([-0.0225, -0.036, -0.215], [0.0225, 0.010, -0.203], 0.002);
     steel.bx([-0.0225, -0.036, -0.392], [0.0225, 0.008, -0.383], 0.002);
 
-    // barrel, gas tube and gas block, the front sight with its hood, and the slant brake
-    steel.cyl([0.0, 0.0, -0.610], [0.0, 0.0, -0.385], 0.0082, 0.0082, 18);
-    steel.cyl([0.0, 0.022, -0.440], [0.0, 0.022, -0.360], 0.0080, 0.0080, 16);
-    steel.bx([-0.0100, -0.010, -0.465], [0.0100, 0.030, -0.440], 0.002);
-    steel.bx([-0.0100, -0.012, -0.590], [0.0100, 0.012, -0.565], 0.002);
-    steel.bx([-0.0018, 0.012, -0.584], [0.0018, sight_y, -0.578], 0.0004);
-    dark.tube([0.0, sight_y - 0.003, -0.589], [0.0, sight_y - 0.003, -0.574], 0.0105, 0.0090, 18);
-    dark.bx([-0.0060, 0.012, -0.589], [0.0060, sight_y - 0.012, -0.574], 0.0008);
-    dark.cyl([0.0, 0.0, -0.645], [0.0, 0.0, -0.610], 0.0105, 0.0098, 18);
-    dark.bx([-0.0035, 0.0096, -0.640], [0.0035, 0.0110, -0.618], 0.0003);
-    dark.cyl([0.0, 0.0, -0.6455], [0.0, 0.0, -0.6450], 0.0052, 0.0052, 14);
+    // barrel, gas tube and gas block just past the handguard, the front sight with its hood, and the slant brake:
+    // the barrel stands 37 cm out of the receiver, as on the real gun
+    steel.cyl([0.0, 0.0, -0.525], [0.0, 0.0, -0.385], 0.0082, 0.0082, 18);
+    steel.cyl([0.0, 0.022, -0.405], [0.0, 0.022, -0.360], 0.0080, 0.0080, 16);
+    steel.bx([-0.0100, -0.010, -0.428], [0.0100, 0.030, -0.405], 0.002);
+    steel.bx([-0.0100, -0.012, -0.510], [0.0100, 0.012, -0.485], 0.002);
+    steel.bx([-0.0018, 0.012, -0.504], [0.0018, sight_y, -0.498], 0.0004);
+    dark.tube([0.0, sight_y - 0.003, -0.509], [0.0, sight_y - 0.003, -0.494], 0.0105, 0.0090, 18);
+    dark.bx([-0.0060, 0.012, -0.509], [0.0060, sight_y - 0.012, -0.494], 0.0008);
+    dark.cyl([0.0, 0.0, -0.560], [0.0, 0.0, -0.525], 0.0105, 0.0098, 18);
+    dark.bx([-0.0035, 0.0096, -0.555], [0.0035, 0.0110, -0.533], 0.0003);
+    dark.cyl([0.0, 0.0, -0.5605], [0.0, 0.0, -0.5600], 0.0052, 0.0052, 14);
 
     // the wooden stock, dropping toward the butt so it sits under the eye, with a steel butt plate
     taper(&mut wood, 0.100, 0.0150, [-0.044, 0.012], 0.345, 0.0185, [-0.112, -0.008], 0.005);
@@ -1086,7 +1090,7 @@ fn ak47() -> Gun {
         trigger: rifle_trigger(),
         action: Vec::new(),
         spec: Spec {
-            muzzle_z: -0.645,
+            muzzle_z: -0.560,
             sight_y,
             mag_out: [0.0, -0.22, -0.02],
             mag_pivot: [0.0, -0.06, -0.07],
@@ -1098,12 +1102,13 @@ fn ak47() -> Gun {
     }
 }
 
-/// The AK's steel-reinforced magazine, curving far forward, with ribs down its sides.
+/// The AK's steel-reinforced magazine, curving far forward, with ribs down its sides; as deep front to back as the
+/// long 7.62 rounds lying in it need.
 fn ak_magazine() -> Vec<Piece> {
     let (mut m, mut ribs, mut lips) = (Mesh::default(), Mesh::default(), Mesh::default());
-    let (seg_len, mut a, mut c) = (0.030f32, 0.0f32, [0.0f32, -0.058, -0.070]);
+    let (seg_len, mut a, mut c) = (0.032f32, 0.0f32, [0.0f32, -0.058, -0.070]);
     for k in 0..6 {
-        let (hw, hd) = (0.0135 - 0.0002 * k as f32, 0.0205);
+        let (hw, hd) = (0.0135 - 0.0002 * k as f32, 0.0310 - 0.0008 * k as f32);
         let mut cs = corners([-hw, -seg_len, -hd], [hw, 0.0, hd]);
         for p in &mut cs {
             *p = add(xr(*p, a), c);
@@ -1117,7 +1122,7 @@ fn ak_magazine() -> Vec<Piece> {
         c = add(c, xr([0.0, -seg_len * 0.97, 0.0], a));
         a += 0.085;
     }
-    lips.bx([-0.0120, -0.058, -0.086], [0.0120, -0.050, -0.054], 0.0008);
+    lips.bx([-0.0120, -0.058, -0.096], [0.0120, -0.050, -0.044], 0.0008);
     vec![piece(m, POLYMER, [0.36, 0.15, 0.06], 0.45), piece(ribs, POLYMER, [0.30, 0.12, 0.05], 0.4), piece(lips, STEEL, [0.18, 0.18, 0.19], 0.8)]
 }
 
@@ -1258,8 +1263,8 @@ fn double_barrel() -> Gun {
         piece(dark, RUBBER, BLACK, 0.3),
     ];
     let mut trig = Mesh::default();
-    trig.bx([-0.0022, -0.064, -0.0345], [0.0022, -0.040, -0.0275], 0.0006);
-    trig.bx([-0.0022, -0.066, -0.0115], [0.0022, -0.040, -0.0045], 0.0006);
+    trig.bx([-0.0022, -0.076, 0.0055], [0.0022, -0.050, 0.0125], 0.0006);
+    trig.bx([-0.0022, -0.078, 0.0285], [0.0022, -0.050, 0.0355], 0.0006);
     Gun {
         body,
         mag: vec![piece(hull, POLYMER, [0.55, 0.07, 0.05], 0.5), piece(head, STEEL, BRASS, 0.9)],
@@ -1323,7 +1328,7 @@ fn mosin() -> Gun {
     recv.cyl([0.0, 0.0, -0.150], [0.0, 0.0, 0.040], 0.0150, 0.0150, 24);
     recv.bx([-0.0130, -0.024, -0.150], [0.0130, -0.004, 0.040], 0.002);
     dark.bx([0.0120, 0.002, -0.060], [0.0152, 0.011, 0.010], 0.0004);
-    steel.bx([-0.0135, -0.088, -0.120], [0.0135, -0.060, -0.050], 0.003);
+    steel.bx([-0.0135, -0.088, -0.096], [0.0135, -0.060, -0.020], 0.003);
     trigger_guard(&mut guard);
     pistol_grip(&mut grip, 0.0);
 
@@ -1398,15 +1403,15 @@ fn pistol() -> Gun {
     let (mut frame, mut grip, mut dark, mut barrel) = (Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default());
 
     // frame: dust cover with rail slots, a beavertail, a squared trigger guard, slide stop and mag release
-    frame.bx([-0.0135, -0.040, -0.108], [0.0135, -0.016, 0.098], 0.002);
+    frame.bx([-0.0135, -0.040, -0.076], [0.0135, -0.016, 0.098], 0.002);
     frame.bx([-0.0125, -0.040, 0.090], [0.0125, -0.030, 0.114], 0.002);
     for k in 0..3 {
-        let z = -0.098 + k as f32 * 0.012;
+        let z = -0.067 + k as f32 * 0.012;
         dark.bx([-0.0138, -0.040, z], [0.0138, -0.0375, z + 0.005], 0.0003);
     }
-    frame.bx([-0.0055, -0.062, -0.076], [0.0055, -0.058, 0.066], 0.0012);
-    frame.bx([-0.0055, -0.062, -0.076], [0.0055, -0.040, -0.068], 0.0014);
-    dark.bx([-0.0150, -0.024, -0.040], [-0.0135, -0.018, -0.004], 0.0004);
+    frame.bx([-0.0055, -0.062, -0.022], [0.0055, -0.058, 0.066], 0.0012);
+    frame.bx([-0.0055, -0.062, -0.022], [0.0055, -0.040, -0.014], 0.0014);
+    dark.bx([-0.0150, -0.024, 0.002], [-0.0135, -0.018, 0.036], 0.0004);
     dark.bx([-0.0175, -0.047, 0.052], [-0.0160, -0.039, 0.064], 0.0005);
     pistol_grip(&mut grip, up);
     // grip texture: shallow panels on both sides
@@ -1415,24 +1420,25 @@ fn pistol() -> Gun {
         grip.bx_rot([x - 0.0006, -0.130 + up, 0.090], [x + 0.0006, -0.060 + up, 0.112], 0.0003, [0.0, -0.095 + up, 0.1], -0.3);
     }
     // the barrel inside the slide, seen at the muzzle and when the slide runs back
-    barrel.cyl([0.0, 0.0, -0.117], [0.0, 0.0, -0.040], 0.0062, 0.0062, 16);
-    dark.cyl([0.0, 0.0, -0.1173], [0.0, 0.0, -0.1170], 0.0046, 0.0046, 14);
+    barrel.cyl([0.0, 0.0, -0.084], [0.0, 0.0, -0.010], 0.0062, 0.0062, 16);
+    dark.cyl([0.0, 0.0, -0.0843], [0.0, 0.0, -0.0840], 0.0046, 0.0046, 14);
 
-    // the slide, with serrations front and back, an ejection port showing the barrel hood, and the sights
+    // the slide, with serrations front and back, an ejection port showing the barrel hood, and the sights: 18.5 cm
+    // long, the muzzle 10 cm ahead of the trigger
     let (mut slide, mut sdark, mut hood, mut dots) = (Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default());
-    slide.bx([-0.0125, -0.016, -0.118], [0.0125, 0.0145, 0.100], 0.0022);
+    slide.bx([-0.0125, -0.016, -0.085], [0.0125, 0.0145, 0.100], 0.0022);
     for k in 0..6 {
         let z = 0.062 + k as f32 * 0.0062;
         sdark.bx([-0.0127, -0.010, z], [0.0127, 0.010, z + 0.0026], 0.0003);
     }
     for k in 0..4 {
-        let z = -0.106 + k as f32 * 0.0062;
+        let z = -0.075 + k as f32 * 0.0062;
         sdark.bx([-0.0127, -0.010, z], [0.0127, 0.010, z + 0.0026], 0.0003);
     }
-    sdark.bx([0.001, 0.0140, -0.032], [0.0128, 0.0147, 0.012], 0.0003);
-    hood.bx([-0.008, 0.0135, -0.030], [0.008, 0.0150, 0.006], 0.0006);
-    sdark.bx([-0.0016, 0.0145, -0.112], [0.0016, sight_y, -0.104], 0.0004);
-    dots.bx([-0.0009, 0.0172, -0.1040], [0.0009, 0.0190, -0.1036], 0.0001);
+    sdark.bx([0.001, 0.0140, -0.012], [0.0128, 0.0147, 0.032], 0.0003);
+    hood.bx([-0.008, 0.0135, -0.010], [0.008, 0.0150, 0.026], 0.0006);
+    sdark.bx([-0.0016, 0.0145, -0.079], [0.0016, sight_y, -0.071], 0.0004);
+    dots.bx([-0.0009, 0.0172, -0.0710], [0.0009, 0.0190, -0.0706], 0.0001);
     sdark.bx([-0.0098, 0.0145, 0.086], [0.0098, 0.0168, 0.097], 0.0005);
     for side in [-1.0f32, 1.0] {
         sdark.bx([side * 0.0061 - 0.0037, 0.0168, 0.086], [side * 0.0061 + 0.0037, 0.0215, 0.097], 0.0005);
@@ -1458,7 +1464,7 @@ fn pistol() -> Gun {
         piece(dark, RUBBER, BLACK, 0.3),
     ];
     let mut trig = Mesh::default();
-    trig.bx([-0.0028, -0.056, -0.036], [0.0028, -0.040, -0.029], 0.0008);
+    trig.bx([-0.0028, -0.056, 0.019], [0.0028, -0.040, 0.026], 0.0008);
     Gun {
         body,
         mag: vec![piece(mag, POLYMER, [0.07, 0.07, 0.08], 0.4), piece(plate, POLYMER, [0.08, 0.08, 0.09], 0.45)],
@@ -1470,10 +1476,10 @@ fn pistol() -> Gun {
             glow(dots, [0.85, 0.95, 0.85]),
         ],
         spec: Spec {
-            muzzle_z: -0.118,
+            muzzle_z: -0.085,
             sight_y,
             action: Action::Slide,
-            trigger_pivot: [0.0, -0.040, -0.032],
+            trigger_pivot: [0.0, -0.040, 0.023],
             mag_out: [0.0, -0.15, 0.047],
             mag_pivot: [0.0, -0.09, 0.1],
             mag_tilt: 0.0,
@@ -1504,8 +1510,8 @@ fn revolver() -> Gun {
     frame.bx([-0.0105, -0.041, -0.050], [0.0105, -0.032, 0.022], 0.002);
     frame.bx([-0.0120, -0.041, 0.012], [0.0120, 0.012, 0.034], 0.003);
     frame.bx([-0.0110, -0.046, 0.030], [0.0110, 0.004, 0.094], 0.004);
-    frame.bx([-0.0055, -0.064, -0.048], [0.0055, -0.060, 0.052], 0.0015);
-    frame.bx([-0.0055, -0.064, -0.050], [0.0055, -0.040, -0.044], 0.0015);
+    frame.bx([-0.0055, -0.064, -0.004], [0.0055, -0.060, 0.068], 0.0015);
+    frame.bx([-0.0055, -0.064, -0.006], [0.0055, -0.040, 0.000], 0.0015);
     // the cylinder latch on the left, the hammer and its spur, and the screws
     steel.bx([-0.0128, -0.012, 0.022], [-0.0110, -0.003, 0.040], 0.0006);
     steel.bx([-0.0035, -0.004, 0.034], [0.0035, 0.016, 0.047], 0.0012);
@@ -1525,9 +1531,9 @@ fn revolver() -> Gun {
         let z = -0.190 + k as f32 * 0.025;
         dark.bx([-0.0047, 0.0070, z], [0.0047, 0.0110, z + 0.012], 0.0003);
     }
-    steel.bx([-0.0072, -0.033, -0.205], [0.0072, -0.004, -0.066], 0.0025);
+    steel.bx([-0.0068, -0.025, -0.205], [0.0068, -0.004, -0.066], 0.0025);
     dark.cyl([0.0, 0.0, -0.2053], [0.0, 0.0, -0.2050], 0.0046, 0.0046, 14);
-    dark.cyl([0.0, -0.022, -0.2053], [0.0, -0.022, -0.2050], 0.0030, 0.0030, 10);
+    dark.cyl([0.0, -0.0165, -0.2053], [0.0, -0.0165, -0.2050], 0.0030, 0.0030, 10);
     steel.bx([-0.0014, 0.012, -0.199], [0.0014, sight_y, -0.184], 0.0003);
     red.bx([-0.0015, sight_y - 0.004, -0.1872], [0.0015, sight_y - 0.0005, -0.1840], 0.0002);
     // the rear sight: a notch in a block on the top strap
@@ -1572,7 +1578,7 @@ fn revolver() -> Gun {
         glow(red, [1.0, 0.15, 0.08]),
     ];
     let mut trig = Mesh::default();
-    trig.bx([-0.0028, -0.056, -0.036], [0.0028, -0.040, -0.029], 0.0008);
+    trig.bx([-0.0028, -0.056, 0.019], [0.0028, -0.040, 0.026], 0.0008);
     Gun {
         body,
         mag: vec![
@@ -1588,7 +1594,7 @@ fn revolver() -> Gun {
             muzzle_z: -0.2053,
             sight_y,
             action: Action::Cylinder,
-            trigger_pivot: [0.0, -0.040, -0.032],
+            trigger_pivot: [0.0, -0.040, 0.023],
             right_at: [0.0, up, 0.0],
             pistol_hold: true,
             hold: [0.0, 0.03, -0.17],
@@ -1645,12 +1651,12 @@ fn deagle() -> Gun {
         (Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default(), Mesh::default());
 
     // frame: a long dust cover, the beavertail, a squared trigger guard with a hooked front, the slide stop
-    frame.bx([-0.0145, -0.042, -0.122], [0.0145, -0.016, 0.098], 0.0025);
+    frame.bx([-0.0145, -0.042, -0.110], [0.0145, -0.016, 0.098], 0.0025);
     frame.bx([-0.0130, -0.042, 0.090], [0.0130, -0.030, 0.118], 0.002);
-    frame.bx([-0.0060, -0.066, -0.080], [0.0060, -0.061, 0.066], 0.0014);
-    frame.bx([-0.0060, -0.068, -0.082], [0.0060, -0.042, -0.072], 0.0016);
-    frame.bx([-0.0060, -0.072, -0.086], [0.0060, -0.066, -0.078], 0.0014);
-    dark.bx([-0.0165, -0.026, -0.030], [-0.0145, -0.019, 0.010], 0.0005);
+    frame.bx([-0.0060, -0.066, -0.025], [0.0060, -0.061, 0.066], 0.0014);
+    frame.bx([-0.0060, -0.068, -0.027], [0.0060, -0.042, -0.017], 0.0016);
+    frame.bx([-0.0060, -0.072, -0.031], [0.0060, -0.066, -0.023], 0.0014);
+    dark.bx([-0.0165, -0.026, 0.004], [-0.0145, -0.019, 0.044], 0.0005);
     dark.bx([-0.0180, -0.050, 0.052], [-0.0160, -0.041, 0.064], 0.0005);
     pistol_grip(&mut grip, up);
     for side in [-1.0f32, 1.0] {
@@ -1659,8 +1665,8 @@ fn deagle() -> Gun {
     }
 
     // the fixed barrel: a block over the frame and a top that narrows to a flat with a groove down it, the bore,
-    // and the front post with its dot
-    let (z0, z1) = (-0.168f32, -0.020f32);
+    // and the front post with its dot: a six-inch barrel, the muzzle 15 cm ahead of the trigger
+    let (z0, z1) = (-0.135f32, -0.020f32);
     barrel.bx([-0.0145, -0.016, z0], [0.0145, 0.007, z1], 0.002);
     barrel.hex(
         [
@@ -1669,10 +1675,10 @@ fn deagle() -> Gun {
         ],
         0.0015,
     );
-    dark.bx([-0.0018, 0.0205, -0.150], [0.0018, 0.0213, -0.030], 0.0003);
+    dark.bx([-0.0018, 0.0205, z0 + 0.018], [0.0018, 0.0213, -0.030], 0.0003);
     dark.cyl([0.0, 0.0, z0 - 0.0003], [0.0, 0.0, z0], 0.0064, 0.0064, 16);
-    barrel.bx([-0.0017, 0.021, -0.162], [0.0017, sight_y, -0.150], 0.0004);
-    dots.bx([-0.0009, sight_y - 0.0035, -0.1500], [0.0009, sight_y - 0.0017, -0.1496], 0.0001);
+    barrel.bx([-0.0017, 0.021, z0 + 0.006], [0.0017, sight_y, z0 + 0.018], 0.0004);
+    dots.bx([-0.0009, sight_y - 0.0035, z0 + 0.018], [0.0009, sight_y - 0.0017, z0 + 0.0184], 0.0001);
 
     // the slide: serrations at the back, an ejection port, ambidextrous safeties, the rear sight, the hammer
     let (mut slide, mut sdark, mut sdots) = (Mesh::default(), Mesh::default(), Mesh::default());
@@ -1713,7 +1719,7 @@ fn deagle() -> Gun {
         glow(dots, [0.85, 0.95, 0.85]),
     ];
     let mut trig = Mesh::default();
-    trig.bx([-0.0028, -0.058, -0.038], [0.0028, -0.040, -0.030], 0.0008);
+    trig.bx([-0.0028, -0.058, 0.017], [0.0028, -0.040, 0.025], 0.0008);
     Gun {
         body,
         mag: vec![piece(mag, STEEL, [0.16, 0.16, 0.17], 0.7), piece(plate, STEEL, [0.50, 0.51, 0.54], 0.9)],
@@ -1727,7 +1733,7 @@ fn deagle() -> Gun {
             muzzle_z: z0 - 0.0003,
             sight_y,
             action: Action::Slide,
-            trigger_pivot: [0.0, -0.040, -0.032],
+            trigger_pivot: [0.0, -0.040, 0.023],
             mag_out: [0.0, -0.15, 0.047],
             mag_pivot: [0.0, -0.09, 0.1],
             right_at: [0.0, up, 0.0],
@@ -2205,7 +2211,7 @@ mod tests {
         println!("hands: {} triangles", check(&hands.right) + check(&hands.left) + check(&hands.pistol_left));
         // overall length, front to back, for each gun in order
         let lengths = [
-            (0.9, 1.05), (0.7, 0.85), (0.9, 1.05), (1.1, 1.3), (0.95, 1.05), (0.33, 0.42), (0.98, 1.08), (1.2, 1.3),
+            (0.85, 0.95), (0.7, 0.85), (0.9, 1.05), (1.1, 1.3), (0.86, 0.95), (0.33, 0.42), (0.98, 1.08), (1.2, 1.3),
             (0.18, 0.27), (0.3, 0.37), (0.26, 0.31), (0.84, 0.87),
         ];
         for (i, g) in guns.iter().enumerate() {

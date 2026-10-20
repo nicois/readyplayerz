@@ -24,20 +24,20 @@ server_tick_ms 3
 server_tick_ms_p99 8
 server_tick_ms_max 14
 
-# ---- drawing, from ?bench in headless Chrome at 1920x993 on high quality, on an M1. The counts are the same
+# ---- drawing, from ?horde in headless Chrome at 1920x993 on high quality, on an M1. The counts are the same
 # from run to run, within a percent; the times change with whatever else the machine is doing, so their limits
 # only catch a large step backwards.
 
-# draw calls and triangles a frame, for the picture: on average (487, 554k) and at most (690, 752k)
-draw_calls 560
-draw_calls_max 800
+# draw calls and triangles a frame, for the picture: on average (420, 551k) and at most (532, 743k)
+draw_calls 485
+draw_calls_max 620
 triangles 640000
 triangles_max 870000
-# and for the sun's shadow, on average (234, 246k)
+# and for the sun's shadow, on average (236, 251k)
 shadow_draw_calls 270
 shadow_triangles 285000
-# frames a second, at least (34 with the machine busy, 80 with it quiet), and a frame's time: the slowest in
-# twenty (51 to 58 ms) and the game's own code's share on average (27 to 29 ms)
+# frames a second, at least (34 to 51 depending on how busy the machine is), and a frame's time: the slowest in
+# twenty (38 to 58 ms) and the game's own code's share on average (18 to 29 ms)
 fps 25
 frame_ms_p95 70
 code_ms 40

@@ -399,19 +399,33 @@ const LOOT: u8 = 8;
 /// A snapshot as datagrams of up to `DATAGRAM` bytes, each standing on its own. The player's own record and how
 /// the game is going come first, so they are in the first.
 pub fn encode_snapshot(s: &Snapshot) -> Vec<Vec<u8>> {
+    pack(s.tick, encode_records(s).iter().map(Vec::as_slice))
+}
+
+/// Records, in order, as datagrams of a snapshot taken at `tick`: as many to a datagram as fit in `DATAGRAM` bytes.
+/// A server encodes the records everyone is sent once (see `encode_records`) and packs them into each player's.
+pub fn pack<'a>(tick: u32, records: impl IntoIterator<Item = &'a [u8]>) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
-    let mut w = W::default();
-    let start = |w: &mut W| {
-        w.u8(SNAPSHOT).u32(s.tick);
+    let start = || {
+        let mut w = W::default();
+        w.u8(SNAPSHOT).u32(tick);
+        w.0
     };
-    start(&mut w);
-    let rec = |out: &mut Vec<Vec<u8>>, w: &mut W, r: W| {
-        if w.0.len() + r.0.len() > DATAGRAM {
-            out.push(std::mem::take(&mut w.0));
-            start(w);
+    let mut d = start();
+    for r in records {
+        if d.len() + r.len() > DATAGRAM {
+            out.push(std::mem::replace(&mut d, start()));
         }
-        w.0.extend_from_slice(&r.0);
-    };
+        d.extend_from_slice(r);
+    }
+    out.push(d);
+    out
+}
+
+/// The records of a snapshot, each encoded on its own, in the order they go out: the player's own, how the game
+/// is going, the other players, the zombies, grenades, blasts, shots and loot.
+pub fn encode_records(s: &Snapshot) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
     if let Some(o) = &s.own {
         let mut r = W::default();
         r.u8(OWN).u32(o.ack).u32(o.life).v3(o.pos).v3(o.vel);
@@ -426,19 +440,19 @@ pub fn encode_snapshot(s: &Snapshot) -> Vec<Vec<u8>> {
         r.u8(k.loadout[0]).u8(k.loadout[1]).u8(k.weapon).u8(k.grenades);
         r.0.extend_from_slice(&k.ammo);
         r.0.extend_from_slice(&k.reserve);
-        rec(&mut out, &mut w, r);
+        out.push(r.0);
     }
     if let Some(g) = &s.world {
         let mut r = W::default();
         r.u8(WORLD).u16(g.wave as u16).u16(g.left as u16).u8(g.started as u8);
-        rec(&mut out, &mut w, r);
+        out.push(r.0);
     }
     for m in &s.mates {
         let mut r = W::default();
         let flags = [m.alive, m.on_ground, m.aiming, m.reloading, m.ads, m.climbing];
         r.u8(MATE).u8(m.id).pos(m.pos).angle(m.yaw).signed(m.pitch, 1.6).u8(m.weapon);
         r.u8(flags.iter().enumerate().map(|(k, &on)| (on as u8) << k).sum()).unit(m.hp, 100.0).unit(m.sprint, 1.0);
-        rec(&mut out, &mut w, r);
+        out.push(r.0);
     }
     for z in &s.zombies {
         let mut r = W::default();
@@ -450,29 +464,28 @@ pub fn encode_snapshot(s: &Snapshot) -> Vec<Vec<u8>> {
         if let Some((s, up, ahead, duck)) = z.pose {
             r.unit(s, 1.0).signed(up, 4.0).signed(ahead, 3.0).unit(duck, 1.0);
         }
-        rec(&mut out, &mut w, r);
+        out.push(r.0);
     }
     for n in &s.nades {
         let mut r = W::default();
         r.u8(NADE).u32(n.id).pos(n.pos).angle(n.rot[0]).angle(n.rot[1]).angle(n.rot[2]);
-        rec(&mut out, &mut w, r);
+        out.push(r.0);
     }
     for b in &s.booms {
         let mut r = W::default();
         r.u8(BOOM).u32(b.id).pos(b.pos).unit(b.t, 2.0);
-        rec(&mut out, &mut w, r);
+        out.push(r.0);
     }
     for s in &s.shots {
         let mut r = W::default();
         r.u8(SHOT).u8(s.by).pos(s.a).pos(s.b);
-        rec(&mut out, &mut w, r);
+        out.push(r.0);
     }
     for l in &s.loot {
         let mut r = W::default();
         r.u8(LOOT).pos(l.pos).u8(l.gun);
-        rec(&mut out, &mut w, r);
+        out.push(r.0);
     }
-    out.push(w.0);
     out
 }
 

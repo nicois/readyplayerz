@@ -41,8 +41,8 @@ pub struct Client {
     queued: u16,
     /// guns picked for the loadout, still to be told to the server: one an input
     picks: Vec<u8>,
-    /// playing the drawing bench (see `bench`): the number of the next tick of it
-    bench: Option<u32>,
+    /// playing the drawing bench (see `horde`): the number of the next tick of it
+    horde: Option<u32>,
 }
 
 #[wasm_bindgen]
@@ -66,7 +66,7 @@ impl Client {
         let mut game = Game::on(map, seed);
         game.set_loot(true);
         renderer.upload_world(&game)?;
-        Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true, map, seed, online: None, frames: Frames::default(), net_error: String::new(), queued: 0, picks: Vec::new(), bench: None })
+        Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true, map, seed, online: None, frames: Frames::default(), net_error: String::new(), queued: 0, picks: Vec::new(), horde: None })
     }
 
     /// The game being played: the room's, online.
@@ -114,10 +114,10 @@ impl Client {
 
     /// The drawing bench from now on: `players` in all against a full horde, everyone played by script, the same
     /// game every time (see `sim::bench`).
-    pub fn bench(&mut self, players: usize) -> Result<(), JsValue> {
+    pub fn horde(&mut self, players: usize) -> Result<(), JsValue> {
         self.game = crate::sim::bench::solo(players.clamp(1, crate::net::MAX_PLAYERS));
         (self.map, self.seed) = (crate::sim::bench::MAP, crate::sim::bench::SEED);
-        self.bench = Some(0);
+        self.horde = Some(0);
         self.paused = false;
         Ok(self.renderer.upload_world(&self.game)?)
     }
@@ -194,6 +194,12 @@ impl Client {
         p.climb = None;
         p.yaw = yaw;
         p.pitch = pitch;
+    }
+
+    /// Dev view: gun `i` in hand and raised, whatever the loadout, to look at it held.
+    pub fn hold(&mut self, i: usize) {
+        self.game.select(i);
+        self.game.me_mut().equip_t = 0.0;
     }
 
     /// Dev view: the bat in hand `u` of the way through swing `n` (odd swings go one way, even the other), as
@@ -275,6 +281,18 @@ impl Client {
         self.renderer.showcase.set(Some((i, bg)));
     }
 
+    /// Dev view: draws only gun `i`, flat from the side and from above, `half` metres of gun space either side of
+    /// `z` along the bore (`y` up it from the side), with or without the hands, for working on its shape.
+    pub fn bench(&mut self, i: usize, z: f32, y: f32, half: f32, hands: bool) {
+        self.renderer.bench.set(Some(crate::render::Bench { gun: i, z, y, half, hands }));
+    }
+
+    /// Where gun `i`'s parts reach in gun space, as the low then the high corner, then its sight line's height and
+    /// its muzzle.
+    pub fn gun_bounds(&self, i: usize) -> Vec<f32> {
+        self.renderer.gun_bounds(i)
+    }
+
     pub fn remove_bots(&mut self) {
         self.game.bots.clear();
     }
@@ -354,7 +372,7 @@ impl Client {
                     }
                     o.mirror.step();
                 }
-                None => match &mut self.bench {
+                None => match &mut self.horde {
                     Some(n) => {
                         crate::sim::bench::step_solo(&mut self.game, *n);
                         *n += 1;

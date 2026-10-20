@@ -93,7 +93,7 @@ fn load_six_players_against_a_full_horde_stay_within_the_limits() {
         room.tick();
         let mut out = Vec::new();
         if room.snapshot_due() {
-            out = ids.iter().map(|&id| room.snapshot_for(id)).collect();
+            out = room.snapshots().into_iter().map(|(_, datagrams)| datagrams).collect();
         }
         let ms = cpu_ms() - t0;
         // what the bytes go on, from one player's snapshot (they differ only in whose own record it is)
