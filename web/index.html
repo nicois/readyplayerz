@@ -325,6 +325,7 @@ import init, { Client } from "./pkg/arena.js";
 import { Sound } from "./audio.js";
 import { Music } from "./music.js";
 import { Net } from "./net.js";
+import { track, remember, startAnalytics } from "./analytics.js";
 
 const canvas = document.getElementById("c");
 const menu = document.getElementById("menu");
@@ -433,14 +434,18 @@ function blocked(title, lines, anyway) {
 }
 
 // what the game can't do without: WebAssembly, WebGL2 (a context really made, since some GPUs are blocked)
-// and pointer lock for mouse look
+// and pointer lock for mouse look. Notes down the GPU on the way, for the analytics
+let gpu = "";
 function missing() {
   const gone = [];
   if (typeof WebAssembly !== "object") gone.push("WebAssembly");
   let gl = null;
   try { gl = document.createElement("canvas").getContext("webgl2"); } catch {}
   if (!gl) gone.push("WebGL 2");
-  else gl.getExtension("WEBGL_lose_context")?.loseContext();
+  else {
+    try { gpu = String(gl.getParameter(gl.getExtension("WEBGL_debug_renderer_info")?.UNMASKED_RENDERER_WEBGL ?? gl.RENDERER)); } catch {}
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
+  }
   if (!("requestPointerLock" in Element.prototype)) gone.push("pointer lock");
   return gone;
 }
@@ -453,23 +458,34 @@ const mobile = navigator.userAgentData?.mobile
 const touchOnly = matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches;
 
 const gone = missing();
+// came by a friend's invite link
+remember({ gpu, invited: new URLSearchParams(location.search).has("room") });
 if (gone.length) {
+  track("blocked", { reason: "browser", missing: gone });
+  startAnalytics();
   await blocked("Your browser can't run this", [
     `readyplayerz needs ${gone.join(", ").replace(/, ([^,]*)$/, " and $1")}, which this browser doesn't have or has turned off.`,
     "Try the latest Chrome, Edge, Firefox or Safari on a computer. If you already are, check that hardware acceleration is on in the browser's settings.",
   ]);
 }
 if (mobile || touchOnly) {
+  track("blocked", { reason: "mobile" });
+  startAnalytics();
   await blocked("Play on a computer", [
     "readyplayerz is a first-person shooter played with a keyboard and mouse, so it doesn't work on phones or tablets yet.",
     "Open readyplayerz.com on a desktop or laptop to play.",
   ], true);
+  track("blocked_try_anyway", { reason: "mobile" });
 }
 
+// how long loading took, for the analytics: the download, and all of it up to the first frame
+const loadStart = performance.now();
+let downloadMs = 0;
 let client;
 try {
   loading(0, "Downloading");
   const wasm = await download("pkg/arena_bg.wasm");
+  downloadMs = performance.now() - loadStart;
   loading(0.6, "Starting");
   await init({ module_or_path: wasm });
   loading(0.65, "Building the map and the guns");
@@ -482,6 +498,8 @@ try {
   $("lstatus").textContent = `Could not start: ${e}`;
   $("lstatus").className = "err";
   err.textContent = String(e);
+  track("load_failed", { error: String(e).slice(0, 500), downloaded: downloadMs > 0 });
+  startAnalytics();
   throw e;
 }
 addEventListener("resize", () => client.resize(...size()));
@@ -491,7 +509,7 @@ addEventListener("resize", () => client.resize(...size()));
 function segmented(parent, labels, pick, key, fallback = 0) {
   const buttons = labels.map((label, i) => {
     const b = el("button", "", label);
-    b.addEventListener("click", () => set(i));
+    b.addEventListener("click", () => { set(i); track("setting_changed", { setting: key, value: label }); });
     parent.appendChild(b);
     return b;
   });
@@ -499,6 +517,7 @@ function segmented(parent, labels, pick, key, fallback = 0) {
     pick(i);
     buttons.forEach((b, j) => b.classList.toggle("on", j === i));
     try { localStorage.setItem(key, labels[i]); } catch {}
+    remember({ [key]: labels[i] });
   };
   let saved = -1;
   try { saved = labels.indexOf(localStorage.getItem(key)); } catch {}
@@ -556,7 +575,7 @@ const loadoutNow = () => {
 const SLOTS = [
   { name: "Primary", guns: guns.filter(g => g.i < primaries) },
   { name: "Secondary", guns: guns.filter(g => g.i >= primaries) },
-].map((slot, s) => ({ ...slot, equipped: () => loadoutNow().picked[s], equip: i => { client.pick(i); saveLoadout(); } }));
+].map((slot, s) => ({ ...slot, equipped: () => loadoutNow().picked[s], equip: i => { client.pick(i); saveLoadout(); track("loadout_changed", { slot: slot.name, gun: names[i] }); } }));
 // the loadout is remembered by the guns' names, so a gun added or moved in the list never swaps someone's pick
 function saveLoadout() {
   try { localStorage.setItem("loadout", JSON.stringify(loadoutNow().picked.map(w => names[w]))); } catch {}
@@ -721,8 +740,55 @@ if (params.has("climb")) {
 if (params.has("dev")) window.client = client;
 const locked = () => document.pointerLockElement === canvas;
 const play = () => { sound.start(); canvas.requestPointerLock(); };
+
+// ---- analytics for a game: from the first moment in play (once the host has started it, online) to being overrun,
+// ending it, leaving or closing the page. `watchGame` is called every frame but only compares a few numbers
+let game = null;
+let lastWatch = 0;
+const gameProps = () => {
+  const { carried } = loadoutNow();
+  return { mode: lobby.online ? "online" : "solo", map: MAPS[lobby.online ? lobby.map : client.map()].name, primary: names[carried[0]], sidearm: names[carried[1]] };
+};
+function watchGame(t, wave, kills, deaths, inPlay, overrun, team) {
+  const dt = lastWatch ? t - lastWatch : 0;
+  lastWatch = t;
+  if (!game && inPlay && !overrun && locked() && (!lobby.online || lobby.started)) {
+    game = { props: gameProps(), wave, kills, deaths, team, ms: 0, frames: 0, scale: auto.scale };
+    track("game_started", { ...game.props, wave, team });
+  }
+  if (!game) return;
+  // time in play, not paused in the menu, and how smoothly it ran
+  if (locked() && dt < 200) {
+    game.ms += dt;
+    game.frames++;
+    game.scale = Math.min(game.scale, auto.scale);
+  }
+  game.team = Math.max(game.team, team);
+  game.last = { kills, deaths };
+  if (wave > game.wave) {
+    game.wave = wave;
+    track("wave_reached", { ...game.props, wave, team });
+  }
+  if (overrun) gameOver("overrun");
+}
+// `how`: "overrun", "ended", "left" (the room), "lost" (the connection), "switched" (to another room) or "closed"
+// (the page)
+function gameOver(how) {
+  if (!game) return;
+  const { kills, deaths } = game.last || game;
+  track("game_over", {
+    ...game.props, how, wave: game.wave, team: game.team,
+    kills: Math.max(0, kills - game.kills), deaths: Math.max(0, deaths - game.deaths),
+    seconds: Math.round(game.ms / 1000),
+    fps: game.ms > 1000 ? Math.round(game.frames * 1000 / game.ms) : null,
+    // the lowest the automatic resolution went, as a fraction of the setting's
+    render_scale: Math.round(game.scale * 100) / 100,
+  });
+  game = null;
+}
+addEventListener("pagehide", () => gameOver("closed"));
 // ending the game stays on the menu, ready to pick a loadout or a map and start again
-const endGame = () => { client.end_game(); sound.cancel(); };
+const endGame = () => { gameOver("ended"); client.end_game(); sound.cancel(); };
 $("end").addEventListener("click", () => { endGame(); show("s-main"); });
 $("resume").addEventListener("click", play);
 
@@ -776,14 +842,20 @@ const markRoomMap = mapCards($("mp-maps"), i => {
   roomMap = i;
   try { localStorage.setItem("roomMap", i); } catch {}
 });
-async function joinRoom(code) {
+// `via` is how, for the analytics: "create", "code" or "link"
+async function joinRoom(code, via) {
   net?.close();
   client.net_leave("");
   $("mp-error").textContent = "";
   mpStatus(code ? `Joining room ${code}...` : "Making a room...");
+  joining = via;
+  gameOver("switched");
   const n = new Net(client, why => {
     if (net !== n) return;
     net = null;
+    // was in the room, or never got in
+    track(lobby.online ? "room_lost" : "room_failed", { via, why });
+    gameOver("lost");
     client.net_leave(why);
     if (locked()) document.exitPointerLock();
     show("s-mp");
@@ -796,6 +868,8 @@ async function joinRoom(code) {
   }
 }
 function leaveRoom() {
+  if (lobby.online) track("room_left", { players: lobby.players.length, started: lobby.started });
+  gameOver("left");
   net?.close();
   net = null;
   client.net_leave("");
@@ -805,7 +879,9 @@ function leaveRoom() {
 // the lobby screen from where things stand; `drawn` is what the room's view shows, so it's only redrawn on a change
 const drawn = { players: "", map: -1 };
 function drawRoom() {
+  const was = lobby;
   lobby = JSON.parse(client.lobby());
+  roomEvents(was, lobby);
   const inRoom = lobby.online;
   $("mp-out").style.display = inRoom ? "none" : "block";
   $("mp-in").style.display = inRoom ? "block" : "none";
@@ -843,9 +919,19 @@ function drawRoom() {
   $("mp-start").style.display = host && !lobby.started ? "" : "none";
   mpStatus(lobby.started ? "The game is under way: jump in." : host ? "Start the game when everyone is in. You can jump in and look around until then." : "Waiting for the host to start the game. You can jump in and look around until then.");
 }
+// for the analytics, what changed in the room: getting in, waiting in line for one, the game starting in it
+let joining = "";
+function roomEvents(was, now) {
+  if (now.online && !was.online) {
+    const host = now.players[0]?.[0] === now.id;
+    track(host ? "room_created" : "room_joined", { via: joining, map: MAPS[now.map].name, players: now.players.length, started: now.started });
+  }
+  if (now.queued && !was.queued) track("room_queued", { place: now.queued });
+  if (now.online && now.started && !was.started) track("room_game_started", { players: now.players.length, map: MAPS[now.map].name });
+}
 const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
-$("mp-create").addEventListener("click", () => (lobby.queued ? leaveRoom() : joinRoom("")));
-$("mp-join").addEventListener("click", () => { const c = $("mp-code").value; if (c.length === 4) joinRoom(c); });
+$("mp-create").addEventListener("click", () => (lobby.queued ? leaveRoom() : joinRoom("", "create")));
+$("mp-join").addEventListener("click", () => { const c = $("mp-code").value; if (c.length === 4) joinRoom(c, "code"); });
 // a code is four letters: anything else typed or pasted is dropped, and Join waits for all four
 $("mp-code").addEventListener("input", () => {
   const c = $("mp-code");
@@ -857,16 +943,17 @@ $("mp-start").addEventListener("click", () => net?.start());
 $("mp-play").addEventListener("click", play);
 $("mp-leave").addEventListener("click", leaveRoom);
 $("mp-copy").addEventListener("click", async () => {
+  track("invite_copied", { players: lobby.players.length });
   try { await navigator.clipboard.writeText($("mp-link").value); mpStatus("Link copied: send it to your friends."); }
   catch { $("mp-link").select(); }
 });
 // an invite link: straight into the room. Dev flag: ?create makes one, for testing without clicking
 if (params.has("room")) {
   show("s-mp");
-  joinRoom(params.get("room").toUpperCase());
+  joinRoom(params.get("room").toUpperCase(), "link");
 } else if (params.has("create")) {
   show("s-mp");
-  joinRoom("");
+  joinRoom("", "create");
 }
 
 addEventListener("keydown", e => {
@@ -962,6 +1049,7 @@ function loop(t) {
   const dead = $("dead");
   // down with others still standing: back for the next wave; everyone down: the game starts over
   const benched = down > 0 && standing > 0;
+  watchGame(t, wave, kills, deaths, inPlay > 0, respawn > 0 && !benched, team);
   dead.style.display = respawn > 0 || benched ? "block" : "none";
   // alone it is played for loot: every life starts with only the pistol
   const next = lobby.online
@@ -976,6 +1064,12 @@ function loop(t) {
     // the first frame has been drawn: show it on the next one
     loaded = true;
     loading(1, "Ready");
+    track("game_loaded", {
+      load_ms: Math.round(performance.now() - loadStart), download_ms: Math.round(downloadMs),
+      width: innerWidth, height: innerHeight, dpr: devicePixelRatio,
+    });
+    // PostHog's own script only now, with the game on screen
+    startAnalytics();
     requestAnimationFrame(() => $("loading").classList.add("done"));
     setTimeout(() => $("loading").remove(), 600);
   }
