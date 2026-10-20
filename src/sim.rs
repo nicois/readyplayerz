@@ -78,6 +78,9 @@ pub const PISTOL: usize = 8;
 pub const NO_GUN: usize = WEAPON_COUNT;
 /// Playing for loot, the weapon crates each wave tops up to: two, and one more every third wave, up to this many.
 const MAX_CRATES: usize = 5;
+/// A weapon crate chimes every this many seconds, heard this far off, so it can be found by ear.
+const CHIME_EVERY: f32 = 2.5;
+const HEAR_CHIME: f32 = 45.0;
 
 /// Things that happened this tick that a client may want to play a sound for.
 /// Each event is `[code, a, b]` in `Game::events`.
@@ -114,6 +117,8 @@ pub mod ev {
     pub const FAR_SHOT: f32 = 19.0;
     /// an ammo box goes into the reserves
     pub const PICKUP: f32 = 20.0;
+    /// a weapon crate calling out: a = distance, b = pan
+    pub const CHIME: f32 = 21.0;
 }
 
 mod grenade;
@@ -606,6 +611,8 @@ pub struct Game {
     pub crates: Vec<(V3, usize)>,
     /// playing for loot: a life starts with only the pistol, and the other guns are found in weapon crates
     pub loot: bool,
+    /// until the weapon crates next chime
+    chime_t: f32,
     spawns: Vec<V3>,
     nav: Nav,
     pub debris: Vec<Debris>,
@@ -1377,6 +1384,7 @@ impl Game {
             boxes: Vec::new(),
             crates: Vec::new(),
             loot: false,
+            chime_t: 0.0,
             spawns,
             debris: Vec::new(),
             grenades: Vec::new(),
@@ -1486,6 +1494,25 @@ impl Game {
     }
 
     /// Plays for loot or not (see `Game::loot`): from the next life, or straight away before the first is played.
+    /// The weapon crates within earshot chiming, now and then, from where each lies as the local player hears it.
+    /// Called once a frame, `dt` seconds on, by whoever plays the sound: it changes nothing in the game.
+    pub fn chime(&mut self, dt: f32) {
+        self.chime_t -= dt;
+        if self.chime_t > 0.0 {
+            return;
+        }
+        self.chime_t = CHIME_EVERY;
+        let Some(p) = self.players.get(self.local) else { return };
+        let (ear, (sy, cy)) = (p.body.pos, p.yaw.sin_cos());
+        for &(at, _) in &self.crates {
+            let (ex, ez) = (ear[0] - at[0], ear[2] - at[2]);
+            let d = ex.hypot(ez).max(0.001);
+            if d < HEAR_CHIME {
+                self.events.push([ev::CHIME, d, -(ex * cy + ez * sy) / d]);
+            }
+        }
+    }
+
     pub fn set_loot(&mut self, on: bool) {
         self.loot = on;
         let p = &mut self.players[self.local];

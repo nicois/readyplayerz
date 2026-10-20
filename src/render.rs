@@ -1733,6 +1733,33 @@ impl Renderer {
         gl.uniform1f(self.u_batch.as_ref(), 0.0);
     }
 
+    /// A column of red light rising out of each weapon crate, so one can be seen from across the map. It is added
+    /// onto what is behind it and writes no depth, so it goes in after the sky; the fog fades it to nothing rather
+    /// than to haze, and it thins out in steps as it rises.
+    fn draw_beams(&self, g: &Game) {
+        if g.crates.is_empty() {
+            return;
+        }
+        let gl = &self.gl;
+        gl.enable(GL::BLEND);
+        gl.blend_func(GL::ONE, GL::ONE);
+        gl.depth_mask(false);
+        gl.uniform3f(self.u_fogc.as_ref(), 0.0, 0.0, 0.0);
+        for &(at, _) in &g.crates {
+            let pulse = 0.8 + 0.2 * (g.time * 3.0 + at[0]).sin();
+            for (lo, hi, k) in [(0.5, 8.0, 1.0), (8.0, 18.0, 0.55), (18.0, 32.0, 0.25)] {
+                let k = k * pulse;
+                for (w, c) in [(0.07, [0.9, 0.3, 0.15]), (0.3, [0.3, 0.06, 0.03])] {
+                    let m = box_model([at[0] - w, at[1] + lo, at[2] - w], [at[0] + w, at[1] + hi, at[2] + w]);
+                    self.draw_model(&m, [c[0] * k, c[1] * k, c[2] * k], 1.0, 0.0);
+                }
+            }
+        }
+        gl.uniform3f(self.u_fogc.as_ref(), self.haze[0], self.haze[1], self.haze[2]);
+        gl.depth_mask(true);
+        gl.disable(GL::BLEND);
+    }
+
     fn draw_sky(&self, fwd: V3, fov: f32, aspect: f32, time: f32) {
         let gl = &self.gl;
         let right = norm(cross(fwd, [0.0, 1.0, 0.0]));
@@ -2006,6 +2033,7 @@ impl Renderer {
         self.ground_depth();
         self.draw_sky(fwd, fov, aspect, g.time);
         gl.use_program(Some(&self.prog));
+        self.draw_beams(g);
 
         // viewmodel: drawn in view space on a cleared depth buffer so it never clips into walls
         gl.clear(GL::DEPTH_BUFFER_BIT);

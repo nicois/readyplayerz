@@ -9,6 +9,8 @@
 - Online, the server spawns the ammo boxes and the crates for the room and sends them in its snapshots (protocol version 3). Pickups run in each player's step, so a client takes a box or crate on the same input the server does, without waiting for it.
 - The server's record of a player now carries their guns, rounds and grenades. A client carrying something else after the same input (a crate a teammate got to first) is put right by the difference, so shots fired since still count.
 - The death screen says the next life starts with the Pistol instead of naming the loadout.
+- A column of red light rises out of each weapon crate, pulsing and thinning as it rises, so one can be seen from across the map.
+- Each crate within 45 m chimes every 2.5 s, panned and quieter with distance, so it can be found by ear.
 
 ### Analytics on PostHog (`a2a08f1`)
 - The page now reports to PostHog, through our own subdomain `t.readyplayerz.com` (PostHog's managed proxy), so retention, funnels and load problems can be seen.
