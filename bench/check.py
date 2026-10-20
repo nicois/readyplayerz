@@ -1,6 +1,6 @@
 """The drawing bench's results held to bench/limits.txt, and a line of both benches' results added to
-bench/history.tsv. Run by ./bench.sh with the network bench's output and the drawing bench's JSON (empty when it
-wasn't run); the network bench holds itself to its limits."""
+bench/history.tsv. Run by ./bench.sh with the network bench's output and the drawing bench's JSON, at the quality
+asked for and then on low (either empty when it wasn't run); the network bench holds itself to its limits."""
 
 import datetime
 import json
@@ -17,7 +17,12 @@ COLUMNS = [
     "server_tick_ms", "server_tick_ms_p99", "server_tick_ms_max",
     "fps", "frame_ms", "frame_ms_p95", "code_ms", "code_ms_p95", "gpu_ms", "gpu_ms_p95",
     "draw_calls", "draw_calls_max", "triangles", "triangles_max", "shadow_draw_calls", "shadow_triangles",
+    "low_fps", "low_frame_ms", "low_frame_ms_p95", "low_code_ms", "low_code_ms_p95", "low_gpu_ms", "low_gpu_ms_p95",
+    "low_draw_calls", "low_draw_calls_max", "low_triangles", "low_triangles_max", "low_shadow_draw_calls",
+    "low_shadow_triangles",
 ]
+# the drawing bench's own columns, without the low_ in front
+DRAW = COLUMNS[10:23]
 
 
 def limits():
@@ -30,36 +35,43 @@ def limits():
     return out
 
 
-def main(net_file, draw_file):
+def load(path):
+    return json.load(open(path)) if path and os.path.exists(path) and os.path.getsize(path) else {}
+
+
+def check(draw, prefix, results, over):
+    """One run of the drawing bench into `results` under `prefix`, and held to the limits of those names."""
+    lim = limits()
+    print(f"{draw['width']}x{draw['height']}, quality {draw['gfx']}, on {draw['gpu']}")
+    print(f"{draw['players']} players against {draw['zombies']:.1f} zombies up on average, {draw['kills']} killed")
+    for column in DRAW:
+        name, value = prefix + column, draw.get(column)
+        if value is None:
+            print(f"bench {name} -  (not measured: the browser doesn't tell the GPU's time)")
+            continue
+        results[name] = value
+        # the GPU's time from the start of a frame's work to its end: on Apple's GPUs one frame's work
+        # overlaps the next's, so it can be more than a frame takes, and it is shown but not held to a limit
+        limit = lim.get(name)
+        # frames a second is the one where more is better
+        bad = limit is not None and (value < limit if column == "fps" else value > limit)
+        if bad:
+            over.append(f"{name} {value:.2f} is past its limit of {limit:g}")
+        mark = "OVER" if bad else ("ok" if limit is not None else "")
+        print(f"bench {name} {value:.2f}  limit {'-' if limit is None else f'{limit:g}'} {mark}")
+
+
+def main(net_file, draw_file, low_file=None):
     results = {}
     for line in open(net_file):
         if line.startswith("bench "):
             _, name, value = line.split()[:3]
             results[name] = float(value)
-    draw = {}
-    if os.path.exists(draw_file) and os.path.getsize(draw_file):
-        draw = json.load(open(draw_file))
-        results.update({k: v for k, v in draw.items() if isinstance(v, (int, float)) and v is not None})
 
     over = []
-    if draw:
-        lim = limits()
-        print(f"{draw['width']}x{draw['height']}, quality {draw['gfx']}, on {draw['gpu']}")
-        print(f"{draw['players']} players against {draw['zombies']:.1f} zombies up on average, {draw['kills']} killed")
-        for name in COLUMNS[10:]:
-            value = draw.get(name)
-            if value is None:
-                print(f"bench {name} -  (not measured: the browser doesn't tell the GPU's time)")
-                continue
-            # the GPU's time from the start of a frame's work to its end: on Apple's GPUs one frame's work
-            # overlaps the next's, so it can be more than a frame takes, and it is shown but not held to a limit
-            limit = lim.get(name)
-            # frames a second is the one where more is better
-            bad = limit is not None and (value < limit if name == "fps" else value > limit)
-            if bad:
-                over.append(f"{name} {value:.2f} is past its limit of {limit:g}")
-            mark = "OVER" if bad else ("ok" if limit is not None else "")
-            print(f"bench {name} {value:.2f}  limit {'-' if limit is None else f'{limit:g}'} {mark}")
+    for draw, prefix in [(load(draw_file), ""), (load(low_file), "low_")]:
+        if draw:
+            check(draw, prefix, results, over)
 
     commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
     dirty = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True).stdout.strip()
@@ -78,4 +90,4 @@ def main(net_file, draw_file):
     return 1 if over else 0
 
 
-sys.exit(main(*sys.argv[1:3]))
+sys.exit(main(*sys.argv[1:4]))

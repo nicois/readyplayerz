@@ -28,16 +28,31 @@ server_tick_ms_max 14
 # from run to run, within a percent; the times change with whatever else the machine is doing, so their limits
 # only catch a large step backwards.
 
-# draw calls and triangles a frame, for the picture: on average (267, 425k) and at most (461, 593k)
-draw_calls 310
-draw_calls_max 540
+# draw calls and triangles a frame, for the picture: on average (131, 423k) and at most (228 to 263, 594k). Lowered
+# from 310 and 540 when a zombie became one draw instead of seven (267 and 461 before)
+draw_calls 150
+draw_calls_max 300
 triangles 490000
 triangles_max 690000
-# and for the sun's shadow, on average (211, 213k)
-shadow_draw_calls 245
-shadow_triangles 250000
+# and for the sun's shadow, on average (74, 200k); lowered from 245 with the zombies (211 before)
+shadow_draw_calls 85
+shadow_triangles 230000
 # frames a second, at least (34 to 83 depending on how busy the machine is), and a frame's time: the slowest in
 # twenty (28 to 58 ms) and the game's own code's share on average (11 to 29 ms)
 fps 25
 frame_ms_p95 70
 code_ms 40
+
+# ---- the same on low quality (960x496), what the slowest laptops play, which draws no sun's shadow
+
+# draw calls and triangles a frame: on average (121, 347k) and at most (263, 528k)
+low_draw_calls 140
+low_draw_calls_max 300
+low_triangles 400000
+low_triangles_max 610000
+# none for the sun's shadow: low has none, and one drawn again is a fifth of its frame
+low_shadow_draw_calls 0
+# frames a second, at least (115 to 246 depending on how busy the machine is): 60 is what a slow laptop needs from
+# low, and an M1 below it has lost a lot; the slowest frame in twenty (8 to 20 ms)
+low_fps 60
+low_frame_ms_p95 40

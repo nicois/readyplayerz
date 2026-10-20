@@ -5,8 +5,9 @@
 #   network  `cargo test` plays it on the server's own room and measures what goes over the wire (src/sim/load.rs)
 #   drawing  headless Chrome plays it on the page, on this machine's GPU, and measures the frames (?horde)
 #
-# `./bench.sh net` runs only the first. The drawing bench builds the game first; CHROME says where Chrome is, and
-# GFX the quality (0 low, 1 medium, 2 high; 2 by default) at 1920x1080. It fails if any limit is passed.
+# `./bench.sh net` runs only the first. The drawing bench builds the game first and plays it twice at 1920x1080:
+# at the quality GFX says (0 low, 1 medium, 2 high; 2 by default), then on low, held to the low_ limits. CHROME
+# says where Chrome is. It fails if any limit is passed.
 set -e
 cd "$(dirname "$0")"
 out=$(mktemp -d)
@@ -27,24 +28,32 @@ if [ "$1" != net ]; then
   server=$!
   sleep 1
   chrome=${CHROME:-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"}
-  # on the real GPU, and without vsync or a frame cap, so a frame takes what it costs
-  "$chrome" --headless=new --use-angle=metal --enable-webgl --ignore-gpu-blocklist --disable-gpu-vsync \
-    --disable-frame-rate-limit --enable-logging=stderr --v=0 --user-data-dir="$out/profile" \
-    --window-size=1920,1080 "http://127.0.0.1:$port/?horde&gfx=${GFX:-2}" >"$out/chrome.log" 2>&1 &
-  browser=$!
-  # warm-up and measuring take under half a minute; past a minute something is wrong
-  for _ in $(seq 60); do
-    grep -q '"bench {' "$out/chrome.log" && break
-    sleep 1
-  done
-  kill $browser 2>/dev/null || true
-  grep -o 'bench {.*}' "$out/chrome.log" | head -1 | sed 's/^bench //' >"$out/draw.json"
-  if [ ! -s "$out/draw.json" ]; then
-    echo "the drawing bench gave no results; Chrome's log:"
-    grep -i "error\|console" "$out/chrome.log" | head -20
-    status=1
-  fi
+  # draw <quality> <name>: one run of the page at that quality, its results into $out/<name>.json
+  draw() {
+    rm -rf "$out/profile"
+    # on the real GPU, and without vsync or a frame cap, so a frame takes what it costs
+    "$chrome" --headless=new --use-angle=metal --enable-webgl --ignore-gpu-blocklist --disable-gpu-vsync \
+      --disable-frame-rate-limit --enable-logging=stderr --v=0 --user-data-dir="$out/profile" \
+      --window-size=1920,1080 "http://127.0.0.1:$port/?horde&gfx=$1" >"$out/chrome.log" 2>&1 &
+    browser=$!
+    # warm-up and measuring take under half a minute; past a minute something is wrong
+    for _ in $(seq 60); do
+      grep -q '"bench {' "$out/chrome.log" && break
+      sleep 1
+    done
+    kill $browser 2>/dev/null || true
+    wait $browser 2>/dev/null || true
+    grep -o 'bench {.*}' "$out/chrome.log" | head -1 | sed 's/^bench //' >"$out/$2.json"
+    if [ ! -s "$out/$2.json" ]; then
+      echo "the drawing bench gave no results at quality $1; Chrome's log:"
+      grep -i "error\|console" "$out/chrome.log" | head -20
+      status=1
+    fi
+  }
+  draw "${GFX:-2}" draw
+  # and on low, what the slowest laptops play: it draws differently (no sun's shadow), so it has limits of its own
+  draw 0 low
 fi
 
-python3 bench/check.py "$out/net.txt" "$out/draw.json" || status=1
+python3 bench/check.py "$out/net.txt" "$out/draw.json" "$out/low.json" || status=1
 exit $status
