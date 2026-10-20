@@ -3,7 +3,7 @@
 use crate::grid::Grid;
 use crate::map::{self, Map};
 use crate::nav::Nav;
-use std::f32::consts::PI;
+use std::f32::consts::{PI, TAU};
 use std::rc::Rc;
 
 pub type V3 = [f32; 3];
@@ -1299,7 +1299,7 @@ impl Game {
         } else {
             (0, 100.0, self.rng.range(3.5, 4.5), 1.0)
         };
-        let phase = self.rng.range(0.0, 6.28);
+        let phase = self.rng.range(0.0, TAU);
         let mut z = Bot::zombie(pos, phase);
         z.id = self.new_id();
         z.kind = kind;
@@ -1315,7 +1315,7 @@ impl Game {
 
     /// Top up the ammo boxes to two thirds of this wave's zombies, rounded up, so far as the map allows it.
     fn top_up_boxes(&mut self) {
-        let target = (2 * self.to_spawn + 2) / 3;
+        let target = (2 * self.to_spawn).div_ceil(3);
         while self.boxes.len() < target as usize {
             match self.ammo_box_pos() {
                 Some(at) => self.boxes.push(at),
