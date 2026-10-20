@@ -3,11 +3,9 @@
 
 use super::*;
 
-/// Grenades each run starts with, and the most that can be carried.
+/// Grenades each run starts with, and the most that can be carried: the rest come from the ammo boxes.
 pub const GRENADES: u32 = 2;
-pub const MAX_GRENADES: u32 = 5;
-/// Seconds of play for each new grenade.
-pub const GRENADE_EVERY: f32 = 60.0;
+pub const MAX_GRENADES: u32 = 4;
 const FUSE: f32 = 2.5;
 /// steps of flight between the points of the aiming arc
 const ARC_EVERY: usize = 2;
@@ -131,22 +129,11 @@ fn blast_on(at: V3, pos: V3, h: f32, world: &Grid) -> Option<(f32, [f32; 2], f32
 }
 
 impl Game {
-    /// The grenade hand, each tick the player is alive: a new grenade every so often, and holding the grenade key
-    /// takes one out and shows where it would go, letting go throws it. Climbing takes both hands, so it puts the
-    /// grenade away again. Returns whether the hand is on a grenade, so the gun can't be reloaded or fired.
+    /// The grenade hand, each tick the player is alive: holding the grenade key takes one out and shows where it
+    /// would go, letting go throws it. Climbing takes both hands, so it puts the grenade away again. Returns
+    /// whether the hand is on a grenade, so the gun can't be reloaded or fired.
     pub(super) fn tick_throw(&mut self, pi: usize, dt: f32, held: bool) -> bool {
         let p = &mut self.players[pi];
-        // a new grenade every so often, as long as there is room for it
-        if p.grenades < MAX_GRENADES {
-            p.grenade_t += dt;
-            if p.grenade_t >= GRENADE_EVERY {
-                p.grenade_t -= GRENADE_EVERY;
-                p.grenades += 1;
-            }
-        } else {
-            p.grenade_t = 0.0;
-        }
-
         let ready = p.throw_t <= 0.0 && p.grenades > 0 && p.climb.is_none();
         let throw = p.aiming && !held && ready;
         p.aiming = held && ready;
@@ -407,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn a_run_starts_with_two_grenades_one_a_press_and_another_every_minute() {
+    fn a_run_starts_with_two_grenades_and_throwing_runs_them_out() {
         let mut g = arena();
         assert_eq!(g.players[0].grenades, GRENADES);
         // held down, it is aimed; let go, it is thrown
@@ -424,15 +411,6 @@ mod tests {
         assert_eq!(g.players[0].grenades, 0);
         press_throw(&mut g, STEP);
         assert_eq!(g.players[0].grenades, 0, "none left to throw");
-        g.players[0].body.pos = [0.0, 0.0, -60.0];
-        g.players[0].grenade_t = 0.0;
-        idle(&mut g, GRENADE_EVERY - 1.0);
-        assert_eq!(g.players[0].grenades, 0);
-        idle(&mut g, 1.5);
-        assert_eq!(g.players[0].grenades, 1);
-        g.players[0].grenades = MAX_GRENADES;
-        idle(&mut g, GRENADE_EVERY + 1.0);
-        assert_eq!(g.players[0].grenades, MAX_GRENADES, "no more than can be carried");
         g.respawn_player(0);
         assert_eq!(g.players[0].grenades, GRENADES, "a new run starts with two again");
     }

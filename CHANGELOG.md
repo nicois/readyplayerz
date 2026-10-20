@@ -2,6 +2,12 @@
 
 ## 2026-10-20
 
+### Grenades come from the ammo boxes; the boxes thin to two thirds of a wave (`deb3833`)
+- A life starts with two grenades and the ammo boxes are now the only way to get more: walking over one adds a grenade, to a cap of four (was five).
+- The once-a-minute grenade auto grant, and the HUD's "next grenade in Xs" countdown, are gone.
+- Waves spawn two thirds of their zombies' count in ammo boxes, rounded up (wave one: six, was nine) — the extra fire the grenades provide takes the difference.
+- A box is left for later only while the reserves and the grenades are both full; full reserves with room for a grenade still takes it, for the grenade.
+
 ### Running changes how you resupply; magazine guns drop their loaded mag on a reload (`074b276`)
 - Sprinting cancels a reload in progress — nothing is lost, the magazine comes back as it was — and prevents a new reload from starting, including the automatic one on an empty mag.
 - Running over an ammo box no longer collects it; stand or walk over one to pick it up.

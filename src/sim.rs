@@ -115,7 +115,7 @@ pub mod ev {
 mod grenade;
 pub mod host;
 pub mod mirror;
-pub use grenade::{Blast, Grenade, BLAST_T, GRENADES, GRENADE_EVERY, MAX_GRENADES, THROW_TIME};
+pub use grenade::{Blast, Grenade, BLAST_T, GRENADES, MAX_GRENADES, THROW_TIME};
 
 /// Everything that differs between guns. Angles are radians, times are seconds.
 pub struct Weapon {
@@ -322,8 +322,6 @@ pub struct Player {
     /// seconds since the last shot, for the bloom to settle
     since_shot: f32,
     pub grenades: u32,
-    /// seconds of play towards the next grenade
-    pub grenade_t: f32,
     /// counts down while the hand is busy with a throw
     pub throw_t: f32,
     /// the grenade key is held with a grenade ready: the gun is down, and letting go throws it
@@ -381,7 +379,6 @@ impl Player {
             bloom: 0.0,
             since_shot: 99.0,
             grenades: GRENADES,
-            grenade_t: 0.0,
             throw_t: 0.0,
             aiming: false,
             aim_t: 0.0,
@@ -572,7 +569,7 @@ pub struct Game {
     /// one surface kind per wall, see `map::material`
     pub mats: Vec<u8>,
     pub decals: Vec<(Aabb, [f32; 3])>,
-    /// the ammo boxes on the ground: one for every zombie of the wave, so far as the map allows
+    /// the ammo boxes on the ground: two thirds of the wave's zombies, rounded up, so far as the map allows
     pub boxes: Vec<V3>,
     spawns: Vec<V3>,
     nav: Nav,
@@ -1223,9 +1220,10 @@ impl Game {
         }
     }
 
-    /// Top up the ammo boxes to one per zombie of this wave, so far as the map allows it.
+    /// Top up the ammo boxes to two thirds of this wave's zombies, rounded up, so far as the map allows it.
     fn top_up_boxes(&mut self) {
-        while self.boxes.len() < self.to_spawn as usize {
+        let target = (2 * self.to_spawn + 2) / 3;
+        while self.boxes.len() < target as usize {
             match self.ammo_box_pos() {
                 Some(at) => self.boxes.push(at),
                 None => break,
@@ -1390,7 +1388,6 @@ impl Game {
         p.bloom = 0.0;
         p.ammo = full_ammo();
         p.grenades = GRENADES;
-        p.grenade_t = 0.0;
         p.throw_t = 0.0;
         p.aiming = false;
         p.aim_t = 0.0;
@@ -1836,13 +1833,13 @@ impl Game {
     }
 
     /// Walk over an ammo box standing or walking and a magazine of its rounds goes into the reserves, so far as
-    /// they are not full; running over one leaves it be.
+    /// they are not full, and one grenade, so far as there is room; running over one leaves it be.
     fn tick_boxes(&mut self) {
         if !self.players[self.local].alive() || self.players[self.local].sprinting {
             return;
         }
         let full = full_reserve();
-        if self.players[self.local].reserve == full {
+        if self.players[self.local].reserve == full && self.players[self.local].grenades == MAX_GRENADES {
             return;
         }
         let body = aabb_at(self.players[self.local].body.pos, HW, H);
@@ -1854,6 +1851,7 @@ impl Game {
                 for i in 0..WEAPON_COUNT {
                     self.players[self.local].reserve[i] = (self.players[self.local].reserve[i] + WEAPONS[i].mag).min(full[i]);
                 }
+                self.players[self.local].grenades = (self.players[self.local].grenades + 1).min(MAX_GRENADES);
                 self.events.push([ev::PICKUP, 0.0, 0.0]);
             }
         }
@@ -2564,11 +2562,13 @@ mod tests {
     #[test]
     fn zombies_arrive_in_waves_and_claw() {
         let mut g = zombie_game();
-        g.players[0].hp = 1e6;
-        idle(&mut g, 40.0);
+        for _ in 0..(40.0 / STEP) as usize {
+            g.players[0].hp = 1e6;
+            g.tick(STEP);
+        }
         assert_eq!(g.wave, 1);
         assert!(g.bots.iter().any(|b| b.alive));
-        assert!(g.players[0].hp < 1e6, "no zombie ever reached the player");
+        assert!(g.events.iter().any(|e| e[0] == ev::SNARL), "no zombie ever reached the player");
         assert!(g.events.iter().any(|e| e[0] == ev::WAVE));
     }
 
@@ -3065,14 +3065,14 @@ mod tests {
         assert_eq!(g.players[0].reserve[9], 0, "the reserve pays for the top-up");
     }
 
-    /// Each wave tops the ammo boxes up to the number of zombies in it, on top of the ones left behind.
+    /// Each wave tops the ammo boxes up to two thirds of its zombies, rounded up, on top of the ones left behind.
     #[test]
-    fn each_wave_tops_up_the_boxes_to_the_number_of_zombies() {
+    fn each_wave_tops_up_the_boxes_to_two_thirds_of_the_zombies() {
         let mut g = zombie_game();
         g.players[0].hp = 1e6;
         idle(&mut g, 0.1);
         assert_eq!(g.wave, 1);
-        assert_eq!(g.boxes.len(), 9, "wave one: one box per zombie");
+        assert_eq!(g.boxes.len(), 6, "wave one: two thirds of the nine zombies, rounded up");
         g.boxes.pop();
         for b in &mut g.bots {
             b.alive = false;
@@ -3080,7 +3080,7 @@ mod tests {
         g.to_spawn = 0;
         idle(&mut g, 5.5);
         assert_eq!(g.wave, 2);
-        assert_eq!(g.boxes.len(), 12, "wave two tops up to its own count");
+        assert_eq!(g.boxes.len(), 8, "wave two tops up to two thirds of its twelve");
     }
 
     /// Every box of a wave lands in bounds, within walking distance of the player, and clear of the others.
@@ -3089,7 +3089,7 @@ mod tests {
         let mut g = zombie_game();
         g.players[0].hp = 1e6;
         idle(&mut g, 0.1);
-        assert_eq!(g.boxes.len(), 9);
+        assert_eq!(g.boxes.len(), 6);
         let p = g.players[0].body.pos;
         for at in &g.boxes {
             assert!(at[0].abs() <= HALF - 2.0 && at[2].abs() <= HALF - 2.0, "box out of bounds: {at:?}");
@@ -3113,7 +3113,7 @@ mod tests {
             g.wave_t = 0.0;
             g.players[0].hp = 1e6;
             idle(&mut g, 0.1);
-            assert_eq!(g.boxes.len(), 9, "map {map} seed {seed}: the wave's boxes are missing");
+            assert_eq!(g.boxes.len(), 6, "map {map} seed {seed}: the wave's boxes are missing");
             for at in &g.boxes {
                 assert!(g.nav.reachable(*at), "map {map} seed {seed}: box the player cannot reach: {at:?}");
             }
@@ -3141,19 +3141,44 @@ mod tests {
         assert!(g.boxes.is_empty());
     }
 
-    /// A box is not taken while the reserves are full, even with an empty magazine: full means the reserves.
+    /// A box is not taken while the reserves and the grenades are both full, even with an empty magazine: full
+    /// means both. With full reserves but room for a grenade, it is taken for the grenade.
     #[test]
-    fn a_box_stays_while_the_reserves_are_full() {
+    fn a_box_stays_only_when_the_reserves_and_grenades_are_full() {
         let mut g = arena();
         g.bots.clear();
         g.wave_t = f32::INFINITY;
         g.players[0].ammo[0] = 0;
         g.players[0].reserve[0] = 2 * WEAPONS[0].mag;
+        g.players[0].grenades = MAX_GRENADES;
         let p = g.players[0].body.pos;
         g.boxes.push([p[0] + 0.5, p[1], p[2]]);
         idle(&mut g, 0.1);
-        assert_eq!(g.boxes.len(), 1, "full reserves: the box is left for later");
+        assert_eq!(g.boxes.len(), 1, "both full: the box is left for later");
         assert!(!g.events.iter().any(|e| e[0] == ev::PICKUP));
+        g.players[0].grenades = 1;
+        idle(&mut g, 0.1);
+        assert!(g.boxes.is_empty(), "room for a grenade: the box is taken");
+        assert_eq!(g.players[0].grenades, 2, "the grenade comes out of it");
+        assert_eq!(g.players[0].reserve[0], 2 * WEAPONS[0].mag, "the full reserves are left alone");
+    }
+
+    /// Running over a box adds one grenade at a time, up to the limit, and no further.
+    #[test]
+    fn a_box_adds_one_grenade_up_to_the_limit() {
+        let mut g = arena();
+        g.bots.clear();
+        g.wave_t = f32::INFINITY;
+        let p = g.players[0].body.pos;
+        g.players[0].grenades = 1;
+        for _ in 0..MAX_GRENADES {
+            g.boxes.push([p[0] + 0.5, p[1], p[2]]);
+            idle(&mut g, 0.1);
+        }
+        assert_eq!(g.players[0].grenades, MAX_GRENADES, "one per box, up to the limit");
+        g.boxes.push([p[0] + 0.5, p[1], p[2]]);
+        idle(&mut g, 0.1);
+        assert_eq!(g.players[0].grenades, MAX_GRENADES, "no more than can be carried");
     }
 
     /// A box just out of reach is left alone, and a dead player takes nothing.
