@@ -7,19 +7,21 @@
 <meta name="description" content="readyplayerz is a free first-person zombie survival shooter that runs right in your browser. Pick a loadout, hold out against endless waves, no download or sign-up.">
 <link rel="canonical" href="https://readyplayerz.com/">
 <meta name="theme-color" content="#12182a">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2312182a'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23ffd36a' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%23ffd36a'/%3E%3C/svg%3E">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="readyplayerz">
 <meta property="og:url" content="https://readyplayerz.com/">
 <meta property="og:title" content="readyplayerz – Zombie Survival FPS in Your Browser">
 <meta property="og:description" content="A free first-person zombie shooter that runs in your browser. Pick a loadout and survive the waves.">
-<meta property="og:image" content="https://readyplayerz.com/og.png">
+<meta property="og:image" content="https://readyplayerz.com/og.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="readyplayerz – Zombie Survival FPS in Your Browser">
 <meta name="twitter:description" content="A free first-person zombie shooter that runs in your browser. Pick a loadout and survive the waves.">
-<meta name="twitter:image" content="https://readyplayerz.com/og.png">
+<meta name="twitter:image" content="https://readyplayerz.com/og.jpg">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -31,9 +33,18 @@
   "gamePlatform": "Web browser",
   "applicationCategory": "Game",
   "operatingSystem": "Windows, macOS, Linux",
-  "playMode": ["SinglePlayer", "CoOp"],
+  "playMode": ["SinglePlayer", "CoOp", "MultiPlayer"],
+  "numberOfPlayers": { "@type": "QuantitativeValue", "minValue": 1, "maxValue": 6 },
+  "inLanguage": "en",
   "isAccessibleForFree": true,
-  "image": "https://readyplayerz.com/og.png",
+  "image": "https://readyplayerz.com/og.jpg",
+  "screenshot": ["https://readyplayerz.com/og.jpg", "https://readyplayerz.com/maps/playground.webp", "https://readyplayerz.com/maps/suburb.webp"],
+  "gameLocation": [
+    { "@type": "Place", "name": "Playground", "description": "A ruined town round a clock tower, with a yard, trenches and a hill." },
+    { "@type": "Place", "name": "Suburb", "description": "Streets of houses, a school and a strip mall in a ring of wooded hills." }
+  ],
+  "author": { "@type": "Organization", "name": "readyplayerz", "url": "https://readyplayerz.com/" },
+  "dateModified": "2026-10-20",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
 </script>
@@ -80,6 +91,8 @@
   .item:hover, .item:focus-visible { opacity: 1; outline: none; border-left-color: #ffd36a; background: linear-gradient(90deg, rgba(255,211,106,.16), transparent); }
   .item small { display: block; font-size: 12px; letter-spacing: .04em; text-transform: none; opacity: .65; }
   .item.danger { display: none; margin-top: 14px; font-size: 16px; color: #ff9a8a; }
+  .about { align-self: flex-start; margin: 22px 0 0 17px; font-size: 12px; color: inherit; opacity: .5; }
+  .about:hover { opacity: 1; color: #ffd36a; }
   .note { min-height: 1.4em; margin: 18px 0 0; font-size: 13px; color: #ffd36a; }
   .screen header { display: flex; align-items: baseline; gap: 20px; margin-bottom: 26px; }
   .screen h2 { margin: 0; font-size: 30px; letter-spacing: .12em; text-transform: uppercase; }
@@ -207,7 +220,7 @@
   #dead small { display: block; margin-top: 10px; font-size: 15px; }
   #loading { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #12182a; transition: opacity .35s; }
   #loading.done { opacity: 0; pointer-events: none; }
-  #loading h1 { margin: 0 0 18px; font-size: min(40px, 8vw); letter-spacing: .12em; }
+  #loading .name { margin: 0 0 18px; font-size: min(40px, 8vw); font-weight: bold; letter-spacing: .12em; }
   #loading .track { width: 260px; height: 4px; background: rgba(255,255,255,.12); border-radius: 2px; overflow: hidden; }
   #loading .fill { width: 0; height: 100%; background: #ffd36a; transition: width .2s; }
   #loading p { margin: 12px 0 0; font-size: 13px; opacity: .7; }
@@ -231,7 +244,7 @@
   <div id="score"></div>
   <div id="dead"></div>
   <div id="stats"><span id="hp">100</span> HP<small id="kd"></small></div>
-  <div id="ammo"><span id="am">30</span> / <span id="mg">30</span><small id="rl"></small><small id="gr"></small></div>
+  <div id="ammo"><span id="rounds"><span id="am">30</span> / <span id="mg">30</span></span><small id="rl"></small><small id="gr"></small></div>
   <div id="stamina"><div id="sfill"></div></div>
   <div id="bar"></div>
 </div>
@@ -246,6 +259,7 @@
       <button class="item to-settings">Settings</button>
       <button class="item danger" id="end">End game</button>
     </nav>
+    <a class="about" href="/about" target="_blank">About the game: maps, guns, controls</a>
     <p id="err"></p>
   </section>
   <section class="screen" id="s-solo">
@@ -326,7 +340,7 @@
     </dl>
   </section>
 </div>
-<div id="loading"><h1>readyplayerz</h1><div class="track"><div class="fill" id="lfill"></div></div><p id="lstatus">Loading...</p>
+<div id="loading"><div class="name">readyplayerz</div><div class="track"><div class="fill" id="lfill"></div></div><p id="lstatus">Loading...</p>
   <noscript><h2>JavaScript is off</h2><p class="why">readyplayerz is a zombie survival shooter that runs in your browser. Turn JavaScript on to play.</p></noscript>
 </div>
 <script nomodule>
@@ -339,6 +353,7 @@ import init, { Client } from "./pkg/arena.js";
 import { Sound } from "./audio.js";
 import { Music } from "./music.js";
 import { Net } from "./net.js";
+import { track, remember, startAnalytics } from "./analytics.js";
 
 const canvas = document.getElementById("c");
 const menu = document.getElementById("menu");
@@ -447,14 +462,18 @@ function blocked(title, lines, anyway) {
 }
 
 // what the game can't do without: WebAssembly, WebGL2 (a context really made, since some GPUs are blocked)
-// and pointer lock for mouse look
+// and pointer lock for mouse look. Notes down the GPU on the way, for the analytics
+let gpu = "";
 function missing() {
   const gone = [];
   if (typeof WebAssembly !== "object") gone.push("WebAssembly");
   let gl = null;
   try { gl = document.createElement("canvas").getContext("webgl2"); } catch {}
   if (!gl) gone.push("WebGL 2");
-  else gl.getExtension("WEBGL_lose_context")?.loseContext();
+  else {
+    try { gpu = String(gl.getParameter(gl.getExtension("WEBGL_debug_renderer_info")?.UNMASKED_RENDERER_WEBGL ?? gl.RENDERER)); } catch {}
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
+  }
   if (!("requestPointerLock" in Element.prototype)) gone.push("pointer lock");
   return gone;
 }
@@ -467,23 +486,34 @@ const mobile = navigator.userAgentData?.mobile
 const touchOnly = matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches;
 
 const gone = missing();
+// came by a friend's invite link
+remember({ gpu, invited: new URLSearchParams(location.search).has("room") });
 if (gone.length) {
+  track("blocked", { reason: "browser", missing: gone });
+  startAnalytics();
   await blocked("Your browser can't run this", [
     `readyplayerz needs ${gone.join(", ").replace(/, ([^,]*)$/, " and $1")}, which this browser doesn't have or has turned off.`,
     "Try the latest Chrome, Edge, Firefox or Safari on a computer. If you already are, check that hardware acceleration is on in the browser's settings.",
   ]);
 }
 if (mobile || touchOnly) {
+  track("blocked", { reason: "mobile" });
+  startAnalytics();
   await blocked("Play on a computer", [
     "readyplayerz is a first-person shooter played with a keyboard and mouse, so it doesn't work on phones or tablets yet.",
     "Open readyplayerz.com on a desktop or laptop to play.",
   ], true);
+  track("blocked_try_anyway", { reason: "mobile" });
 }
 
+// how long loading took, for the analytics: the download, and all of it up to the first frame
+const loadStart = performance.now();
+let downloadMs = 0;
 let client;
 try {
   loading(0, "Downloading");
   const wasm = await download("pkg/arena_bg.wasm");
+  downloadMs = performance.now() - loadStart;
   loading(0.6, "Starting");
   await init({ module_or_path: wasm });
   loading(0.65, "Building the map and the guns");
@@ -496,6 +526,8 @@ try {
   $("lstatus").textContent = `Could not start: ${e}`;
   $("lstatus").className = "err";
   err.textContent = String(e);
+  track("load_failed", { error: String(e).slice(0, 500), downloaded: downloadMs > 0 });
+  startAnalytics();
   throw e;
 }
 addEventListener("resize", () => client.resize(...size()));
@@ -505,7 +537,7 @@ addEventListener("resize", () => client.resize(...size()));
 function segmented(parent, labels, pick, key, fallback = 0) {
   const buttons = labels.map((label, i) => {
     const b = el("button", "", label);
-    b.addEventListener("click", () => set(i));
+    b.addEventListener("click", () => { set(i); track("setting_changed", { setting: key, value: label }); });
     parent.appendChild(b);
     return b;
   });
@@ -513,6 +545,7 @@ function segmented(parent, labels, pick, key, fallback = 0) {
     pick(i);
     buttons.forEach((b, j) => b.classList.toggle("on", j === i));
     try { localStorage.setItem(key, labels[i]); } catch {}
+    remember({ [key]: labels[i] });
   };
   let saved = -1;
   try { saved = labels.indexOf(localStorage.getItem(key)); } catch {}
@@ -546,17 +579,19 @@ addEventListener("pointerdown", wake);
 addEventListener("keydown", wake);
 document.addEventListener("visibilitychange", () => (document.hidden ? music.stop() : music.on && music.start()));
 
-// the stat bars: how good a gun is at each (higher is better, drawn against the best of all guns) and how to print it
+// the stat bars: how good a gun is at each (higher is better, drawn against the best of all guns) and how to print
+// it. A melee weapon (no magazine) only has the ones marked for it, and isn't counted in the others' best
+const melee = g => g.mag === 0;
 const STATS = [
-  ["Damage", g => g.dmg, g => Math.round(g.dmg)],
-  ["Fire rate", g => g.rpm, g => `${Math.round(g.rpm)} rpm`],
+  ["Damage", g => g.dmg, g => Math.round(g.dmg), true],
+  ["Fire rate", g => g.rpm, g => melee(g) ? `${Math.round(g.rpm)}/min` : `${Math.round(g.rpm)} rpm`, true],
   ["Accuracy", g => g.acc, g => Math.round(g.acc * 100)],
-  ["Mobility", g => g.speed - 0.8, g => `${Math.round(g.speed * 100)}%`],
+  ["Mobility", g => g.speed - 0.8, g => `${Math.round(g.speed * 100)}%`, true],
   ["Reload", g => 1 / g.reload, g => `${g.reload.toFixed(1)}s`],
   ["Magazine", g => g.mag, g => g.mag],
   ["Reserve", g => 2 * g.mag, g => `${2 * g.mag} (+${g.mag} per box)`],
 ];
-const best = STATS.map(([, f]) => Math.max(...guns.map(f)));
+const best = STATS.map(([, f, , all]) => Math.max(...guns.filter(g => all || !melee(g)).map(f)));
 // each gun's picture, made from the game's own model (see `?showcase`) and named after it, e.g. guns/ak-47.webp
 const pic = g => `<div class="pic"><img src="guns/${g.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.webp" alt="${g.name}"></div>`;
 const frac = (k, g) => `${Math.max(0.04, STATS[k][1](g) / best[k]) * 100}%`;
@@ -570,7 +605,7 @@ const loadoutNow = () => {
 const SLOTS = [
   { name: "Primary", guns: guns.filter(g => g.i < primaries) },
   { name: "Secondary", guns: guns.filter(g => g.i >= primaries) },
-].map((slot, s) => ({ ...slot, equipped: () => loadoutNow().picked[s], equip: i => { client.pick(i); saveLoadout(); } }));
+].map((slot, s) => ({ ...slot, equipped: () => loadoutNow().picked[s], equip: i => { client.pick(i); saveLoadout(); track("loadout_changed", { slot: slot.name, gun: names[i] }); } }));
 // the loadout is remembered by the guns' names, so a gun added or moved in the list never swaps someone's pick
 function saveLoadout() {
   try { localStorage.setItem("loadout", JSON.stringify(loadoutNow().picked.map(w => names[w]))); } catch {}
@@ -668,9 +703,12 @@ function drawPicker() {
 function drawDetail(g) {
   const eq = guns[SLOTS[pickSlot].equipped()];
   const other = g.i !== eq.i;
-  const bars = STATS.map(([label, f, print], k) => {
-    const d = other ? Math.sign(f(g) - f(eq)) : 0;
-    const mark = other ? `<u style="left:${frac(k, eq)}"></u>` : "";
+  const bars = STATS.filter(([, , , all]) => all || !melee(g)).map(([label, f, print, all]) => {
+    const k = STATS.findIndex(s => s[0] === label);
+    // against a gun's equipped only where the equipped one has the stat too
+    const vs = other && (all || !melee(eq));
+    const d = vs ? Math.sign(f(g) - f(eq)) : 0;
+    const mark = vs ? `<u style="left:${frac(k, eq)}"></u>` : "";
     return `<div class="stat"><span>${label}</span><div class="bar"><div style="width:${frac(k, g)}"></div>${mark}</div><span class="${d > 0 ? "up" : d < 0 ? "down" : ""}">${print(g)}</span></div>`;
   });
   const hint = other ? `Click to equip &middot; the marks show your ${eq.name}` : "Equipped";
@@ -711,6 +749,9 @@ if (params.has("run")) { client.key("KeyW", true); client.key("ShiftLeft", true)
 if (params.has("fire")) client.mouse_button(0, true); // holds the trigger, to look at the actions cycling
 if (params.has("reload")) client.key("KeyR", true); // holds reload, so a gun reloads as soon as a shot is gone
 if (params.has("throw")) client.key("KeyG", true); // holds the grenade key, to look at the aiming arc
+// ?swing=u,n,gore holds the bat u (0 to 1) of the way through swing n (odd one way, even the other), as bloodied as
+// gore (0 to 1), with the game paused
+if (params.has("swing")) client.pose_swing(...params.get("swing").split(",").map(Number));
 // ?showcase=i&bg=0..1 draws gun i alone on a flat grey with nothing over it, to make the loadout's pictures from
 if (params.has("showcase")) {
   client.showcase(Number(params.get("showcase")), Number(params.get("bg") || 0));
@@ -739,8 +780,55 @@ if (params.has("climb")) {
 if (params.has("dev")) window.client = client;
 const locked = () => document.pointerLockElement === canvas;
 const play = () => { sound.start(); canvas.requestPointerLock(); };
+
+// ---- analytics for a game: from the first moment in play (once the host has started it, online) to being overrun,
+// ending it, leaving or closing the page. `watchGame` is called every frame but only compares a few numbers
+let game = null;
+let lastWatch = 0;
+const gameProps = () => {
+  const { carried } = loadoutNow();
+  return { mode: lobby.online ? "online" : "solo", map: MAPS[lobby.online ? lobby.map : client.map()].name, primary: names[carried[0]], sidearm: names[carried[1]] };
+};
+function watchGame(t, wave, kills, deaths, inPlay, overrun, team) {
+  const dt = lastWatch ? t - lastWatch : 0;
+  lastWatch = t;
+  if (!game && inPlay && !overrun && locked() && (!lobby.online || lobby.started)) {
+    game = { props: gameProps(), wave, kills, deaths, team, ms: 0, frames: 0, scale: auto.scale };
+    track("game_started", { ...game.props, wave, team });
+  }
+  if (!game) return;
+  // time in play, not paused in the menu, and how smoothly it ran
+  if (locked() && dt < 200) {
+    game.ms += dt;
+    game.frames++;
+    game.scale = Math.min(game.scale, auto.scale);
+  }
+  game.team = Math.max(game.team, team);
+  game.last = { kills, deaths };
+  if (wave > game.wave) {
+    game.wave = wave;
+    track("wave_reached", { ...game.props, wave, team });
+  }
+  if (overrun) gameOver("overrun");
+}
+// `how`: "overrun", "ended", "left" (the room), "lost" (the connection), "switched" (to another room) or "closed"
+// (the page)
+function gameOver(how) {
+  if (!game) return;
+  const { kills, deaths } = game.last || game;
+  track("game_over", {
+    ...game.props, how, wave: game.wave, team: game.team,
+    kills: Math.max(0, kills - game.kills), deaths: Math.max(0, deaths - game.deaths),
+    seconds: Math.round(game.ms / 1000),
+    fps: game.ms > 1000 ? Math.round(game.frames * 1000 / game.ms) : null,
+    // the lowest the automatic resolution went, as a fraction of the setting's
+    render_scale: Math.round(game.scale * 100) / 100,
+  });
+  game = null;
+}
+addEventListener("pagehide", () => gameOver("closed"));
 // ending the game stays on the menu, ready to pick a loadout or a map and start again
-const endGame = () => { client.end_game(); sound.cancel(); };
+const endGame = () => { gameOver("ended"); client.end_game(); sound.cancel(); };
 $("end").addEventListener("click", () => { endGame(); show("s-main"); });
 $("resume").addEventListener("click", play);
 
@@ -795,14 +883,20 @@ const markRoomMap = mapCards($("mp-maps"), i => {
   roomMap = i;
   try { localStorage.setItem("roomMap", i); } catch {}
 });
-async function joinRoom(code) {
+// `via` is how, for the analytics: "create", "code" or "link"
+async function joinRoom(code, via) {
   net?.close();
   client.net_leave("");
   $("mp-error").textContent = "";
   mpStatus(code ? `Joining room ${code}...` : "Making a room...");
+  joining = via;
+  gameOver("switched");
   const n = new Net(client, why => {
     if (net !== n) return;
     net = null;
+    // was in the room, or never got in
+    track(lobby.online ? "room_lost" : "room_failed", { via, why });
+    gameOver("lost");
     client.net_leave(why);
     if (locked()) document.exitPointerLock();
     show("s-mp");
@@ -815,6 +909,8 @@ async function joinRoom(code) {
   }
 }
 function leaveRoom() {
+  if (lobby.online) track("room_left", { players: lobby.players.length, started: lobby.started });
+  gameOver("left");
   net?.close();
   net = null;
   client.net_leave("");
@@ -824,7 +920,9 @@ function leaveRoom() {
 // the lobby screen from where things stand; `drawn` is what the room's view shows, so it's only redrawn on a change
 const drawn = { players: "", map: -1 };
 function drawRoom() {
+  const was = lobby;
   lobby = JSON.parse(client.lobby());
+  roomEvents(was, lobby);
   const inRoom = lobby.online;
   $("mp-out").style.display = inRoom ? "none" : "block";
   $("mp-in").style.display = inRoom ? "block" : "none";
@@ -863,9 +961,19 @@ function drawRoom() {
   $("mp-start").style.display = host && !lobby.started ? "" : "none";
   mpStatus(lobby.started ? "The game is under way: jump in." : host ? "Start the game when everyone is in. You can jump in and look around until then." : "Waiting for the host to start the game. You can jump in and look around until then.");
 }
+// for the analytics, what changed in the room: getting in, waiting in line for one, the game starting in it
+let joining = "";
+function roomEvents(was, now) {
+  if (now.online && !was.online) {
+    const host = now.players[0]?.[0] === now.id;
+    track(host ? "room_created" : "room_joined", { via: joining, map: MAPS[now.map].name, players: now.players.length, started: now.started });
+  }
+  if (now.queued && !was.queued) track("room_queued", { place: now.queued });
+  if (now.online && now.started && !was.started) track("room_game_started", { players: now.players.length, map: MAPS[now.map].name });
+}
 const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
-$("mp-create").addEventListener("click", () => (lobby.queued ? leaveRoom() : joinRoom("")));
-$("mp-join").addEventListener("click", () => { const c = $("mp-code").value; if (c.length === 4) joinRoom(c); });
+$("mp-create").addEventListener("click", () => (lobby.queued ? leaveRoom() : joinRoom("", "create")));
+$("mp-join").addEventListener("click", () => { const c = $("mp-code").value; if (c.length === 4) joinRoom(c, "code"); });
 // a code is four letters: anything else typed or pasted is dropped, and Join waits for all four
 $("mp-code").addEventListener("input", () => {
   const c = $("mp-code");
@@ -877,16 +985,17 @@ $("mp-start").addEventListener("click", () => net?.start());
 $("mp-play").addEventListener("click", play);
 $("mp-leave").addEventListener("click", leaveRoom);
 $("mp-copy").addEventListener("click", async () => {
+  track("invite_copied", { players: lobby.players.length });
   try { await navigator.clipboard.writeText($("mp-link").value); mpStatus("Link copied: send it to your friends."); }
   catch { $("mp-link").select(); }
 });
 // an invite link: straight into the room. Dev flag: ?create makes one, for testing without clicking
 if (params.has("room")) {
   show("s-mp");
-  joinRoom(params.get("room").toUpperCase());
+  joinRoom(params.get("room").toUpperCase(), "link");
 } else if (params.has("create")) {
   show("s-mp");
-  joinRoom("");
+  joinRoom("", "create");
 }
 
 addEventListener("keydown", e => {
@@ -943,10 +1052,13 @@ function loop(t) {
   $("hp").textContent = Math.ceil(hp);
   $("am").textContent = ammo;
   $("mg").textContent = reserve;
+  // a melee weapon has no rounds to count
+  $("rounds").style.display = mag > 0 ? "" : "none";
   [carried, carried2].forEach((w, s) => {
     if (w !== shownCarried[s]) {
       shownCarried[s] = w;
-      slots[s].querySelector("span").textContent = names[w];
+      // playing for loot, the primary slot is empty until a gun is found
+      slots[s].querySelector("span").textContent = names[w] ?? "Empty";
     }
     slots[s].classList.toggle("on", weapon === w);
   });
@@ -980,8 +1092,12 @@ function loop(t) {
   const dead = $("dead");
   // down with others still standing: back for the next wave; everyone down: the game starts over
   const benched = down > 0 && standing > 0;
+  watchGame(t, wave, kills, deaths, inPlay > 0, respawn > 0 && !benched, team);
   dead.style.display = respawn > 0 || benched ? "block" : "none";
-  const next = `<small>Next life: ${names[picked]} and ${names[picked2]} &middot; Esc to change your loadout</small>`;
+  // alone it is played for loot: every life starts with only the pistol
+  const next = lobby.online
+    ? `<small>Next life: ${names[picked]} and ${names[picked2]} &middot; Esc to change your loadout</small>`
+    : `<small>Next life: the ${names[primaries]} &middot; find the rest in weapon crates</small>`;
   if (benched) {
     dead.innerHTML = `You're down. Back when the next wave starts` + next;
   } else if (respawn > 0) {
@@ -991,6 +1107,12 @@ function loop(t) {
     // the first frame has been drawn: show it on the next one
     loaded = true;
     loading(1, "Ready");
+    track("game_loaded", {
+      load_ms: Math.round(performance.now() - loadStart), download_ms: Math.round(downloadMs),
+      width: innerWidth, height: innerHeight, dpr: devicePixelRatio,
+    });
+    // PostHog's own script only now, with the game on screen
+    startAnalytics();
     requestAnimationFrame(() => $("loading").classList.add("done"));
     setTimeout(() => $("loading").remove(), 600);
   }

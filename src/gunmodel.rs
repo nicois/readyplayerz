@@ -191,6 +191,33 @@ impl Mesh {
         }
     }
 
+    /// A smooth solid of revolution about the z axis through the profile `(z, r)`, in order from one end to the
+    /// other. Each ring's normal follows the profile through it, so a curve reads as one; an end at radius 0 closes.
+    pub fn lathe(&mut self, profile: &[(f32, f32)], seg: usize) {
+        let n = profile.len();
+        let slope = |i: usize| {
+            let (a, b) = (profile[i.saturating_sub(1)], profile[(i + 1).min(n - 1)]);
+            let (dz, dr) = (b.0 - a.0, b.1 - a.1);
+            let l = dz.hypot(dr).max(1e-9);
+            // out from the axis, or along it at an end
+            let (nz, nr) = (dr / l, -dz / l);
+            if nr < 0.0 { (-nz, -nr) } else { (nz, nr) }
+        };
+        for i in 0..n - 1 {
+            let ((z0, r0), (z1, r1), s0, s1) = (profile[i], profile[i + 1], slope(i), slope(i + 1));
+            for k in 0..seg {
+                let (t0, t1) = (k as f32 / seg as f32 * TAU, (k + 1) as f32 / seg as f32 * TAU);
+                let (d0, d1) = ([t0.cos(), t0.sin()], [t1.cos(), t1.sin()]);
+                let at = |d: [f32; 2], z: f32, r: f32| [d[0] * r, d[1] * r, z];
+                let nrm = |d: [f32; 2], s: (f32, f32)| [d[0] * s.1, d[1] * s.1, s.0];
+                self.quad(
+                    [at(d0, z0, r0), at(d0, z1, r1), at(d1, z1, r1), at(d1, z0, r0)],
+                    [nrm(d0, s0), nrm(d0, s1), nrm(d1, s1), nrm(d1, s0)],
+                );
+            }
+        }
+    }
+
     /// The top rail every gun mounts sights on: a base and its cross slots, from `z0` to `z1`, standing on `y`.
     fn rail(&mut self, y: f32, z0: f32, z1: f32) {
         self.bx([-0.0105, y, z0], [0.0105, y + 0.0075, z1], 0.0008);
@@ -443,7 +470,7 @@ impl Hands {
 
 /// Every gun, in the order of `sim::WEAPONS`.
 pub fn guns() -> Vec<Gun> {
-    vec![carbine(), smg(), shotgun(), sniper(), ak47(), uzi(), double_barrel(), mosin(), pistol(), revolver(), deagle()]
+    vec![carbine(), smg(), shotgun(), sniper(), ak47(), uzi(), double_barrel(), mosin(), pistol(), revolver(), deagle(), baseball_bat()]
 }
 
 const GLOVE: [f32; 3] = [0.06, 0.06, 0.065];
@@ -1712,6 +1739,202 @@ fn deagle() -> Gun {
     }
 }
 
+// ---- baseball bat -----------------------------------------------------------------------------
+
+/// A 33-inch wooden bat's outline, as (z, radius) from the knob to the end of the barrel: the knob, the thin
+/// handle, the long taper, the barrel, and the rounded end. Along the bore, so the end of the barrel is its muzzle.
+const BAT: [(f32, f32); 20] = [
+    (0.016, 0.0), (0.016, 0.017), (0.0145, 0.0235), (0.011, 0.0262), (0.006, 0.026), (0.001, 0.0215), (-0.005, 0.0152),
+    (-0.014, 0.0127), (-0.20, 0.0129), (-0.30, 0.0146), (-0.38, 0.0182), (-0.46, 0.0242), (-0.53, 0.0294),
+    (-0.59, 0.0324), (-0.66, 0.0335), (-0.79, 0.0336), (-0.818, 0.0329), (-0.831, 0.0298), (-0.839, 0.021),
+    (-0.8415, 0.0),
+];
+/// Where the hands hold it: the left (bottom) hand just over the knob, the right above it.
+pub const BAT_LEFT_Z: f32 = -0.054;
+pub const BAT_RIGHT_Z: f32 = -0.137;
+/// Where the bat meets what it is swung at, so the blood is where it would be: the sweet spot of the barrel.
+const BAT_SWEET: (f32, f32) = (-0.78, -0.58);
+const ASH: [f32; 3] = [0.74, 0.57, 0.36];
+
+/// The bat's radius at `z`, along its outline.
+fn bat_r(z: f32) -> f32 {
+    let i = BAT.iter().position(|p| p.0 <= z).unwrap_or(BAT.len() - 1).max(1);
+    let ((z0, r0), (z1, r1)) = (BAT[i - 1], BAT[i]);
+    r0 + (r1 - r0) * ((z - z0) / (z1 - z0)).clamp(0.0, 1.0)
+}
+
+/// The outline from `z0` down to `z1`, a little proud of the wood, for what is wrapped round or painted on it.
+fn bat_band(z0: f32, z1: f32, proud: f32) -> Vec<(f32, f32)> {
+    let mut p = vec![(z0, bat_r(z0) - 0.001), (z0, bat_r(z0) + proud)];
+    p.extend(BAT.iter().filter(|q| q.0 < z0 && q.0 > z1).map(|q| (q.0, q.1 + proud)));
+    p.extend([(z1, bat_r(z1) + proud), (z1, bat_r(z1) - 0.001)]);
+    p
+}
+
+/// A wooden baseball bat: pale lacquered ash with its grain, the end of the barrel dipped black, a maker's band
+/// burned in where the taper starts, and the handle wrapped in black grip tape, its ridges spiralling up to a
+/// finishing band. It has no moving parts; the hands round it come from `bat_hands`.
+fn baseball_bat() -> Gun {
+    let mut wood = Mesh::default();
+    wood.lathe(&BAT, 28);
+    // the dipped end: lacquer from a little short of the end, round over it
+    let mut dip = Mesh::default();
+    let mut end = vec![(-0.74, bat_r(-0.74) - 0.001), (-0.74, bat_r(-0.74) + 0.0006)];
+    end.extend(BAT.iter().filter(|q| q.0 < -0.74).map(|q| (q.0, q.1 + if q.1 > 0.0 { 0.0006 } else { 0.0 })));
+    dip.lathe(&end, 28);
+    // the maker's band: two thin burned rings and a wider one between them
+    let mut brand = Mesh::default();
+    for (z0, z1) in [(-0.497, -0.500), (-0.504, -0.516), (-0.520, -0.523)] {
+        brand.lathe(&bat_band(z0, z1, 0.0003), 28);
+    }
+    // grip tape over the knob and up the handle, and its finishing band
+    let (mut tape, mut ridge) = (Mesh::default(), Mesh::default());
+    let mut over: Vec<(f32, f32)> = BAT.iter().filter(|q| q.0 > -0.014).map(|q| (q.0 + 0.0016, q.1 + if q.1 > 0.0 { 0.0016 } else { 0.0 })).collect();
+    over.extend(bat_band(-0.014, -0.215, 0.0011).into_iter().skip(1));
+    tape.lathe(&over, 24);
+    tape.lathe(&bat_band(-0.215, -0.228, 0.0016), 24);
+    let (turns, steps) = (9.0, 360);
+    let mut last: Option<V> = None;
+    for k in 0..=steps {
+        let t = k as f32 / steps as f32;
+        let (z, a) = (-0.012 - 0.2 * t, t * turns * TAU);
+        let r = bat_r(z) + 0.0011;
+        let p = [r * a.cos(), r * a.sin(), z];
+        if let Some(q) = last {
+            ridge.cyl(q, p, 0.0009, 0.0009, 5);
+        }
+        last = Some(p);
+    }
+    Gun {
+        body: vec![
+            piece(wood, WOOD, ASH, 0.5),
+            piece(dip, POLYMER, [0.035, 0.03, 0.028], 0.7),
+            piece(brand, POLYMER, [0.10, 0.06, 0.03], 0.2),
+            piece(tape, RUBBER, [0.035, 0.035, 0.04], 0.15),
+            piece(ridge, RUBBER, [0.06, 0.06, 0.065], 0.2),
+        ],
+        mag: Vec::new(),
+        trigger: Vec::new(),
+        action: Vec::new(),
+        spec: Spec { muzzle_z: BAT[BAT.len() - 1].0, trigger_pivot: [0.0; 3], flip: 0.0, ..SPEC },
+    }
+}
+
+/// One hand round the bat's handle at `zc`, in the bat's space: the back of the hand on the side `side` of x, the
+/// forearm running off along +y, four fingers round under the handle from the knuckles, and the thumb over the top
+/// to meet them. The left hand is the right one turned over, so both close the same way round, as on a real grip.
+fn bat_hand_sdf(p: V, side: f32, zc: f32) -> f32 {
+    let p = [p[0] * side, p[1], p[2] - zc];
+    let rr = 0.0141 + 0.0092;
+    // the palm and the back of the hand, running from the wrist down to the knuckles by the handle
+    let mut d = ell(p, [0.025, 0.036, 0.0], [0.0155, 0.040, 0.040]);
+    d = smin(d, cone(p, [0.026, 0.064, 0.004], [0.030, 0.104, 0.010], 0.024, 0.026), 0.02);
+    // four fingers, the index nearest the barrel, each round the handle from its knuckle to its tip
+    for (i, z) in [-0.029f32, -0.010, 0.009, 0.027].iter().enumerate() {
+        let end = 3.75 - 0.12 * i as f32;
+        let pts: Vec<V> = (0..7)
+            .map(|k| 0.35 - end * k as f32 / 6.0)
+            .map(|a: f32| {
+                let r = rr + 0.004 * (1.0 - (a - 0.35).abs().min(1.0));
+                [r * a.cos(), r * a.sin(), *z]
+            })
+            .collect();
+        d = smin(d, finger(p, &pts, 0.0094 - 0.0004 * i as f32, 0.85), 0.007);
+    }
+    // the thumb, from the heel of the palm over the top of the handle to the fingertips
+    let thumb: Vec<V> = [(0.022f32, 0.050f32, -0.030f32), (0.016, 0.030, -0.036), (0.004, rr + 0.003, -0.036), (-0.012, rr - 0.001, -0.034), (-0.022, 0.012, -0.031)]
+        .iter()
+        .map(|&(x, y, z)| [x, y, z])
+        .collect();
+    smin(d, finger(p, &thumb, 0.0104, 0.88), 0.008)
+}
+
+fn bat_sleeve_sdf(p: V, side: f32, zc: f32) -> f32 {
+    cone([p[0] * side, p[1], p[2] - zc], [0.030, 0.100, 0.012], [0.075, 0.40, 0.09], 0.031, 0.05)
+}
+
+/// Both hands round the bat, and their sleeves (see `bat_hand_sdf`).
+pub fn bat_hands() -> Vec<Piece> {
+    let mut out = Vec::new();
+    for (side, zc) in [(1.0f32, BAT_RIGHT_Z), (-1.0, BAT_LEFT_Z)] {
+        // x from `a` to `b` on the right hand's side, turned over for the left
+        let span = |a: f32, b: f32| ((a * side).min(b * side), (a * side).max(b * side));
+        let (x0, x1) = span(-0.045, 0.065);
+        let glove = smooth(&|p| bat_hand_sdf(p, side, zc), [x0, -0.045, zc - 0.06], [x1, 0.14, zc + 0.06], 0.0024);
+        let (x0, x1) = span(0.0, 0.14);
+        let sleeve = smooth(&|p| bat_sleeve_sdf(p, side, zc), [x0, 0.06, zc - 0.06], [x1, 0.46, zc + 0.16], 0.004);
+        out.push(piece(glove, CLOTH, GLOVE, 0.12));
+        out.push(piece(sleeve, CLOTH, SLEEVE, 0.0));
+    }
+    out
+}
+
+/// A small fixed scatter, the same every time: `n` numbers 0 to 1 from `seed`.
+fn scatter(seed: u32, n: usize) -> Vec<f32> {
+    let mut x = seed.wrapping_mul(2654435761).max(1);
+    (0..n)
+        .map(|_| {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            (x >> 8) as f32 / 16_777_216.0
+        })
+        .collect()
+}
+
+/// A splash of blood on the bat at angle `a` round it and `z` along it, `half` across and along: a thin lens
+/// wrapped round the wood so it lies on it all over, the inner half hidden in it.
+fn splash(m: &mut Mesh, a: f32, z: f32, half: [f32; 2]) {
+    const THICK: f32 = 0.0011;
+    let (rings, seg) = (6, 12);
+    let at = |i: usize, j: usize| {
+        let (th, ph) = (i as f32 / rings as f32 * std::f32::consts::PI, j as f32 / seg as f32 * TAU);
+        let k = [th.cos(), th.sin() * ph.cos(), th.sin() * ph.sin()];
+        let zz = z + k[2] * half[1];
+        let ang = a + k[1] * half[0] / bat_r(zz).max(0.01);
+        let (out, round) = ([ang.cos(), ang.sin(), 0.0], [-ang.sin(), ang.cos(), 0.0]);
+        let p = add(mulv(out, bat_r(zz) + 0.0002 + k[0] * THICK), [0.0, 0.0, zz]);
+        let n = norm(add(add(mulv(out, k[0] / THICK), mulv(round, k[1] / half[0])), [0.0, 0.0, k[2] / half[1]]));
+        (p, n)
+    };
+    for i in 0..rings {
+        for j in 0..seg {
+            let q = [at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1)];
+            m.quad(q.map(|v| v.0), q.map(|v| v.1));
+        }
+    }
+}
+
+/// Blood on the bat's barrel, in coats, each over the last: a few spots, then smears, then most of the sweet spot
+/// soaked and running down towards the handle. Drawn up to how bloodied it is (see `sim::Player::gore`). Each
+/// splash is a flat lens lying on the wood, drawn out along the bat.
+pub fn bat_blood() -> Vec<Piece> {
+    let (z1, z0) = BAT_SWEET;
+    // fresh and bright first, darker and browner as it builds up and dries
+    const RED: [[f32; 3]; 4] = [[0.30, 0.015, 0.02], [0.24, 0.012, 0.015], [0.19, 0.012, 0.012], [0.14, 0.012, 0.01]];
+    (0..4u32)
+        .map(|coat| {
+            let n = 22;
+            let r = scatter(coat + 7, 5 * n);
+            let mut m = Mesh::default();
+            for k in 0..n {
+                let (u, v, w, x, y) = (r[5 * k], r[5 * k + 1], r[5 * k + 2], r[5 * k + 3], r[5 * k + 4]);
+                // round the side it strikes with, spreading wider and further down coat by coat, until it is all
+                // the way round
+                let a = -1.9 + (u - 0.5) * (2.6 + 1.3 * coat as f32);
+                let z = z1 + (z0 - z1 + 0.07 * coat as f32) * v;
+                // spatter and splashes, each flung round the bat or smeared along it
+                let s = 0.002 + 0.009 * w * w + 0.0012 * coat as f32;
+                let (across, along) = if y < 0.5 { (1.0 + 1.5 * x, 1.0) } else { (1.0, 1.0 + 2.0 * x) };
+                // the last coat runs: long drips down towards the handle
+                let along = if coat == 3 && y > 0.8 { 5.0 + 5.0 * x } else { along };
+                splash(&mut m, a, z + s * (along - 1.0), [s * across, s * along]);
+            }
+            piece(m, 11.0, RED[coat as usize], 0.0)
+        })
+        .collect()
+}
+
 // ---- hands ------------------------------------------------------------------------------------
 
 /// Builds a smooth mesh of `f` over a box, as position and normal.
@@ -1983,7 +2206,7 @@ mod tests {
         // overall length, front to back, for each gun in order
         let lengths = [
             (0.9, 1.05), (0.7, 0.85), (0.9, 1.05), (1.1, 1.3), (0.95, 1.05), (0.33, 0.42), (0.98, 1.08), (1.2, 1.3),
-            (0.18, 0.27), (0.3, 0.37), (0.26, 0.31),
+            (0.18, 0.27), (0.3, 0.37), (0.26, 0.31), (0.84, 0.87),
         ];
         for (i, g) in guns.iter().enumerate() {
             let tris = check(&g.body) + check(&g.mag) + check(&g.trigger) + check(&g.action);
@@ -2001,6 +2224,23 @@ mod tests {
             let l = hi[2] - lo[2];
             assert!(l > lengths[i].0 && l < lengths[i].1, "{name} is {l} long");
             assert!((lo[2] - g.spec.muzzle_z).abs() < 0.01, "{name}'s muzzle is at {} but its front at {}", g.spec.muzzle_z, lo[2]);
+        }
+    }
+
+    /// The bat is as thick as one at the barrel and the handle, the hands close round the handle and nowhere else,
+    /// and each coat of blood is there to draw.
+    #[test]
+    fn the_bat_is_shaped_like_one_and_held_by_the_handle() {
+        let t = std::time::Instant::now();
+        let (hands, blood) = (bat_hands(), bat_blood());
+        println!("bat hands and blood built in {:?}", t.elapsed());
+        println!("bat: {} triangles of hands, {} of blood", check(&hands), check(&blood));
+        assert_eq!(blood.len(), 4);
+        assert!((bat_r(-0.7) - 0.0335).abs() < 0.001 && (bat_r(-0.1) - 0.0128).abs() < 0.001);
+        for p in &hands {
+            for v in p.mesh.verts.chunks(6) {
+                assert!(v[2] < 0.0 && v[2] > -0.3 || v[1] > 0.06, "a hand off the handle at {v:?}");
+            }
         }
     }
 
