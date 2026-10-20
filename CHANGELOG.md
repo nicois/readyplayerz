@@ -2,6 +2,10 @@
 
 ## 2026-10-20
 
+### Cheaper pixels: noise from tables, and sharp screens drawn at 1.5
+- The surface patterns (skin, cloth, hair, wood, metal, brick, plaster) read their noise from two small tiling tables, a 256×256 and a 64×64×64, instead of working out four or eight random corners per lookup; a zombie's skin takes about twenty lookups a pixel. They look the same, with the speckles in other places. On an M1 at 1920×993 on High, a frame of the horde bench went from about 10.1 ms to 8.9.
+- A sharp (Retina) screen is drawn at most 1.5 pixels to the CSS pixel (was 2), so about half the pixels. On High it went from 34 to about 60 fps in the horde bench.
+
 ### Weapon crates are taken with E, into any slot; pickups pop up
 - Walking over a weapon crate no longer takes its gun. In reach of one (1.6 m) the HUD says "E Take the AK-47", and what it would leave behind; E takes it, running or not.
 - The gun goes into an empty slot if there is one, and otherwise in place of the gun in hand, whatever kind either is: holding the Pistol, a rifle can replace it, for two rifles. The gun left behind is gone.
