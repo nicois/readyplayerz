@@ -2,6 +2,12 @@
 
 ## 2026-10-20
 
+### Weapon crates are taken with E, into any slot; pickups pop up
+- Walking over a weapon crate no longer takes its gun. In reach of one (1.6 m) the HUD says "E Take the AK-47", and what it would leave behind; E takes it, running or not.
+- The gun goes into an empty slot if there is one, and otherwise in place of the gun in hand, whatever kind either is: holding the Pistol, a rifle can replace it, for two rifles. The gun left behind is gone.
+- An ammo box pops up a little cartoon "ammo" under the aim, rising and fading; a crate pops up the gun's name.
+- The take key goes over the network with the other keys (protocol version 5). The controls in Settings and on the About page list E.
+
 ### The guns are proportioned like the real ones
 - Every gun's trigger moved back 5.3 cm, to 7.4 cm from the back of the grip as on a real gun (it was 12.7), with the trigger guards shortened to match. The rifles' triggers were buried in the magwell; they now hang into the guard where they can be seen.
 - Magazines are as deep front to back as their rounds are long: the Carbine's and AK-47's grew from under 4 cm to 6, the Sniper's from 4.6 to 8, and their magwells with them. The SMG's sits right ahead of the guard instead of 6 cm in front of it.

@@ -227,6 +227,7 @@ impl Mirror {
         p.input.look_dy = 0.0;
         p.input.select = None;
         p.input.pick = None;
+        p.input.take = false;
         // the view is turned here, and the server told where it ended up
         p.look(inp.look_dx, inp.look_dy);
         inp.view = Some([p.yaw, p.pitch]);
@@ -682,7 +683,7 @@ mod tests {
     }
 
     /// Online every life starts with the pistol, and a crate the server puts down is seen on the client and
-    /// ends up in the hands of whoever walks over it, on both.
+    /// ends up in the hands of whoever takes it, on both.
     #[test]
     fn a_crate_from_the_server_is_taken_on_both() {
         let mut l = Link::new(1, 6);
@@ -690,16 +691,12 @@ mod tests {
         assert_eq!(l.server_player(0).loadout, [NO_GUN, PISTOL]);
         assert_eq!(l.clients[0].game.me().loadout, [NO_GUN, PISTOL]);
         let at = l.server_player(0).body.pos;
-        l.room.game.crates.push(([at[0] + 3.0, at[1], at[2]], 4));
+        l.room.game.crates.push(([at[0] + 1.0, at[1], at[2]], 4));
         l.run(0.5);
         assert_eq!(l.clients[0].game.crates.len(), 1, "the client sees the crate");
-        // walk over it: turned to face +x, then forward
-        let c = l.clients[0].game.me_mut();
-        c.input.look_dx = (std::f32::consts::FRAC_PI_2 - c.yaw) / SENS;
+        l.clients[0].game.me_mut().input.take = true;
         l.step();
-        l.clients[0].game.me_mut().input.w = true;
-        l.run(1.0);
-        l.clients[0].game.me_mut().input.w = false;
+        assert!(l.clients[0].game.crates.is_empty(), "taken here at once");
         l.run(0.5);
         assert!(l.room.game.crates.is_empty() && l.clients[0].game.crates.is_empty(), "taken, and gone on both");
         assert_eq!(l.server_player(0).loadout, [4, PISTOL]);
@@ -715,6 +712,7 @@ mod tests {
         let at = l.clients[0].game.me().body.pos;
         let newest = l.clients[0].newest;
         l.clients[0].loot.insert(spot(at), (at, 4, newest));
+        l.clients[0].game.me_mut().input.take = true;
         l.step();
         assert_eq!(l.clients[0].game.me().loadout, [4, PISTOL], "taken here first");
         l.run(1.0);
