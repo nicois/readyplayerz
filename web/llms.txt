@@ -12,3 +12,4 @@
 
 - [Play](https://readyplayerz.com/): the game itself
 - [About](https://readyplayerz.com/about): how it works, the maps, guns, controls and common questions
+- [Discord](https://discord.gg/ptPAsh6UR): the community, for finding people to play with
