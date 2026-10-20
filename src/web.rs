@@ -173,6 +173,12 @@ impl Client {
         p.pitch = pitch;
     }
 
+    /// Dev view: gun `i` in hand and raised, whatever the loadout, to look at it held.
+    pub fn hold(&mut self, i: usize) {
+        self.game.select(i);
+        self.game.me_mut().equip_t = 0.0;
+    }
+
     /// Dev view: the bat in hand `u` of the way through swing `n` (odd swings go one way, even the other), as
     /// bloodied as `gore`, held there for as long as the game is paused.
     pub fn pose_swing(&mut self, u: f32, n: u32, gore: f32) {
@@ -250,6 +256,18 @@ impl Client {
     /// pictures.
     pub fn showcase(&mut self, i: usize, bg: f32) {
         self.renderer.showcase.set(Some((i, bg)));
+    }
+
+    /// Dev view: draws only gun `i`, flat from the side and from above, `half` metres of gun space either side of
+    /// `z` along the bore (`y` up it from the side), with or without the hands, for working on its shape.
+    pub fn bench(&mut self, i: usize, z: f32, y: f32, half: f32, hands: bool) {
+        self.renderer.bench.set(Some(crate::render::Bench { gun: i, z, y, half, hands }));
+    }
+
+    /// Where gun `i`'s parts reach in gun space, as the low then the high corner, then its sight line's height and
+    /// its muzzle.
+    pub fn gun_bounds(&self, i: usize) -> Vec<f32> {
+        self.renderer.gun_bounds(i)
     }
 
     pub fn remove_bots(&mut self) {

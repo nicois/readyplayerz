@@ -2,6 +2,14 @@
 
 ## 2026-10-20
 
+### The guns are proportioned like the real ones
+- Every gun's trigger moved back 5.3 cm, to 7.4 cm from the back of the grip as on a real gun (it was 12.7), with the trigger guards shortened to match. The rifles' triggers were buried in the magwell; they now hang into the guard where they can be seen.
+- Magazines are as deep front to back as their rounds are long: the Carbine's and AK-47's grew from under 4 cm to 6, the Sniper's from 4.6 to 8, and their magwells with them. The SMG's sits right ahead of the guard instead of 6 cm in front of it.
+- Shorter where they were long: the Carbine has a 16-inch barrel (89 cm overall, was 94), the AK-47's barrel stands 37 cm out of the receiver (91 cm overall, was 100), the Pistol's slide is a real 18.5 cm (was 22), the Desert Eagle's barrel is six inches (27 cm overall, was 30).
+- The Sniper's cheek riser sits on the stock instead of floating over it; the Revolver's trigger guard reaches its grip, and its underlug is slimmer.
+- The loadout pictures are made again from the new models.
+- Dev: `?bench=i[,hands]` draws gun `i` flat and to scale, from the side and from above, under a centimetre ruler with the bore, the sight line and the muzzle marked (`&half=m` fixes the scale, to compare guns); `?hold=i` puts gun `i` in hand whatever the loadout.
+
 ### One map: the Suburb
 - The Playground (the ruined town) is no longer played: solo and online both play the Suburb, and the map pickers show only its card. A map saved from before, or asked for by a page from before, is the Suburb too, on the server as well.
 - The town's code stays, for the tests built on it and to come back to (`map::played` picks the map a game is made on); its picture is gone.

@@ -767,6 +767,7 @@ if (params.has("sidearm")) client.pick(primaries + Number(params.get("sidearm"))
 if (params.get("screen") === "pick" || params.get("screen") === "pick2") openPicker(params.get("screen") === "pick2" ? 1 : 0);
 else if (params.has("screen")) show(`s-${params.get("screen")}`);
 if (params.has("slot")) client.key("Digit" + params.get("slot"), true);
+if (params.has("hold")) client.hold(Number(params.get("hold"))); // gun i in hand, whatever the loadout
 if (params.has("clean")) menu.style.visibility = "hidden";
 if (params.has("ads")) client.mouse_button(2, true); // holds aim, to look at the sights
 if (params.has("run")) { client.key("KeyW", true); client.key("ShiftLeft", true); } // holds sprint, to look at the run
@@ -782,6 +783,52 @@ if (params.has("showcase")) {
   document.querySelectorAll("body > :not(canvas)").forEach(e => (e.style.display = "none"));
 }
 
+// ?bench=i[,hands] draws gun i flat and to scale, from the side above and from on top below, under a centimetre
+// ruler, to work on its shape; &half=m fixes the width shown to 2m metres, so guns can be compared at one scale
+if (params.has("bench")) {
+  const [i, hands = 0] = params.get("bench").split(",").map(Number);
+  const [lx, ly, lz, hx, hy, hz, sightY, muzzleZ] = client.gun_bounds(i);
+  // the side view's split matches render::BENCH_SIDE
+  const [W, H] = [innerWidth, innerHeight], sideH = Math.round(H * 0.62);
+  const half = Number(params.get("half")) || Math.max(hz - lz, (hy - ly) * W / sideH) * 0.56;
+  const [zc, yc] = [(lz + hz) / 2, (ly + hy) / 2];
+  client.bench(i, zc, yc, half, hands > 0);
+  document.querySelectorAll("body > :not(canvas)").forEach(e => (e.style.display = "none"));
+  const ruler = document.createElement("canvas");
+  ruler.style.cssText = "position:fixed;inset:0;pointer-events:none";
+  document.body.append(ruler);
+  [ruler.width, ruler.height] = [W * devicePixelRatio, H * devicePixelRatio];
+  const c = ruler.getContext("2d");
+  c.scale(devicePixelRatio, devicePixelRatio);
+  const ppm = W / (2 * half);
+  const sx = z => W / 2 - (z - zc) * ppm;
+  const sy = y => sideH / 2 - (y - yc) * ppm;
+  const ty = x => sideH + (H - sideH) / 2 + x * ppm;
+  const line = (x0, y0, x1, y1, style, width = 1) => { c.strokeStyle = style; c.lineWidth = width; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); };
+  c.font = "11px ui-monospace, Menlo, monospace";
+  for (let cm = Math.floor((zc - half) * 100); cm <= (zc + half) * 100; cm++) {
+    const x = sx(cm / 100), major = cm % 10 === 0;
+    if (cm % 5 && ppm < 600) continue;
+    line(x, 0, x, H, major ? "rgba(255,255,255,.28)" : cm % 5 ? "rgba(255,255,255,.06)" : "rgba(255,255,255,.12)");
+    if (major) { c.fillStyle = "rgba(255,255,255,.7)"; c.fillText(`${-cm}`, x + 3, 12); }
+  }
+  for (let cm = -60; cm <= 60; cm++) {
+    const major = cm % 10 === 0, style = major ? "rgba(255,255,255,.28)" : cm % 5 ? "rgba(255,255,255,.06)" : "rgba(255,255,255,.12)";
+    if (cm % 5 && ppm < 600) continue;
+    const y = sy(cm / 100);
+    if (y > 0 && y < sideH) line(0, y, W, y, style);
+    const t = ty(cm / 100);
+    if (t > sideH && t < H) line(0, t, W, t, style);
+  }
+  line(0, sideH, W, sideH, "rgba(0,0,0,.5)", 2);
+  // the bore, the sight line and the muzzle
+  line(0, sy(0), W, sy(0), "rgba(255,120,90,.6)");
+  line(0, sy(sightY), W, sy(sightY), "rgba(120,220,255,.6)");
+  line(sx(muzzleZ), 0, sx(muzzleZ), H, "rgba(255,120,90,.6)");
+  c.fillStyle = "#fff";
+  c.font = "14px ui-monospace, Menlo, monospace";
+  c.fillText(`${names[i]}  ${Math.round((hz - lz) * 1000)} mm long, ${Math.round((hy - ly) * 1000)} high, ${Math.round((hx - lx) * 1000)} wide · cm from the bore over the trigger`, 10, sideH - 10);
+}
 if (params.has("at")) {
   const [x, z, yaw = 0, y = 0, pitch = 0] = params.get("at").split(",").map(Number);
   client.teleport(x, y, z, yaw, pitch);
