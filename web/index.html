@@ -111,6 +111,9 @@
   .slots .lslot h3 { font-size: 20px; }
   .slots .lslot em { grid-column: 1 / -1; }
   .note.pending:empty { display: none; }
+  /* the loadout cards are hidden for now: every game is played for loot. Kept, with the picker, to bring back
+     later */
+  .loadout { display: none; }
   .room-map .mapcard span { display: none; }
   .room-map .mapcard img { aspect-ratio: 21 / 9; }
   .lslot { width: 300px; max-width: 100%; padding: 16px 18px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.16); border-radius: 6px; }
@@ -266,10 +269,10 @@
   </section>
   <section class="screen" id="s-solo">
     <header><button class="back">&lsaquo; Back</button><h2>Solo</h2></header>
-    <p class="sub">Just you against the waves. Pick where to make your stand, and what to carry.</p>
+    <p class="sub">Just you against the waves. Pick where to make your stand: you start with a pistol, and find the rest in weapon crates.</p>
     <div class="setup">
       <div><b class="lbl">Map</b><div class="maps small" id="solo-maps"></div></div>
-      <div><b class="lbl">Loadout</b><div class="slots" id="solo-slots"></div><p class="note pending"></p></div>
+      <div class="loadout"><b class="lbl">Loadout</b><div class="slots" id="solo-slots"></div><p class="note pending"></p></div>
     </div>
     <div class="actions"><button class="btn main" id="solo-play">Play</button><button class="btn danger" id="solo-end">End game</button><button class="btn to-settings">Settings</button></div>
     <p class="note" id="solo-note"></p>
@@ -307,9 +310,11 @@
         </div>
         <div>
           <div class="panel room-map"><div id="mp-room-map"></div></div>
-          <b class="lbl step">Your loadout</b>
-          <div class="slots" id="mp-slots"></div>
-          <p class="note pending"></p>
+          <div class="loadout">
+            <b class="lbl step">Your loadout</b>
+            <div class="slots" id="mp-slots"></div>
+            <p class="note pending"></p>
+          </div>
         </div>
       </div>
       <div class="actions"><button class="btn main" id="mp-start">Start the game</button><button class="btn main" id="mp-play">Jump in</button><button class="btn danger" id="mp-leave">Leave room</button><button class="btn to-settings">Settings</button></div>
