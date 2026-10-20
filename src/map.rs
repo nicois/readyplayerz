@@ -6,7 +6,7 @@
 //!
 //! The second map, a suburb, is in `suburb`; both are built with the same kit of walls, floors and stairs.
 
-use crate::sim::{overlaps, Aabb, Rng, V3, HALF};
+use crate::sim::{overlaps, Aabb, Rng, HALF, V3};
 use crate::terrain::Terrain;
 
 mod suburb;
@@ -58,9 +58,19 @@ const CONTAINERS: [Col; 6] = [
     [0.74, 0.74, 0.70],
     [0.80, 0.42, 0.16],
 ];
-const CAR_COLORS: [Col; 4] = [[0.45, 0.14, 0.12], [0.20, 0.26, 0.34], [0.55, 0.52, 0.45], [0.18, 0.30, 0.22]];
+const CAR_COLORS: [Col; 4] = [
+    [0.45, 0.14, 0.12],
+    [0.20, 0.26, 0.34],
+    [0.55, 0.52, 0.45],
+    [0.18, 0.30, 0.22],
+];
 /// painted clapboard: white, pale blue, butter yellow, sage
-const SIDING: [Col; 4] = [[0.74, 0.73, 0.69], [0.52, 0.60, 0.66], [0.74, 0.67, 0.46], [0.50, 0.56, 0.45]];
+const SIDING: [Col; 4] = [
+    [0.74, 0.73, 0.69],
+    [0.52, 0.60, 0.66],
+    [0.74, 0.67, 0.46],
+    [0.50, 0.56, 0.45],
+];
 const SHINGLE: Col = [0.24, 0.24, 0.26];
 const TILE: Col = [0.42, 0.22, 0.17];
 const LEAF: Col = [0.17, 0.26, 0.12];
@@ -86,7 +96,10 @@ pub fn material(c: [f32; 3]) -> u8 {
         2
     } else if c == PLASTER {
         3
-    } else if [RUST, STEEL, YELLOW].contains(&c) || CONTAINERS.contains(&c) || CAR_COLORS.contains(&c) {
+    } else if [RUST, STEEL, YELLOW].contains(&c)
+        || CONTAINERS.contains(&c)
+        || CAR_COLORS.contains(&c)
+    {
         4
     } else if c == WOOD || SIDING.contains(&c) {
         5
@@ -134,7 +147,10 @@ fn perimeter_of(half: f32) -> Vec<Aabb> {
 }
 
 pub fn block(cx: f32, cz: f32, sx: f32, sy: f32, sz: f32) -> Aabb {
-    Aabb { min: [cx - sx / 2.0, 0.0, cz - sz / 2.0], max: [cx + sx / 2.0, sy, cz + sz / 2.0] }
+    Aabb {
+        min: [cx - sx / 2.0, 0.0, cz - sz / 2.0],
+        max: [cx + sx / 2.0, sy, cz + sz / 2.0],
+    }
 }
 
 struct B {
@@ -157,12 +173,31 @@ struct B {
 
 impl B {
     fn new(seed: u32, half: f32) -> B {
-        B { w: Vec::new(), c: Vec::new(), m: Vec::new(), decals: Vec::new(), keep_out: Vec::new(), rng: Rng(seed.wrapping_mul(2_654_435_761).max(1)), ruin: 0.0, half, ground: None, lift: 0.0 }
+        B {
+            w: Vec::new(),
+            c: Vec::new(),
+            m: Vec::new(),
+            decals: Vec::new(),
+            keep_out: Vec::new(),
+            rng: Rng(seed.wrapping_mul(2_654_435_761).max(1)),
+            ruin: 0.0,
+            half,
+            ground: None,
+            lift: 0.0,
+        }
     }
 
     fn finish(mut self) -> Map {
         let spawns = self.spawns();
-        Map { half: self.half, walls: self.w, colors: self.c, mats: self.m, decals: self.decals, spawns, ground: self.ground }
+        Map {
+            half: self.half,
+            walls: self.w,
+            colors: self.c,
+            mats: self.m,
+            decals: self.decals,
+            spawns,
+            ground: self.ground,
+        }
     }
 
     /// Height of the ground at (x, z).
@@ -181,7 +216,10 @@ impl B {
         }
         let mat = material(col);
         let col = self.tint(col);
-        let (min, max) = ([min[0], min[1] + self.lift, min[2]], [max[0], max[1] + self.lift, max[2]]);
+        let (min, max) = (
+            [min[0], min[1] + self.lift, min[2]],
+            [max[0], max[1] + self.lift, max[2]],
+        );
         self.w.push(Aabb { min, max });
         self.c.push(col);
         self.m.push(mat);
@@ -192,15 +230,32 @@ impl B {
     }
 
     fn block(&mut self, cx: f32, cz: f32, sx: f32, sy: f32, sz: f32, col: Col) {
-        self.bx(cx - sx / 2.0, 0.0, cz - sz / 2.0, cx + sx / 2.0, sy, cz + sz / 2.0, col);
+        self.bx(
+            cx - sx / 2.0,
+            0.0,
+            cz - sz / 2.0,
+            cx + sx / 2.0,
+            sy,
+            cz + sz / 2.0,
+            col,
+        );
     }
 
     fn decal(&mut self, x0: f32, z0: f32, x1: f32, z1: f32, col: Col) {
-        self.decals.push((Aabb { min: [x0, 0.0, z0], max: [x1, 0.02, z1] }, col));
+        self.decals.push((
+            Aabb {
+                min: [x0, 0.0, z0],
+                max: [x1, 0.02, z1],
+            },
+            col,
+        ));
     }
 
     fn reserve(&mut self, x0: f32, z0: f32, x1: f32, z1: f32) {
-        self.keep_out.push(Aabb { min: [x0, 0.0, z0], max: [x1, 1.0, z1] });
+        self.keep_out.push(Aabb {
+            min: [x0, 0.0, z0],
+            max: [x1, 1.0, z1],
+        });
     }
 
     fn pick(&mut self, lo: f32, hi: f32) -> f32 {
@@ -219,7 +274,18 @@ impl B {
 
     /// A wall along `axis` (0 = x, 2 = z) from `a0` to `a1`, centred on `at` on the other axis,
     /// with openings cut out of it.
-    fn wall(&mut self, axis: usize, a0: f32, a1: f32, at: f32, thick: f32, y0: f32, y1: f32, ops: &[Op], col: Col) {
+    fn wall(
+        &mut self,
+        axis: usize,
+        a0: f32,
+        a1: f32,
+        at: f32,
+        thick: f32,
+        y0: f32,
+        y1: f32,
+        ops: &[Op],
+        col: Col,
+    ) {
         let mut sorted: Vec<&Op> = ops.iter().collect();
         sorted.sort_by(|a, b| a.c.partial_cmp(&b.c).unwrap());
         let mut cur = a0;
@@ -233,7 +299,17 @@ impl B {
         self.seg(axis, cur, a1, at, thick, y0, y1, col);
     }
 
-    fn seg(&mut self, axis: usize, lo: f32, hi: f32, at: f32, thick: f32, ylo: f32, yhi: f32, col: Col) {
+    fn seg(
+        &mut self,
+        axis: usize,
+        lo: f32,
+        hi: f32,
+        at: f32,
+        thick: f32,
+        ylo: f32,
+        yhi: f32,
+        col: Col,
+    ) {
         if hi - lo < 0.05 || yhi - ylo < 0.05 {
             return;
         }
@@ -271,7 +347,17 @@ impl B {
 
     /// Stairs from (x, z), the middle of the bottom edge, going in `dir` (0 +x, 1 -x, 2 +z, 3 -z). Solid ones are
     /// built up from `base`; open ones are a zig-zag of steel with room underneath, like a real flight indoors.
-    fn stairs(&mut self, x: f32, z: f32, dir: u8, steps: usize, width: f32, base: f32, open: bool, col: Col) {
+    fn stairs(
+        &mut self,
+        x: f32,
+        z: f32,
+        dir: u8,
+        steps: usize,
+        width: f32,
+        base: f32,
+        open: bool,
+        col: Col,
+    ) {
         let hw = width / 2.0;
         for i in 1..=steps {
             let (a, b) = ((i - 1) as f32 * TREAD, i as f32 * TREAD);
@@ -291,21 +377,48 @@ impl B {
     /// marked in `doors` (north = -z, south, west = -x, east), windows all round, and a flat roof.
     /// Stairs climb along the north wall on even floors and the south wall on odd ones, from every floor of a
     /// building with more than one, so the roof can always be reached.
-    fn building(&mut self, x0: f32, z0: f32, x1: f32, z1: f32, stories: usize, col: Col, ruin: f32, doors: [bool; 4]) {
-        let stories = if x1 - x0 >= 14.0 && z1 - z0 >= 8.0 { stories } else { 1 };
+    fn building(
+        &mut self,
+        x0: f32,
+        z0: f32,
+        x1: f32,
+        z1: f32,
+        stories: usize,
+        col: Col,
+        ruin: f32,
+        doors: [bool; 4],
+    ) {
+        let stories = if x1 - x0 >= 14.0 && z1 - z0 >= 8.0 {
+            stories
+        } else {
+            1
+        };
         let climb = stories > 1;
         self.ruin = ruin;
         self.reserve(x0 - 1.0, z0 - 1.0, x1 + 1.0, z1 + 1.0);
         let n_lo = if stories > 1 { x0 + 9.5 } else { x0 + 3.0 };
-        let door_at = [self.pick(n_lo, x1 - 2.5), self.pick(x0 + 4.0, x1 - 4.0), self.pick(z0 + 4.0, z1 - 2.5), self.pick(z0 + 4.0, z1 - 2.5)];
+        let door_at = [
+            self.pick(n_lo, x1 - 2.5),
+            self.pick(x0 + 4.0, x1 - 4.0),
+            self.pick(z0 + 4.0, z1 - 2.5),
+            self.pick(z0 + 4.0, z1 - 2.5),
+        ];
         let (w, d) = (x1 - x0, z1 - z0);
 
         for s in 0..stories {
             let y0 = s as f32 * STORY;
             let y1 = y0 + CLEAR;
-            let (xf, lane, dir) = if s % 2 == 0 { (x0 + T / 2.0 + 1.6, z0 + T / 2.0 + 0.8, 0) } else { (x1 - T / 2.0 - 1.6, z1 - T / 2.0 - 0.8, 1) };
+            let (xf, lane, dir) = if s % 2 == 0 {
+                (x0 + T / 2.0 + 1.6, z0 + T / 2.0 + 0.8, 0)
+            } else {
+                (x1 - T / 2.0 - 1.6, z1 - T / 2.0 - 0.8, 1)
+            };
             let run = 11.0 * TREAD;
-            let (f0, f1) = if dir == 0 { (xf, xf + run) } else { (xf - run, xf) };
+            let (f0, f1) = if dir == 0 {
+                (xf, xf + run)
+            } else {
+                (xf - run, xf)
+            };
             for side in 0..4 {
                 let (axis, a0, a1, at) = match side {
                     0 => (0, x0, x1, z0),
@@ -315,7 +428,12 @@ impl B {
                 };
                 let mut ops = Vec::new();
                 if s == 0 && doors[side] {
-                    ops.push(Op { c: door_at[side], w: 2.4, sill: 0.0, head: 2.4 });
+                    ops.push(Op {
+                        c: door_at[side],
+                        w: 2.4,
+                        sill: 0.0,
+                        head: 2.4,
+                    });
                 }
                 let n = ((a1 - a0 - 2.0) / 3.6).floor() as i32;
                 for k in 0..n {
@@ -323,7 +441,12 @@ impl B {
                     // the wall the flight runs up stays whole, so the steps never cut across a window
                     let behind = climb && side == dir as usize && c + 1.1 > f0 && c - 1.1 < f1;
                     if !behind && ops.iter().all(|o| (o.c - c).abs() > 2.8) {
-                        ops.push(Op { c, w: 1.6, sill: 1.0, head: 2.3 });
+                        ops.push(Op {
+                            c,
+                            w: 1.6,
+                            sill: 1.0,
+                            head: 2.3,
+                        });
                     }
                 }
                 self.wall(axis, a0, a1, at, T, y0, y1, &ops, col);
@@ -331,7 +454,22 @@ impl B {
             if s == 0 && w >= 18.0 && d >= 8.0 {
                 // a partition with a door splits the ground floor into two rooms
                 let x = x0 + w * 0.62;
-                self.wall(2, z0, z1, x, T, y0, y1, &[Op { c: z1 - 3.5, w: 2.4, sill: 0.0, head: 2.4 }], col);
+                self.wall(
+                    2,
+                    z0,
+                    z1,
+                    x,
+                    T,
+                    y0,
+                    y1,
+                    &[Op {
+                        c: z1 - 3.5,
+                        w: 2.4,
+                        sill: 0.0,
+                        head: 2.4,
+                    }],
+                    col,
+                );
             }
 
             let last = s + 1 == stories;
@@ -377,12 +515,32 @@ impl B {
         let n = ((x1 - x0 - 4.0) / 6.0).floor() as i32;
         for at in [z0, z1] {
             let ops: Vec<Op> = (0..n)
-                .map(|k| Op { c: x0 + 3.0 + (k as f32 + 0.5) * (x1 - x0 - 6.0) / n as f32, w: 3.0, sill: 4.2, head: h - 0.8 })
+                .map(|k| Op {
+                    c: x0 + 3.0 + (k as f32 + 0.5) * (x1 - x0 - 6.0) / n as f32,
+                    w: 3.0,
+                    sill: 4.2,
+                    head: h - 0.8,
+                })
                 .collect();
             self.wall(0, x0, x1, at, 0.5, 0.0, h, &ops, col);
         }
         for at in [x0, x1] {
-            self.wall(2, z0, z1, at, 0.5, 0.0, h, &[Op { c: (z0 + z1) / 2.0, w: 5.0, sill: 0.0, head: 4.5 }], col);
+            self.wall(
+                2,
+                z0,
+                z1,
+                at,
+                0.5,
+                0.0,
+                h,
+                &[Op {
+                    c: (z0 + z1) / 2.0,
+                    w: 5.0,
+                    sill: 0.0,
+                    head: 4.5,
+                }],
+                col,
+            );
         }
         self.bx(x0 - 0.5, h, z0 - 0.5, x1 + 0.5, h + 0.4, z1 + 0.5, ROOF);
         // storage racks in two rows with a gap in the middle of each
@@ -394,7 +552,12 @@ impl B {
     }
 
     fn container_yard(&mut self, x0: f32, z0: f32, cols: usize, rows: usize, px: f32, pz: f32) {
-        self.reserve(x0 - 1.0, z0 - 3.0, x0 + cols as f32 * px, z0 + rows as f32 * pz);
+        self.reserve(
+            x0 - 1.0,
+            z0 - 3.0,
+            x0 + cols as f32 * px,
+            z0 + rows as f32 * pz,
+        );
         for r in 0..rows {
             for c in 0..cols {
                 if self.rng.f() < 0.15 {
@@ -419,7 +582,15 @@ impl B {
         self.bx(cx - sx, 0.3, cz - sz, cx + sx, 1.0, cz + sz, col);
         let (cx2, cz2) = if along_x { (1.0, 0.8) } else { (0.8, 1.0) };
         self.bx(cx - cx2, 1.0, cz - cz2, cx + cx2, 1.55, cz + cz2, BLACK);
-        self.bx(cx - sx + 0.3, 0.0, cz - sz + 0.2, cx + sx - 0.3, 0.3, cz + sz - 0.2, BLACK);
+        self.bx(
+            cx - sx + 0.3,
+            0.0,
+            cz - sz + 0.2,
+            cx + sx - 0.3,
+            0.3,
+            cz + sz - 0.2,
+            BLACK,
+        );
     }
 
     // ---- zones ---------------------------------------------------------------------------------
@@ -464,7 +635,12 @@ impl B {
                 p = [p[1], -p[0]];
                 q = [q[1], -q[0]];
             }
-            [p[0].min(q[0]), p[1].min(q[1]), p[0].max(q[0]), p[1].max(q[1])]
+            [
+                p[0].min(q[0]),
+                p[1].min(q[1]),
+                p[0].max(q[0]),
+                p[1].max(q[1]),
+            ]
         };
         // from the middle of the south face: half a flight, five whole ones round, and a last one up the north face
         // through the deck, with a landing at each corner
@@ -506,14 +682,25 @@ impl B {
         // the balcony: a round steel deck, open where the last flight comes up through it (so nobody's head hits
         // it on the way), with a railing all round low enough to shoot over
         let (r, hole) = (5.7, face(6, [-a, a, 2.4, a + w]));
-        let mut zs: Vec<f32> = (0..=22).map(|i| -r + i as f32 * (2.0 * r / 22.0)).chain([hole[1], hole[3]]).collect();
+        let mut zs: Vec<f32> = (0..=22)
+            .map(|i| -r + i as f32 * (2.0 * r / 22.0))
+            .chain([hole[1], hole[3]])
+            .collect();
         zs.sort_by(f32::total_cmp);
         for z in zs.windows(2) {
             let (z0, z1) = (z[0], z[1]);
-            let near = if z0 < 0.0 && z1 > 0.0 { 0.0 } else { z0.abs().min(z1.abs()) };
+            let near = if z0 < 0.0 && z1 > 0.0 {
+                0.0
+            } else {
+                z0.abs().min(z1.abs())
+            };
             let hw = (r * r - near * near).max(0.0).sqrt();
             let cut = z0 >= hole[1] - 0.001 && z1 <= hole[3] + 0.001;
-            let spans = if cut { vec![(-hw, hole[0]), (hole[2], hw)] } else { vec![(-hw, hw)] };
+            let spans = if cut {
+                vec![(-hw, hole[0]), (hole[2], hw)]
+            } else {
+                vec![(-hw, hw)]
+            };
             for (x0, x1) in spans {
                 self.bx(x0, deck - 0.3, z0, x1, deck, z1, STEEL);
             }
@@ -524,12 +711,23 @@ impl B {
             let (s, c) = ((i as f32 + 0.5) / n as f32 * std::f32::consts::TAU).sin_cos();
             let (x, z) = (rr * c, rr * s);
             // each piece of the ring is a box along the circle, a little longer than its share so they overlap
-            let (hx, hz) = ((s.abs() * chord * 0.6).max(0.035), (c.abs() * chord * 0.6).max(0.035));
+            let (hx, hz) = (
+                (s.abs() * chord * 0.6).max(0.035),
+                (c.abs() * chord * 0.6).max(0.035),
+            );
             for (y0, y1) in [(0.45, 0.52), (0.95, 1.05)] {
                 self.bx(x - hx, deck + y0, z - hz, x + hx, deck + y1, z + hz, STEEL);
             }
             if i % 3 == 0 {
-                self.bx(x - 0.04, deck, z - 0.04, x + 0.04, deck + 0.95, z + 0.04, STEEL);
+                self.bx(
+                    x - 0.04,
+                    deck,
+                    z - 0.04,
+                    x + 0.04,
+                    deck + 0.95,
+                    z + 0.04,
+                    STEEL,
+                );
             }
         }
 
@@ -537,10 +735,26 @@ impl B {
         let top = deck + 4.1;
         self.bx(-2.0, deck, -2.0, 2.0, top, 2.0, STONE);
         for (dx, dz) in [(0.0, 2.1), (0.0, -2.1)] {
-            self.bx(dx - 1.2, deck + 0.8, dz - 0.2, dx + 1.2, deck + 3.2, dz + 0.2, PLASTER);
+            self.bx(
+                dx - 1.2,
+                deck + 0.8,
+                dz - 0.2,
+                dx + 1.2,
+                deck + 3.2,
+                dz + 0.2,
+                PLASTER,
+            );
         }
         for (dx, dz) in [(2.1, 0.0), (-2.1, 0.0)] {
-            self.bx(dx - 0.2, deck + 0.8, dz - 1.2, dx + 0.2, deck + 3.2, dz + 1.2, PLASTER);
+            self.bx(
+                dx - 0.2,
+                deck + 0.8,
+                dz - 1.2,
+                dx + 0.2,
+                deck + 3.2,
+                dz + 1.2,
+                PLASTER,
+            );
         }
         self.bx(-2.6, top, -2.6, 2.6, top + 0.5, 2.6, STONE);
         self.bx(-1.6, top + 0.5, -1.6, 1.6, top + 4.0, 1.6, ROOF);
@@ -560,20 +774,69 @@ impl B {
             self.bx(sx + r - t, 0.0, -r + t, sx + r, 0.8, r - t, STONE);
             self.block(sx, 0.0, 0.8, 1.8, 0.8, STONE);
         }
-        for (x, z) in [(-8.0, 18.0), (8.0, 18.0), (-8.0, -18.0), (8.0, -18.0), (-20.0, 10.0), (20.0, -10.0)] {
+        for (x, z) in [
+            (-8.0, 18.0),
+            (8.0, 18.0),
+            (-8.0, -18.0),
+            (8.0, -18.0),
+            (-20.0, 10.0),
+            (20.0, -10.0),
+        ] {
             self.block(x, z, 3.0, 0.7, 0.7, WOOD);
         }
         // four ruined shops and flats round the plaza
         let c = self.one_of(&[BRICK, BRICK_LIGHT, PLASTER]).to_owned();
-        self.building(-46.0, -24.0, -30.0, -10.0, 2, c, 0.5, [false, true, false, true]);
+        self.building(
+            -46.0,
+            -24.0,
+            -30.0,
+            -10.0,
+            2,
+            c,
+            0.5,
+            [false, true, false, true],
+        );
         let c = self.one_of(&[BRICK, BRICK_LIGHT, PLASTER]).to_owned();
-        self.building(30.0, -24.0, 46.0, -10.0, 2, c, 0.5, [false, true, true, false]);
+        self.building(
+            30.0,
+            -24.0,
+            46.0,
+            -10.0,
+            2,
+            c,
+            0.5,
+            [false, true, true, false],
+        );
         let c = self.one_of(&[BRICK, BRICK_LIGHT, PLASTER]).to_owned();
-        self.building(-46.0, 10.0, -30.0, 24.0, 2, c, 0.6, [true, false, false, true]);
+        self.building(
+            -46.0,
+            10.0,
+            -30.0,
+            24.0,
+            2,
+            c,
+            0.6,
+            [true, false, false, true],
+        );
         let c = self.one_of(&[BRICK, BRICK_LIGHT, PLASTER]).to_owned();
-        self.building(30.0, 10.0, 46.0, 24.0, 2, c, 0.4, [true, false, true, false]);
+        self.building(
+            30.0,
+            10.0,
+            46.0,
+            24.0,
+            2,
+            c,
+            0.4,
+            [true, false, true, false],
+        );
         // wrecks along the roads
-        for (x, z, ax) in [(-3.0, -40.0, false), (3.0, 38.0, false), (-30.0, 3.0, true), (36.0, -3.0, true), (2.5, 52.0, false)] {
+        for (x, z, ax) in [
+            (-3.0, -40.0, false),
+            (3.0, 38.0, false),
+            (-30.0, 3.0, true),
+            (36.0, -3.0, true),
+            (2.5, 52.0, false),
+        ] {
             self.car(x, z, ax);
         }
     }
@@ -594,7 +857,15 @@ impl B {
         self.bx(x - 11.0, 14.0, z - 4.2, x + 11.0, 16.4, z + 4.2, YELLOW);
         self.bx(x - 1.5, 12.5, z - 1.5, x + 1.5, 14.0, z + 1.5, BLACK);
         self.bx(x - 0.1, 10.7, z - 0.1, x + 0.1, 12.5, z + 0.1, BLACK);
-        self.bx(x - 6.0, 8.0, z - 1.25, x + 6.0, 10.7, z + 1.25, CONTAINERS[0]);
+        self.bx(
+            x - 6.0,
+            8.0,
+            z - 1.25,
+            x + 6.0,
+            10.7,
+            z + 1.25,
+            CONTAINERS[0],
+        );
         self.reserve(x - 12.0, z - 5.0, x + 12.0, z + 5.0);
         for (x, z) in [(-12.0, -52.0), (12.0, -54.0), (-4.0, -88.0), (5.0, -76.0)] {
             self.car(x, z, false);
@@ -610,24 +881,79 @@ impl B {
             let stories = if self.rng.f() < 0.55 { 2 } else { 1 };
             let ruin = self.rng.range(0.3, 0.9);
             let west = self.rng.f() < 0.5;
-            self.building(x0, 50.0, x0 + 14.0, 60.0, stories, c, ruin, [false, true, west, !west]);
+            self.building(
+                x0,
+                50.0,
+                x0 + 14.0,
+                60.0,
+                stories,
+                c,
+                ruin,
+                [false, true, west, !west],
+            );
         }
         for x0 in [-92.0, -72.0, -52.0] {
             let c = *self.one_of(&cols);
             let stories = if self.rng.f() < 0.55 { 2 } else { 1 };
             let ruin = self.rng.range(0.3, 0.9);
-            self.building(x0, 70.0, x0 + 14.0, 80.0, stories, c, ruin, [true, false, true, false]);
+            self.building(
+                x0,
+                70.0,
+                x0 + 14.0,
+                80.0,
+                stories,
+                c,
+                ruin,
+                [true, false, true, false],
+            );
         }
         // the church: a roofless nave with tall broken walls, a solid bell tower, pews and an altar
         self.reserve(-12.0, 54.0, 12.0, 92.0);
         self.decal(-14.0, 54.0, 14.0, 92.0, PAVING);
         self.ruin = 0.7;
-        let ops: Vec<Op> = (0..4).map(|k| Op { c: 67.0 + k as f32 * 6.0, w: 2.2, sill: 1.5, head: 6.5 }).collect();
+        let ops: Vec<Op> = (0..4)
+            .map(|k| Op {
+                c: 67.0 + k as f32 * 6.0,
+                w: 2.2,
+                sill: 1.5,
+                head: 6.5,
+            })
+            .collect();
         for x in [-9.0, 9.0] {
             self.wall(2, 64.0, 88.0, x, 0.8, 0.0, 10.0, &ops, STONE);
         }
-        self.wall(0, -9.0, 9.0, 88.0, 0.8, 0.0, 11.0, &[Op { c: 0.0, w: 2.2, sill: 2.0, head: 7.0 }], STONE);
-        self.wall(0, -9.0, 9.0, 64.0, 0.8, 0.0, 10.0, &[Op { c: 0.0, w: 3.4, sill: 0.0, head: 5.0 }], STONE);
+        self.wall(
+            0,
+            -9.0,
+            9.0,
+            88.0,
+            0.8,
+            0.0,
+            11.0,
+            &[Op {
+                c: 0.0,
+                w: 2.2,
+                sill: 2.0,
+                head: 7.0,
+            }],
+            STONE,
+        );
+        self.wall(
+            0,
+            -9.0,
+            9.0,
+            64.0,
+            0.8,
+            0.0,
+            10.0,
+            &[Op {
+                c: 0.0,
+                w: 3.4,
+                sill: 0.0,
+                head: 5.0,
+            }],
+            STONE,
+        );
         self.block(0.0, 59.0, 6.0, 24.0, 6.0, STONE);
         self.block(0.0, 59.0, 4.0, 28.0, 4.0, ROOF);
         self.block(0.0, 59.0, 1.0, 32.0, 1.0, STEEL);
@@ -637,7 +963,12 @@ impl B {
             self.bx(1.5, 0.0, z - 0.4, 7.5, 0.9, z + 0.4, WOOD);
         }
         self.block(0.0, 85.5, 3.0, 1.1, 1.2, STONE);
-        for (x, z, ax) in [(-20.0, 64.0, true), (24.0, 66.0, true), (-60.0, 64.0, true), (50.0, 64.0, true)] {
+        for (x, z, ax) in [
+            (-20.0, 64.0, true),
+            (24.0, 66.0, true),
+            (-60.0, 64.0, true),
+            (50.0, 64.0, true),
+        ] {
             self.car(x, z, ax);
         }
     }
@@ -647,7 +978,14 @@ impl B {
         // a stepped hill: each ring is a step you can walk up
         for i in 0..14 {
             let half = 22.0 - 1.4 * i as f32;
-            self.block(75.0, 0.0, 2.0 * half, RISE * (i + 1) as f32, 2.0 * half, STONE);
+            self.block(
+                75.0,
+                0.0,
+                2.0 * half,
+                RISE * (i + 1) as f32,
+                2.0 * half,
+                STONE,
+            );
         }
         let top = RISE * 14.0;
         // a sniper's nest on top, and the radio mast
@@ -660,8 +998,26 @@ impl B {
         }
         self.reserve(52.0, -23.0, 98.0, 23.0);
         // a farm and a pair of broken walls out on the grass
-        self.building(60.0, -56.0, 74.0, -46.0, 1, WOOD, 0.7, [false, true, true, false]);
-        self.building(60.0, 30.0, 74.0, 40.0, 1, PLASTER, 0.8, [true, false, false, true]);
+        self.building(
+            60.0,
+            -56.0,
+            74.0,
+            -46.0,
+            1,
+            WOOD,
+            0.7,
+            [false, true, true, false],
+        );
+        self.building(
+            60.0,
+            30.0,
+            74.0,
+            40.0,
+            1,
+            PLASTER,
+            0.8,
+            [true, false, false, true],
+        );
         self.ruin = 0.8;
         self.wall(0, 84.0, 96.0, -40.0, 0.5, 0.0, 2.6, &[], STONE);
         self.wall(2, 28.0, 38.0, 88.0, 0.5, 0.0, 2.6, &[], STONE);
@@ -675,11 +1031,35 @@ impl B {
         for k in 0..15 {
             let z = -28.0 + 4.0 * k as f32;
             let c = if k % 2 == 0 { -50.0 - 1.5 } else { -96.0 + 1.5 };
-            self.wall(0, -96.0, -50.0, z, 0.8, 0.0, 2.2, &[Op { c, w: 3.0, sill: 0.0, head: 9.0 }], WOOD);
+            self.wall(
+                0,
+                -96.0,
+                -50.0,
+                z,
+                0.8,
+                0.0,
+                2.2,
+                &[Op {
+                    c,
+                    w: 3.0,
+                    sill: 0.0,
+                    head: 9.0,
+                }],
+                WOOD,
+            );
         }
         self.wall(2, -28.4, 28.4, -96.4, 0.8, 0.0, 2.2, &[], WOOD);
         // a concrete bunker north of it
-        self.building(-96.0, -50.0, -80.0, -38.0, 1, DARK_CONCRETE, 0.0, [false, true, false, true]);
+        self.building(
+            -96.0,
+            -50.0,
+            -80.0,
+            -38.0,
+            1,
+            DARK_CONCRETE,
+            0.0,
+            [false, true, false, true],
+        );
         // a water tower on legs: you can walk under it
         let (x, z) = (-78.0, 42.0);
         for (dx, dz) in [(-3.5, -3.5), (3.5, -3.5), (-3.5, 3.5), (3.5, 3.5)] {
@@ -697,7 +1077,14 @@ impl B {
         self.decal(fx0, fz0, fx1, fz1, DIRT);
         self.reserve(fx0 - 1.0, fz0 - 1.0, fx1 + 1.0, fz1 + 1.0);
         self.ruin = 0.3;
-        let gate = |c: f32| [Op { c, w: 4.0, sill: 0.0, head: 4.5 }];
+        let gate = |c: f32| {
+            [Op {
+                c,
+                w: 4.0,
+                sill: 0.0,
+                head: 4.5,
+            }]
+        };
         self.wall(0, fx0, fx1, fz0, 1.0, 0.0, 6.0, &[], CONCRETE);
         self.wall(0, fx0, fx1, fz1, 1.0, 0.0, 6.0, &gate(-79.0), CONCRETE);
         self.wall(2, fz0, fz1, fx0, 1.0, 0.0, 6.0, &[], CONCRETE);
@@ -705,7 +1092,16 @@ impl B {
         for (x, z) in [(fx0, fz0), (fx1, fz0), (fx0, fz1), (fx1, fz1)] {
             self.block(x, z, 5.0, 10.0, 5.0, STONE);
         }
-        self.building(-86.0, -86.0, -70.0, -76.0, 3, STONE, 0.2, [false, true, false, true]);
+        self.building(
+            -86.0,
+            -86.0,
+            -70.0,
+            -76.0,
+            3,
+            STONE,
+            0.2,
+            [false, true, false, true],
+        );
         for (x, z) in [(-90.0, -68.0), (-66.0, -90.0), (-92.0, -80.0)] {
             self.block(x, z, 2.5, 1.2, 1.2, WOOD);
         }
@@ -718,7 +1114,16 @@ impl B {
         }
         self.bx(66.0, 0.0, -80.6, 96.0, 0.9, -79.4, STEEL);
         self.bx(80.6, 0.0, -96.0, 81.4, 0.9, -64.0, STEEL);
-        self.building(77.0, -63.5, 85.0, -61.5, 1, CONCRETE, 0.0, [false, false, false, false]);
+        self.building(
+            77.0,
+            -63.5,
+            85.0,
+            -61.5,
+            1,
+            CONCRETE,
+            0.0,
+            [false, false, false, false],
+        );
         // SE: a gas station and a market
         self.decal(40.0, 66.0, 98.0, 98.0, ASPHALT);
         self.reserve(40.0, 66.0, 98.0, 99.0);
@@ -729,7 +1134,16 @@ impl B {
         for x in [49.0, 55.0, 61.0] {
             self.block(x, 77.0, 1.0, 1.4, 0.7, RUST);
         }
-        self.building(70.0, 70.0, 84.0, 80.0, 1, PLASTER, 0.3, [false, true, true, false]);
+        self.building(
+            70.0,
+            70.0,
+            84.0,
+            80.0,
+            1,
+            PLASTER,
+            0.3,
+            [false, true, true, false],
+        );
         for k in 0..5 {
             let x = 46.0 + k as f32 * 9.0;
             self.block(x, 91.0, 4.0, 1.6, 2.0, WOOD);
@@ -744,7 +1158,22 @@ impl B {
             self.block(x, z, 3.0, 3.5, 3.0, STEEL);
             self.block(x, z, 1.0, 5.0, 1.0, BLACK);
         }
-        self.wall(0, -98.0, -60.0, 84.0, 0.2, 0.0, 2.4, &[Op { c: -79.0, w: 4.0, sill: 0.0, head: 9.0 }], STEEL);
+        self.wall(
+            0,
+            -98.0,
+            -60.0,
+            84.0,
+            0.2,
+            0.0,
+            2.4,
+            &[Op {
+                c: -79.0,
+                w: 4.0,
+                sill: 0.0,
+                head: 9.0,
+            }],
+            STEEL,
+        );
         for x in [-90.0, -66.0] {
             self.block(x, 78.0, 1.0, 24.0, 1.0, STEEL);
             self.bx(x - 4.0, 20.0, 77.6, x + 4.0, 20.6, 78.4, STEEL);
@@ -761,15 +1190,33 @@ impl B {
                 break;
             }
             let (sx, sz) = (self.rng.range(1.5, 4.0), self.rng.range(1.5, 4.0));
-            let sy = if self.rng.f() < 0.75 { self.rng.range(0.4, 1.2) } else { self.rng.range(1.2, 2.4) };
+            let sy = if self.rng.f() < 0.75 {
+                self.rng.range(0.4, 1.2)
+            } else {
+                self.rng.range(1.2, 2.4)
+            };
             let reach = HALF - 4.0;
             let (x, z) = (self.rng.range(-reach, reach), self.rng.range(-reach, reach));
-            let near = Aabb { min: [x - sx / 2.0 - 3.0, 0.0, z - sz / 2.0 - 3.0], max: [x + sx / 2.0 + 3.0, 1.0, z + sz / 2.0 + 3.0] };
+            let near = Aabb {
+                min: [x - sx / 2.0 - 3.0, 0.0, z - sz / 2.0 - 3.0],
+                max: [x + sx / 2.0 + 3.0, 1.0, z + sz / 2.0 + 3.0],
+            };
             if self.keep_out.iter().any(|k| overlaps(&near, k)) {
                 continue;
             }
-            let flat = Aabb { min: [near.min[0], 0.0, near.min[2]], max: [near.max[0], 1.0, near.max[2]] };
-            if self.w.iter().any(|w| overlaps(&flat, &Aabb { min: [w.min[0], 0.0, w.min[2]], max: [w.max[0], 1.0, w.max[2]] })) {
+            let flat = Aabb {
+                min: [near.min[0], 0.0, near.min[2]],
+                max: [near.max[0], 1.0, near.max[2]],
+            };
+            if self.w.iter().any(|w| {
+                overlaps(
+                    &flat,
+                    &Aabb {
+                        min: [w.min[0], 0.0, w.min[2]],
+                        max: [w.max[0], 1.0, w.max[2]],
+                    },
+                )
+            }) {
                 continue;
             }
             let col = *self.one_of(&[STONE, CONCRETE, DARK_CONCRETE, BRICK]);
@@ -788,10 +1235,15 @@ impl B {
             while z <= reach {
                 let (px, pz) = (x + self.rng.range(-4.0, 4.0), z + self.rng.range(-4.0, 4.0));
                 let y = self.ground_at(px, pz);
-                let probe = Aabb { min: [px - 1.2, y, pz - 1.2], max: [px + 1.2, y + 1.8, pz + 1.2] };
+                let probe = Aabb {
+                    min: [px - 1.2, y, pz - 1.2],
+                    max: [px + 1.2, y + 1.8, pz + 1.2],
+                };
                 // in the hills, only on gentle ground: somewhere a body can walk down from may still be too steep
                 // to walk back up to
-                let level = [(2.0, 0.0), (-2.0, 0.0), (0.0, 2.0), (0.0, -2.0)].iter().all(|(dx, dz)| (self.ground_at(px + dx, pz + dz) - y).abs() < 0.7);
+                let level = [(2.0, 0.0), (-2.0, 0.0), (0.0, 2.0), (0.0, -2.0)]
+                    .iter()
+                    .all(|(dx, dz)| (self.ground_at(px + dx, pz + dz) - y).abs() < 0.7);
                 if level && y < 12.0 && !self.w.iter().any(|w| overlaps(&probe, w)) {
                     out.push([px, y, pz]);
                 }
@@ -835,11 +1287,28 @@ mod tests {
             let m = build(seed);
             assert_eq!(m.walls.len(), m.colors.len());
             for w in &m.walls {
-                assert!(w.min[0] >= -HALF - 1.1 && w.max[0] <= HALF + 1.1 && w.min[2] >= -HALF - 1.1 && w.max[2] <= HALF + 1.1, "seed {seed}: {w:?}");
-                assert!((0..3).all(|i| w.max[i] > w.min[i]), "seed {seed}: empty box {w:?}");
+                assert!(
+                    w.min[0] >= -HALF - 1.1
+                        && w.max[0] <= HALF + 1.1
+                        && w.min[2] >= -HALF - 1.1
+                        && w.max[2] <= HALF + 1.1,
+                    "seed {seed}: {w:?}"
+                );
+                assert!(
+                    (0..3).all(|i| w.max[i] > w.min[i]),
+                    "seed {seed}: empty box {w:?}"
+                );
             }
-            assert!(m.walls.len() > 600, "seed {seed}: only {} walls", m.walls.len());
-            assert!(m.spawns.len() > 30, "seed {seed}: only {} spawn points", m.spawns.len());
+            assert!(
+                m.walls.len() > 600,
+                "seed {seed}: only {} walls",
+                m.walls.len()
+            );
+            assert!(
+                m.spawns.len() > 30,
+                "seed {seed}: only {} spawn points",
+                m.spawns.len()
+            );
         }
     }
 
@@ -853,9 +1322,21 @@ mod tests {
             let mut nav = Nav::new(&world, HALF);
             nav.set_goal([0.0, 0.0, 14.0]);
             let (open, reached) = nav.coverage();
-            assert!(reached * 100 >= open * 98, "seed {seed}: only {reached} of {open} open cells can reach the middle");
+            assert!(
+                reached * 100 >= open * 98,
+                "seed {seed}: only {reached} of {open} open cells can reach the middle"
+            );
             // and every authored area can be reached from the middle
-            for (name, p) in [("north yard", [-40.0, 0.0, -78.0]), ("church", [0.0, 0.0, 76.0]), ("fortress yard", [-79.0, 0.0, -66.0]), ("hill foot", [52.0, 0.0, 0.0]), ("trench mouth", [-49.0, 0.0, -26.0]), ("gas station", [58.0, 0.0, 74.0]), ("clock tower balcony", [0.0, 21.9, 4.8]), ("a roof by the plaza", [-38.0, 6.6, -17.0])] {
+            for (name, p) in [
+                ("north yard", [-40.0, 0.0, -78.0]),
+                ("church", [0.0, 0.0, 76.0]),
+                ("fortress yard", [-79.0, 0.0, -66.0]),
+                ("hill foot", [52.0, 0.0, 0.0]),
+                ("trench mouth", [-49.0, 0.0, -26.0]),
+                ("gas station", [58.0, 0.0, 74.0]),
+                ("clock tower balcony", [0.0, 21.9, 4.8]),
+                ("a roof by the plaza", [-38.0, 6.6, -17.0]),
+            ] {
                 assert!(nav.reachable(p), "seed {seed}: {name} is cut off");
             }
         }
@@ -868,18 +1349,55 @@ mod tests {
     }
 
     fn lone_building(stories: usize) -> (crate::sim::Game, Aabb) {
-        let mut b = B { w: Vec::new(), c: Vec::new(), m: Vec::new(), decals: Vec::new(), keep_out: Vec::new(), rng: Rng(7), ruin: 0.0, half: HALF, ground: None, lift: 0.0 };
+        let mut b = B {
+            w: Vec::new(),
+            c: Vec::new(),
+            m: Vec::new(),
+            decals: Vec::new(),
+            keep_out: Vec::new(),
+            rng: Rng(7),
+            ruin: 0.0,
+            half: HALF,
+            ground: None,
+            lift: 0.0,
+        };
         for a in perimeter() {
             b.put(a.min, a.max, CONCRETE);
         }
         let (x0, z0, x1, z1) = (-8.0, -5.0, 8.0, 5.0);
-        b.building(x0, z0, x1, z1, stories, BRICK, 0.0, [false, true, false, false]);
+        b.building(
+            x0,
+            z0,
+            x1,
+            z1,
+            stories,
+            BRICK,
+            0.0,
+            [false, true, false, false],
+        );
         let walls = b.w;
         let c = vec![[0.5; 3]; walls.len()];
         let mats = vec![0; walls.len()];
-        let mut g = crate::sim::Game::with_map(1, Map { half: HALF, walls, colors: c, mats, decals: Vec::new(), spawns: Vec::new(), ground: None });
+        let mut g = crate::sim::Game::with_map(
+            1,
+            Map {
+                half: HALF,
+                walls,
+                colors: c,
+                mats,
+                decals: Vec::new(),
+                spawns: Vec::new(),
+                ground: None,
+            },
+        );
         g.bots.clear();
-        (g, Aabb { min: [x0, 0.0, z0], max: [x1, 0.0, z1] })
+        (
+            g,
+            Aabb {
+                min: [x0, 0.0, z0],
+                max: [x1, 0.0, z1],
+            },
+        )
     }
 
     #[test]
@@ -939,7 +1457,10 @@ mod tests {
                 return;
             }
         }
-        panic!("the zombie never got up the stairs to the player: it is at {:?}", g.bots[0].body.pos);
+        panic!(
+            "the zombie never got up the stairs to the player: it is at {:?}",
+            g.bots[0].body.pos
+        );
     }
 
     #[test]
@@ -949,7 +1470,10 @@ mod tests {
         g.players[0].input.w = true;
         g.players[0].input.sprint = true;
         // up the flight, then turn round at the top and run back down it
-        for (yaw, to) in [(std::f32::consts::FRAC_PI_2, 3.3), (-std::f32::consts::FRAC_PI_2, 0.0)] {
+        for (yaw, to) in [
+            (std::f32::consts::FRAC_PI_2, 3.3),
+            (-std::f32::consts::FRAC_PI_2, 0.0),
+        ] {
             g.players[0].yaw = yaw;
             let mut eye = g.players[0].eye()[1];
             let mut airborne = 0;
@@ -957,7 +1481,12 @@ mod tests {
                 g.tick(crate::sim::STEP);
                 let e = g.players[0].eye()[1];
                 // a sprint up a smooth slope this steep rises 0.075 a tick; a bare step would jump 0.3
-                assert!((e - eye).abs() < 0.12, "the eye jumped {} in one tick at {:?}", e - eye, g.players[0].body.pos);
+                assert!(
+                    (e - eye).abs() < 0.12,
+                    "the eye jumped {} in one tick at {:?}",
+                    e - eye,
+                    g.players[0].body.pos
+                );
                 eye = e;
                 airborne += !g.players[0].body.on_ground as usize;
             }
@@ -981,7 +1510,16 @@ mod tower {
         // once round the corners and on to the east face's, then up the last flight on the north face and out
         // onto the deck
         let c = 3.7;
-        let route = [[c, c], [c, -c], [-c, -c], [-c, c], [c, c], [c, -c], [-2.7, -c], [-4.6, 0.0]];
+        let route = [
+            [c, c],
+            [c, -c],
+            [-c, -c],
+            [-c, c],
+            [c, c],
+            [c, -c],
+            [-2.7, -c],
+            [-4.6, 0.0],
+        ];
         g.players[0].input.w = true;
         for (i, to) in route.iter().enumerate() {
             for _ in 0..(8.0 / crate::sim::STEP) as usize {
@@ -994,10 +1532,16 @@ mod tower {
                 g.tick(crate::sim::STEP);
             }
             let p = g.players[0].body.pos;
-            assert!((to[0] - p[0]).hypot(to[1] - p[2]) < 0.3, "stuck on the way to corner {i} at {p:?}");
+            assert!(
+                (to[0] - p[0]).hypot(to[1] - p[2]) < 0.3,
+                "stuck on the way to corner {i} at {p:?}"
+            );
         }
         let y = g.players[0].body.pos[1];
-        assert!((21.8..22.0).contains(&y), "ended at height {y}, not on the deck");
+        assert!(
+            (21.8..22.0).contains(&y),
+            "ended at height {y}, not on the deck"
+        );
     }
 }
 
@@ -1007,15 +1551,46 @@ mod debug {
     #[test]
     #[ignore]
     fn stairs_trace() {
-        let mut b = B { w: Vec::new(), c: Vec::new(), m: Vec::new(), decals: Vec::new(), keep_out: Vec::new(), rng: Rng(7), ruin: 0.0, half: HALF, ground: None, lift: 0.0 };
+        let mut b = B {
+            w: Vec::new(),
+            c: Vec::new(),
+            m: Vec::new(),
+            decals: Vec::new(),
+            keep_out: Vec::new(),
+            rng: Rng(7),
+            ruin: 0.0,
+            half: HALF,
+            ground: None,
+            lift: 0.0,
+        };
         for a in perimeter() {
             b.put(a.min, a.max, CONCRETE);
         }
-        b.building(-8.0, -5.0, 8.0, 5.0, 3, BRICK, 0.0, [false, true, false, false]);
+        b.building(
+            -8.0,
+            -5.0,
+            8.0,
+            5.0,
+            3,
+            BRICK,
+            0.0,
+            [false, true, false, false],
+        );
         let walls = b.w;
         let c = vec![[0.5; 3]; walls.len()];
         let mats = vec![0; walls.len()];
-        let mut g = crate::sim::Game::with_map(1, Map { half: HALF, walls, colors: c, mats, decals: Vec::new(), spawns: Vec::new(), ground: None });
+        let mut g = crate::sim::Game::with_map(
+            1,
+            Map {
+                half: HALF,
+                walls,
+                colors: c,
+                mats,
+                decals: Vec::new(),
+                spawns: Vec::new(),
+                ground: None,
+            },
+        );
         g.bots.clear();
         g.players[0].body.pos = [-7.2, 0.0, -3.6];
         g.players[0].yaw = std::f32::consts::FRAC_PI_2;
@@ -1023,7 +1598,13 @@ mod debug {
         for i in 0..240 {
             g.tick(crate::sim::STEP);
             if i % 15 == 0 {
-                println!("{:.2} {:?} vel {:?} hp {}", i as f32 / 60.0, g.players[0].body.pos, g.players[0].body.vel, g.players[0].hp);
+                println!(
+                    "{:.2} {:?} vel {:?} hp {}",
+                    i as f32 / 60.0,
+                    g.players[0].body.pos,
+                    g.players[0].body.vel,
+                    g.players[0].hp
+                );
             }
         }
     }
@@ -1042,7 +1623,13 @@ mod debug {
             let mut row = String::new();
             for xi in 0..100 {
                 let p = [-99.5 + 2.0 * xi as f32, 0.0, -99.5 + 2.0 * zi as f32];
-                row.push(if !nav.open_at(p) { '#' } else if nav.reachable(p) { '.' } else { 'X' });
+                row.push(if !nav.open_at(p) {
+                    '#'
+                } else if nav.reachable(p) {
+                    '.'
+                } else {
+                    'X'
+                });
             }
             println!("{row}");
         }

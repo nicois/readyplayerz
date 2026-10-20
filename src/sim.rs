@@ -183,25 +183,241 @@ pub struct Weapon {
 }
 
 pub static WEAPONS: [Weapon; WEAPON_COUNT] = [
-    Weapon { name: "Carbine", class: "Assault rifle", mag: 30, delay: 0.11, reload: 1.4, pellets: 1, body_dmg: 34.0, head_dmg: 75.0, spread: 0.06, ads_spread: 0.002, kick: 0.006, auto: true, zoom: 0.8, scope: false, speed: 1.0, drop_mag: true, melee: false },
-    Weapon { name: "SMG", class: "SMG", mag: 35, delay: 0.065, reload: 1.2, pellets: 1, body_dmg: 20.0, head_dmg: 40.0, spread: 0.045, ads_spread: 0.007, kick: 0.004, auto: true, zoom: 0.85, scope: false, speed: 1.08, drop_mag: true, melee: false },
-    Weapon { name: "Shotgun", class: "Shotgun", mag: 6, delay: 0.85, reload: 2.4, pellets: 8, body_dmg: 14.0, head_dmg: 28.0, spread: 0.07, ads_spread: 0.038, kick: 0.045, auto: false, zoom: 0.9, scope: false, speed: 1.0, drop_mag: false, melee: false },
-    Weapon { name: "Sniper", class: "Sniper", mag: 5, delay: 1.3, reload: 2.6, pellets: 1, body_dmg: 100.0, head_dmg: 150.0, spread: 0.12, ads_spread: 0.0, kick: 0.03, auto: false, zoom: 0.3, scope: true, speed: 0.92, drop_mag: false, melee: false },
+    Weapon {
+        name: "Carbine",
+        class: "Assault rifle",
+        mag: 30,
+        delay: 0.11,
+        reload: 1.4,
+        pellets: 1,
+        body_dmg: 34.0,
+        head_dmg: 75.0,
+        spread: 0.06,
+        ads_spread: 0.002,
+        kick: 0.006,
+        auto: true,
+        zoom: 0.8,
+        scope: false,
+        speed: 1.0,
+        drop_mag: true,
+        melee: false,
+    },
+    Weapon {
+        name: "SMG",
+        class: "SMG",
+        mag: 35,
+        delay: 0.065,
+        reload: 1.2,
+        pellets: 1,
+        body_dmg: 20.0,
+        head_dmg: 40.0,
+        spread: 0.045,
+        ads_spread: 0.007,
+        kick: 0.004,
+        auto: true,
+        zoom: 0.85,
+        scope: false,
+        speed: 1.08,
+        drop_mag: true,
+        melee: false,
+    },
+    Weapon {
+        name: "Shotgun",
+        class: "Shotgun",
+        mag: 6,
+        delay: 0.85,
+        reload: 2.4,
+        pellets: 8,
+        body_dmg: 14.0,
+        head_dmg: 28.0,
+        spread: 0.07,
+        ads_spread: 0.038,
+        kick: 0.045,
+        auto: false,
+        zoom: 0.9,
+        scope: false,
+        speed: 1.0,
+        drop_mag: false,
+        melee: false,
+    },
+    Weapon {
+        name: "Sniper",
+        class: "Sniper",
+        mag: 5,
+        delay: 1.3,
+        reload: 2.6,
+        pellets: 1,
+        body_dmg: 100.0,
+        head_dmg: 150.0,
+        spread: 0.12,
+        ads_spread: 0.0,
+        kick: 0.03,
+        auto: false,
+        zoom: 0.3,
+        scope: true,
+        speed: 0.92,
+        drop_mag: false,
+        melee: false,
+    },
     // harder hitting than the carbine and harder to hold on target
-    Weapon { name: "AK-47", class: "Assault rifle", mag: 30, delay: 0.10, reload: 1.6, pellets: 1, body_dmg: 42.0, head_dmg: 95.0, spread: 0.07, ads_spread: 0.004, kick: 0.010, auto: true, zoom: 0.8, scope: false, speed: 0.97, drop_mag: true, melee: false },
+    Weapon {
+        name: "AK-47",
+        class: "Assault rifle",
+        mag: 30,
+        delay: 0.10,
+        reload: 1.6,
+        pellets: 1,
+        body_dmg: 42.0,
+        head_dmg: 95.0,
+        spread: 0.07,
+        ads_spread: 0.004,
+        kick: 0.010,
+        auto: true,
+        zoom: 0.8,
+        scope: false,
+        speed: 0.97,
+        drop_mag: true,
+        melee: false,
+    },
     // a hose: very fast and light, but no stock to steady the sights
-    Weapon { name: "Uzi", class: "SMG", mag: 32, delay: 0.055, reload: 1.3, pellets: 1, body_dmg: 17.0, head_dmg: 34.0, spread: 0.05, ads_spread: 0.013, kick: 0.005, auto: true, zoom: 0.88, scope: false, speed: 1.1, drop_mag: true, melee: false },
+    Weapon {
+        name: "Uzi",
+        class: "SMG",
+        mag: 32,
+        delay: 0.055,
+        reload: 1.3,
+        pellets: 1,
+        body_dmg: 17.0,
+        head_dmg: 34.0,
+        spread: 0.05,
+        ads_spread: 0.013,
+        kick: 0.005,
+        auto: true,
+        zoom: 0.88,
+        scope: false,
+        speed: 1.1,
+        drop_mag: true,
+        melee: false,
+    },
     // both barrels go almost at once, then it breaks open for two more shells
-    Weapon { name: "Double barrel", class: "Shotgun", mag: 2, delay: 0.2, reload: 1.7, pellets: 10, body_dmg: 15.0, head_dmg: 30.0, spread: 0.085, ads_spread: 0.05, kick: 0.06, auto: false, zoom: 0.92, scope: false, speed: 1.02, drop_mag: false, melee: false },
+    Weapon {
+        name: "Double barrel",
+        class: "Shotgun",
+        mag: 2,
+        delay: 0.2,
+        reload: 1.7,
+        pellets: 10,
+        body_dmg: 15.0,
+        head_dmg: 30.0,
+        spread: 0.085,
+        ads_spread: 0.05,
+        kick: 0.06,
+        auto: false,
+        zoom: 0.92,
+        scope: false,
+        speed: 1.02,
+        drop_mag: false,
+        melee: false,
+    },
     // iron sights and a quicker bolt than the scoped rifle, and a head shot always kills
-    Weapon { name: "Mosin", class: "Sniper", mag: 5, delay: 1.0, reload: 2.2, pellets: 1, body_dmg: 85.0, head_dmg: 220.0, spread: 0.10, ads_spread: 0.0, kick: 0.028, auto: false, zoom: 0.55, scope: false, speed: 0.96, drop_mag: false, melee: false },
-    Weapon { name: "Pistol", class: "Pistol", mag: 12, delay: 0.16, reload: 1.1, pellets: 1, body_dmg: 26.0, head_dmg: 60.0, spread: 0.04, ads_spread: 0.004, kick: 0.012, auto: false, zoom: 0.85, scope: false, speed: 1.05, drop_mag: true, melee: false },
-    Weapon { name: "Revolver", class: "Pistol", mag: 6, delay: 0.42, reload: 2.0, pellets: 1, body_dmg: 60.0, head_dmg: 135.0, spread: 0.045, ads_spread: 0.003, kick: 0.035, auto: false, zoom: 0.85, scope: false, speed: 1.04, drop_mag: false, melee: false },
+    Weapon {
+        name: "Mosin",
+        class: "Sniper",
+        mag: 5,
+        delay: 1.0,
+        reload: 2.2,
+        pellets: 1,
+        body_dmg: 85.0,
+        head_dmg: 220.0,
+        spread: 0.10,
+        ads_spread: 0.0,
+        kick: 0.028,
+        auto: false,
+        zoom: 0.55,
+        scope: false,
+        speed: 0.96,
+        drop_mag: false,
+        melee: false,
+    },
+    Weapon {
+        name: "Pistol",
+        class: "Pistol",
+        mag: 12,
+        delay: 0.16,
+        reload: 1.1,
+        pellets: 1,
+        body_dmg: 26.0,
+        head_dmg: 60.0,
+        spread: 0.04,
+        ads_spread: 0.004,
+        kick: 0.012,
+        auto: false,
+        zoom: 0.85,
+        scope: false,
+        speed: 1.05,
+        drop_mag: true,
+        melee: false,
+    },
+    Weapon {
+        name: "Revolver",
+        class: "Pistol",
+        mag: 6,
+        delay: 0.42,
+        reload: 2.0,
+        pellets: 1,
+        body_dmg: 60.0,
+        head_dmg: 135.0,
+        spread: 0.045,
+        ads_spread: 0.003,
+        kick: 0.035,
+        auto: false,
+        zoom: 0.85,
+        scope: false,
+        speed: 1.04,
+        drop_mag: false,
+        melee: false,
+    },
     // a hand cannon: every shot throws the aim well up, so quick follow-ups take pulling it back down
-    Weapon { name: "Desert Eagle", class: "Pistol", mag: 7, delay: 0.32, reload: 1.5, pellets: 1, body_dmg: 55.0, head_dmg: 125.0, spread: 0.05, ads_spread: 0.004, kick: 0.10, auto: false, zoom: 0.85, scope: false, speed: 1.0, drop_mag: true, melee: false },
+    Weapon {
+        name: "Desert Eagle",
+        class: "Pistol",
+        mag: 7,
+        delay: 0.32,
+        reload: 1.5,
+        pellets: 1,
+        body_dmg: 55.0,
+        head_dmg: 125.0,
+        spread: 0.05,
+        ads_spread: 0.004,
+        kick: 0.10,
+        auto: false,
+        zoom: 0.85,
+        scope: false,
+        speed: 1.0,
+        drop_mag: true,
+        melee: false,
+    },
     // never runs dry: a runner falls to one blow, a walker to one to the head, and a swing can take down three.
     // Light in the hands, so you move quicker with it out
-    Weapon { name: "Baseball bat", class: "Melee", mag: 0, delay: 0.55, reload: 0.0, pellets: 1, body_dmg: 60.0, head_dmg: 100.0, spread: 0.0, ads_spread: 0.0, kick: 0.0, auto: true, zoom: 1.0, scope: false, speed: 1.12, drop_mag: false, melee: true },
+    Weapon {
+        name: "Baseball bat",
+        class: "Melee",
+        mag: 0,
+        delay: 0.55,
+        reload: 0.0,
+        pellets: 1,
+        body_dmg: 60.0,
+        head_dmg: 100.0,
+        spread: 0.0,
+        ads_spread: 0.0,
+        kick: 0.0,
+        auto: true,
+        zoom: 1.0,
+        scope: false,
+        speed: 1.12,
+        drop_mag: false,
+        melee: true,
+    },
 ];
 
 #[derive(Clone, Copy, Debug)]
@@ -211,7 +427,10 @@ pub struct Aabb {
 }
 
 pub fn aabb_at(p: V3, hw: f32, h: f32) -> Aabb {
-    Aabb { min: [p[0] - hw, p[1], p[2] - hw], max: [p[0] + hw, p[1] + h, p[2] + hw] }
+    Aabb {
+        min: [p[0] - hw, p[1], p[2] - hw],
+        max: [p[0] + hw, p[1] + h, p[2] + hw],
+    }
 }
 
 pub(crate) fn overlaps(a: &Aabb, b: &Aabb) -> bool {
@@ -446,7 +665,11 @@ impl Player {
     pub fn eye(&self) -> V3 {
         // through a window, ducked down under its head
         let duck = self.climb.as_ref().map_or(0.0, Climb::duck) * (EYE - 0.7);
-        [self.body.pos[0], self.body.pos[1] + EYE + self.step_y - duck, self.body.pos[2]]
+        [
+            self.body.pos[0],
+            self.body.pos[1] + EYE + self.step_y - duck,
+            self.body.pos[2],
+        ]
     }
     /// Turns the view by a mouse movement, slower while aiming down sights that zoom.
     pub fn look(&mut self, dx: f32, dy: f32) {
@@ -468,7 +691,11 @@ impl Player {
     /// Arms a new life: playing for loot only the pistol, otherwise the picked loadout. Holds the primary if there is one.
     fn arm(&mut self, loot: bool) {
         self.loadout = if loot { [NO_GUN, PISTOL] } else { self.picked };
-        self.weapon = if self.loadout[0] == NO_GUN { self.loadout[1] } else { self.loadout[0] };
+        self.weapon = if self.loadout[0] == NO_GUN {
+            self.loadout[1]
+        } else {
+            self.loadout[0]
+        };
     }
     /// What they carry, to send over the network.
     pub(crate) fn kit(&self) -> crate::net::Kit {
@@ -564,16 +791,49 @@ pub const CORPSE_T: f32 = 6.0;
 impl Bot {
     /// A walker; `spawn_zombie` makes the others from it.
     pub(crate) fn zombie(pos: V3, phase: f32) -> Bot {
-        Bot { id: 0, pose: None, body: Body { pos, ..Body::default() }, hp: 100.0, alive: true, fire_t: 0.5, phase, kind: 0, speed: 3.0, scale: 1.0, swing_t: 0.0, growl_t: 0.0, hit_t: 0.0, corpse: false, dead_t: 0.0, face: 0.0, head: [0.0; 3], twitch: [0.0; 3], twitch_t: 0.5, stagger: 0.0, climb: None, anchor: pos, stuck_t: 0.0, direct: false, balk_t: 0.0 }
+        Bot {
+            id: 0,
+            pose: None,
+            body: Body {
+                pos,
+                ..Body::default()
+            },
+            hp: 100.0,
+            alive: true,
+            fire_t: 0.5,
+            phase,
+            kind: 0,
+            speed: 3.0,
+            scale: 1.0,
+            swing_t: 0.0,
+            growl_t: 0.0,
+            hit_t: 0.0,
+            corpse: false,
+            dead_t: 0.0,
+            face: 0.0,
+            head: [0.0; 3],
+            twitch: [0.0; 3],
+            twitch_t: 0.5,
+            stagger: 0.0,
+            climb: None,
+            anchor: pos,
+            stuck_t: 0.0,
+            direct: false,
+            balk_t: 0.0,
+        }
     }
     pub fn body_box(&self) -> Aabb {
         let (p, s) = (self.body.pos, self.scale);
-        Aabb { min: [p[0] - 0.32 * s, p[1], p[2] - 0.32 * s], max: [p[0] + 0.32 * s, p[1] + 1.4 * s, p[2] + 0.32 * s] }
+        Aabb {
+            min: [p[0] - 0.32 * s, p[1], p[2] - 0.32 * s],
+            max: [p[0] + 0.32 * s, p[1] + 1.4 * s, p[2] + 0.32 * s],
+        }
     }
     /// Dev view: a zombie standing at `at` facing `yaw`, `s` of the way up whatever ledge is in front of it, or
     /// through whatever window, if any.
     pub fn climbing_at(at: V3, yaw: f32, s: f32, world: &Grid) -> Option<Bot> {
-        let mut c = find_ledge(at, yaw, BOT_REACH, BOT_CLIMB_PACE, true, world).or_else(|| find_vault(at, yaw, BOT_REACH, BOT_CLIMB_PACE, true, world))?;
+        let mut c = find_ledge(at, yaw, BOT_REACH, BOT_CLIMB_PACE, true, world)
+            .or_else(|| find_vault(at, yaw, BOT_REACH, BOT_CLIMB_PACE, true, world))?;
         c.t = s * c.time;
         let mut b = Bot::zombie(c.at().0, 0.3);
         b.face = yaw;
@@ -590,8 +850,15 @@ impl Bot {
         let (p, s) = (self.body.pos, self.scale);
         let (sy, cy) = self.face.sin_cos();
         let [right, up, fwd] = self.head.map(|v| v * s);
-        let c = [p[0] + cy * right + sy * fwd, p[1] + up, p[2] + sy * right - cy * fwd];
-        Aabb { min: [c[0] - 0.17 * s, c[1] + 1.4 * s, c[2] - 0.17 * s], max: [c[0] + 0.17 * s, c[1] + H * s, c[2] + 0.17 * s] }
+        let c = [
+            p[0] + cy * right + sy * fwd,
+            p[1] + up,
+            p[2] + sy * right - cy * fwd,
+        ];
+        Aabb {
+            min: [c[0] - 0.17 * s, c[1] + 1.4 * s, c[2] - 0.17 * s],
+            max: [c[0] + 0.17 * s, c[1] + H * s, c[2] + 0.17 * s],
+        }
     }
 }
 
@@ -707,7 +974,11 @@ fn move_axis(pos: &mut V3, axis: usize, delta: f32, world: &Grid, lift: f32) -> 
     world.find(&reach, |w| {
         if overlaps(&aabb_at(*pos, HW, H), w) {
             hit = true;
-            pos[axis] = if delta > 0.0 { w.min[axis] - plus - EPS } else { w.max[axis] + minus + EPS };
+            pos[axis] = if delta > 0.0 {
+                w.min[axis] - plus - EPS
+            } else {
+                w.max[axis] + minus + EPS
+            };
         }
         false
     });
@@ -733,7 +1004,10 @@ fn move_axis(pos: &mut V3, axis: usize, delta: f32, world: &Grid, lift: f32) -> 
     }
     // a hillside too steep to walk up stops the body like a wall
     if axis != 1 && world.ground.is_some() {
-        let (was, now) = (world.ground_at(before[0], before[2]), world.ground_at(pos[0], pos[2]));
+        let (was, now) = (
+            world.ground_at(before[0], before[2]),
+            world.ground_at(pos[0], pos[2]),
+        );
         let rise = now - before[1].max(was);
         if rise > 0.0 && rise > (pos[axis] - before[axis]).abs() * MAX_SLOPE + 0.01 {
             pos[axis] = before[axis];
@@ -804,11 +1078,36 @@ impl Climb {
     pub(crate) fn raw(&self) -> [f32; 14] {
         let [s, f, t] = [self.start, self.from, self.to];
         let kind = self.heave as u8 | (self.squeeze as u8) << 1;
-        [s[0], s[1], s[2], f[0], f[1], f[2], t[0], t[1], t[2], self.t, self.time, self.yaw, self.edge, kind as f32]
+        [
+            s[0],
+            s[1],
+            s[2],
+            f[0],
+            f[1],
+            f[2],
+            t[0],
+            t[1],
+            t[2],
+            self.t,
+            self.time,
+            self.yaw,
+            self.edge,
+            kind as f32,
+        ]
     }
     pub(crate) fn from_raw(r: &[f32; 14]) -> Climb {
         let kind = r[13].round() as u8;
-        Climb { start: [r[0], r[1], r[2]], from: [r[3], r[4], r[5]], to: [r[6], r[7], r[8]], t: r[9], time: r[10], yaw: r[11], edge: r[12], heave: kind & 1 != 0, squeeze: kind & 2 != 0 }
+        Climb {
+            start: [r[0], r[1], r[2]],
+            from: [r[3], r[4], r[5]],
+            to: [r[6], r[7], r[8]],
+            t: r[9],
+            time: r[10],
+            yaw: r[11],
+            edge: r[12],
+            heave: kind & 1 != 0,
+            squeeze: kind & 2 != 0,
+        }
     }
 
     /// Where the body is `t` seconds in, and whether it is done.
@@ -829,7 +1128,10 @@ impl Climb {
                 hang + (b[1] - hang) * ease((s - CLIMB_OVER) / (1.0 - CLIMB_OVER) / 0.45)
             };
             // the knee goes up onto the top as the hips rise (drawn), and the body moves in only once it is up
-            ((y - a[1]) / (b[1] - a[1]).max(1e-4), ease(((s - CLIMB_OVER) / (1.0 - CLIMB_OVER) - 0.4) / 0.6))
+            (
+                (y - a[1]) / (b[1] - a[1]).max(1e-4),
+                ease(((s - CLIMB_OVER) / (1.0 - CLIMB_OVER) - 0.4) / 0.6),
+            )
         } else {
             // through a hole there is further to go once up: a quick hop onto the sill, then the crawl over it
             let k = if self.squeeze { 0.4 } else { 0.7 };
@@ -837,8 +1139,19 @@ impl Climb {
         };
         // in to the wall with the hop, then over the edge
         let i = ease(s / CLIMB_GRAB);
-        let a = [self.start[0] + (a[0] - self.start[0]) * i, a[1], self.start[2] + (a[2] - self.start[2]) * i];
-        ([a[0] + (b[0] - a[0]) * over, a[1] + (b[1] - a[1]) * up, a[2] + (b[2] - a[2]) * over], s >= 1.0)
+        let a = [
+            self.start[0] + (a[0] - self.start[0]) * i,
+            a[1],
+            self.start[2] + (a[2] - self.start[2]) * i,
+        ];
+        (
+            [
+                a[0] + (b[0] - a[0]) * over,
+                a[1] + (b[1] - a[1]) * up,
+                a[2] + (b[2] - a[2]) * over,
+            ],
+            s >= 1.0,
+        )
     }
 
     /// Where the body ends up.
@@ -850,7 +1163,11 @@ impl Climb {
     /// once it is out the other side.
     pub fn duck(&self) -> f32 {
         let s = self.t / self.time;
-        if self.squeeze { ease(s / 0.3) * (1.0 - ease((s - 0.85) / 0.15)) } else { 0.0 }
+        if self.squeeze {
+            ease(s / 0.3) * (1.0 - ease((s - 0.85) / 0.15))
+        } else {
+            0.0
+        }
     }
 
     /// For drawing a zombie's climb: how far through it is (0 to 1), how high the top is above the feet, how far
@@ -860,13 +1177,25 @@ impl Climb {
         let (p, _) = self.at();
         let f = [self.yaw.sin(), -self.yaw.cos()];
         let gone = (p[0] - self.from[0]) * f[0] + (p[2] - self.from[2]) * f[1];
-        ((self.t / self.time).min(1.0), self.to[1] - p[1], self.edge - gone, self.duck())
+        (
+            (self.t / self.time).min(1.0),
+            self.to[1] - p[1],
+            self.edge - gone,
+            self.duck(),
+        )
     }
 }
 
 /// A ledge in front of a body at `pos` facing `yaw` that it can pull itself up onto: the top of anything within a
 /// metre or so ahead, between a hop and `reach` above the feet, with room to rise beside it and stand on it.
-fn find_ledge(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), heave: bool, world: &Grid) -> Option<Climb> {
+fn find_ledge(
+    pos: V3,
+    yaw: f32,
+    reach: f32,
+    pace: (f32, f32),
+    heave: bool,
+    world: &Grid,
+) -> Option<Climb> {
     let f = [yaw.sin(), 0.0, -yaw.cos()];
     let free = |p: V3| {
         let b = aabb_at(p, HW, H);
@@ -883,7 +1212,10 @@ fn find_ledge(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), heave: bool, worl
         // stand well onto the top if there is room, otherwise just over the edge, on whatever is highest under the
         // feet there (the next step up, on a stair), so long as that is in reach too
         for c in [[o[0] + f[0] * 0.35, o[2] + f[2] * 0.35], [o[0], o[2]]] {
-            let column = Aabb { min: [c[0] - HW, pos[1] + 0.05, c[1] - HW], max: [c[0] + HW, pos[1] + reach + 0.05, c[1] + HW] };
+            let column = Aabb {
+                min: [c[0] - HW, pos[1] + 0.05, c[1] - HW],
+                max: [c[0] + HW, pos[1] + reach + 0.05, c[1] + HW],
+            };
             let mut top = 0.0f32;
             world.find(&column, |w| {
                 if overlaps(&column, w) {
@@ -895,11 +1227,20 @@ fn find_ledge(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), heave: bool, worl
             // the body has to fit all the way in, risen beside the ledge and over onto it, not just at the ends, or it
             // goes through a wall to the floor behind it, or up through a ceiling to the roof on it
             let rises = ((top - pos[1]) / 0.3).ceil().max(1.0) as usize;
-            let clear = (1..=rises).all(|k| free([pos[0], pos[1] + (top - pos[1]) * k as f32 / rises as f32, pos[2]]))
-                && (0..=6).all(|k| {
-                    let s = k as f32 / 6.0;
-                    free([pos[0] + (c[0] - pos[0]) * s, top, pos[2] + (c[1] - pos[2]) * s])
-                });
+            let clear = (1..=rises).all(|k| {
+                free([
+                    pos[0],
+                    pos[1] + (top - pos[1]) * k as f32 / rises as f32,
+                    pos[2],
+                ])
+            }) && (0..=6).all(|k| {
+                let s = k as f32 / 6.0;
+                free([
+                    pos[0] + (c[0] - pos[0]) * s,
+                    top,
+                    pos[2] + (c[1] - pos[2]) * s,
+                ])
+            });
             if top <= pos[1] + reach + 0.05 && clear {
                 let time = pace.0 + pace.1 * (top - pos[1]);
                 // the face is somewhere between this ray and the last one, which missed it
@@ -908,10 +1249,28 @@ fn find_ledge(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), heave: bool, worl
                 // instead of rising straight up from a metre out; just under the top, the face is found exactly
                 let face = world.raycast_walls([pos[0], top - 0.15, pos[2]], f, d + 0.1);
                 let face = if face <= d + 0.05 { face } else { edge };
-                let step = if heave { (face - HW - 0.03).max(0.0) } else { 0.0 };
+                let step = if heave {
+                    (face - HW - 0.03).max(0.0)
+                } else {
+                    0.0
+                };
                 let from = [pos[0] + f[0] * step, pos[1], pos[2] + f[2] * step];
-                let (from, edge) = if free(from) { (from, face - step) } else { (pos, edge) };
-                return Some(Climb { start: pos, from, to: [c[0], top, c[1]], t: 0.0, time, yaw, edge, heave, squeeze: false });
+                let (from, edge) = if free(from) {
+                    (from, face - step)
+                } else {
+                    (pos, edge)
+                };
+                return Some(Climb {
+                    start: pos,
+                    from,
+                    to: [c[0], top, c[1]],
+                    t: 0.0,
+                    time,
+                    yaw,
+                    edge,
+                    heave,
+                    squeeze: false,
+                });
             }
         }
     }
@@ -923,7 +1282,14 @@ fn find_ledge(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), heave: bool, worl
 /// out the other side and can stand. Up to a little over a body's width either side, so it needn't be squarely in
 /// front. A peephole or a letterbox is too small for the body to fit through anywhere, and a gap with room to stand
 /// in is no hole but a ledge (see `find_ledge`).
-pub(crate) fn find_vault(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), heave: bool, world: &Grid) -> Option<Climb> {
+pub(crate) fn find_vault(
+    pos: V3,
+    yaw: f32,
+    reach: f32,
+    pace: (f32, f32),
+    heave: bool,
+    world: &Grid,
+) -> Option<Climb> {
     let f = [yaw.sin(), 0.0, -yaw.cos()];
     let fits = |p: V3, h: f32| {
         let b = aabb_at(p, HW, h);
@@ -931,12 +1297,25 @@ pub(crate) fn find_vault(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), heave:
     };
     let along = |p: V3, s: f32, y: f32| [p[0] + f[0] * s, y, p[2] + f[2] * s];
     // as far as the body gets walking on before it bumps into the wall
-    let near = (1..=12).map(|k| k as f32 * 0.1).find(|&s| !fits(along(pos, s, pos[1] + EPS), H))? - 0.1;
-    let floor = (pos[1] + 0.05 - world.raycast([pos[0], pos[1] + 0.05, pos[2]], [0.0, -1.0, 0.0], 3.0)).max(world.ground_at(pos[0], pos[2]));
+    let near = (1..=12)
+        .map(|k| k as f32 * 0.1)
+        .find(|&s| !fits(along(pos, s, pos[1] + EPS), H))?
+        - 0.1;
+    let floor = (pos[1] + 0.05
+        - world.raycast([pos[0], pos[1] + 0.05, pos[2]], [0.0, -1.0, 0.0], 3.0))
+    .max(world.ground_at(pos[0], pos[2]));
     // a hole has a head: something just ahead whose underside is over a sill in reach, too low to stand under. A
     // plain wall has none, and so isn't looked along for one
-    let wide = aabb_at(along(pos, near + 2.0 * HW, floor), 1.0, reach + pos[1] - floor + H);
-    let head = |w: &Aabb| overlaps(&wide, w) && w.min[1] > floor + LEDGE_LOW + SQUEEZE - 0.01 && w.min[1] < pos[1] + reach + H;
+    let wide = aabb_at(
+        along(pos, near + 2.0 * HW, floor),
+        1.0,
+        reach + pos[1] - floor + H,
+    );
+    let head = |w: &Aabb| {
+        overlaps(&wide, w)
+            && w.min[1] > floor + LEDGE_LOW + SQUEEZE - 0.01
+            && w.min[1] < pos[1] + reach + H
+    };
     if !world.find(&wide, head) {
         return None;
     }
@@ -976,11 +1355,31 @@ pub(crate) fn find_vault(pos: V3, yaw: f32, reach: f32, pace: (f32, f32), heave:
             let Some(to) = out else { continue };
             // ...having got up to it beside the wall
             let rises = ((y - pos[1]).max(0.0) / 0.3).ceil() as usize;
-            if !(1..=rises).all(|i| fits([from[0], pos[1] + (y - pos[1]) * i as f32 / rises as f32, from[2]], SQUEEZE)) {
+            if !(1..=rises).all(|i| {
+                fits(
+                    [
+                        from[0],
+                        pos[1] + (y - pos[1]) * i as f32 / rises as f32,
+                        from[2],
+                    ],
+                    SQUEEZE,
+                )
+            }) {
                 continue;
             }
-            let time = pace.0 + pace.1 * ((y - pos[1]).max(0.0) + (to[0] - from[0]).hypot(to[2] - from[2]));
-            return Some(Climb { start: pos, from, to, t: 0.0, time, yaw, edge: HW + 0.05, heave, squeeze: true });
+            let time = pace.0
+                + pace.1 * ((y - pos[1]).max(0.0) + (to[0] - from[0]).hypot(to[2] - from[2]));
+            return Some(Climb {
+                start: pos,
+                from,
+                to,
+                t: 0.0,
+                time,
+                yaw,
+                edge: HW + 0.05,
+                heave,
+                squeeze: true,
+            });
         }
     }
     None
@@ -997,18 +1396,40 @@ fn scramble(pos: V3, to: V3, world: &Grid) -> Option<Climb> {
         !world.find(&b, |w| overlaps(&b, w))
     };
     // finely: where a garage roof runs out a hand's breadth past the house beside it, that is all there is to stand on
-    let mut around: Vec<V3> = (-5..=5).flat_map(|i| (-5..=5).map(move |k| [to[0] + i as f32 * 0.1, to[1] + EPS, to[2] + k as f32 * 0.1])).collect();
-    around.sort_by(|a, b| (a[0] - pos[0]).hypot(a[2] - pos[2]).total_cmp(&(b[0] - pos[0]).hypot(b[2] - pos[2])));
+    let mut around: Vec<V3> = (-5..=5)
+        .flat_map(|i| {
+            (-5..=5).map(move |k| [to[0] + i as f32 * 0.1, to[1] + EPS, to[2] + k as f32 * 0.1])
+        })
+        .collect();
+    around.sort_by(|a, b| {
+        (a[0] - pos[0])
+            .hypot(a[2] - pos[2])
+            .total_cmp(&(b[0] - pos[0]).hypot(b[2] - pos[2]))
+    });
     let on = |p: V3, hw: f32| {
         let b = aabb_at([p[0], p[1] - 0.05, p[2]], hw, 0.05);
         world.find(&b, |w| overlaps(&b, w))
     };
     // somewhere with something under the middle of the body if there is one: set down on a sliver of the end of a
     // fence, it only slides off again, and again
-    let at = around.iter().copied().find(|&p| fits(p) && on(p, HW / 2.0)).or_else(|| around.iter().copied().find(|&p| fits(p) && on(p, HW)))?;
+    let at = around
+        .iter()
+        .copied()
+        .find(|&p| fits(p) && on(p, HW / 2.0))
+        .or_else(|| around.iter().copied().find(|&p| fits(p) && on(p, HW)))?;
     let (dx, dz) = (at[0] - pos[0], at[2] - pos[2]);
     let time = BOT_CLIMB_PACE.0 + BOT_CLIMB_PACE.1 * (at[1] - pos[1]);
-    Some(Climb { start: pos, from: pos, to: at, t: 0.0, time, yaw: dx.atan2(-dz), edge: dx.hypot(dz).max(HW), heave: true, squeeze: false })
+    Some(Climb {
+        start: pos,
+        from: pos,
+        to: at,
+        t: 0.0,
+        time,
+        yaw: dx.atan2(-dz),
+        edge: dx.hypot(dz).max(HW),
+        heave: true,
+        squeeze: false,
+    })
 }
 
 /// How many steps of its route a zombie looks along for the furthest it can walk straight to.
@@ -1035,9 +1456,16 @@ fn look_ahead(nav: &Nav, world: &Grid, pos: V3, first: V3) -> V3 {
             let s = k as f32 * 0.5 / flat;
             nav.level_at([pos[0] + d[0] * s, pos[1] + d[1] * s, pos[2] + d[2] * s])
         });
-        ground && [STEP_UP + 0.05, 1.0, 1.7].iter().all(|&y| {
-            [-1.0, 0.0, 1.0].iter().all(|&s| world.raycast_walls([pos[0] + side[0] * s, pos[1] + y, pos[2] + side[1] * s], u, r) >= r)
-        })
+        ground
+            && [STEP_UP + 0.05, 1.0, 1.7].iter().all(|&y| {
+                [-1.0, 0.0, 1.0].iter().all(|&s| {
+                    world.raycast_walls(
+                        [pos[0] + side[0] * s, pos[1] + y, pos[2] + side[1] * s],
+                        u,
+                        r,
+                    ) >= r
+                })
+            })
     };
     if !level(pos, first) {
         return first;
@@ -1114,8 +1542,12 @@ fn step_body(b: &mut Body, target: [f32; 2], jump: bool, dt: f32, world: &Grid) 
     // it is no steeper than that along either; so it is stood on too
     if b.on_ground && world.ground.is_some() && b.pos[1] <= ground + 0.01 {
         let s = 0.3;
-        let gx = (world.ground_at(b.pos[0] + s, b.pos[2]) - world.ground_at(b.pos[0] - s, b.pos[2])) / (2.0 * s);
-        let gz = (world.ground_at(b.pos[0], b.pos[2] + s) - world.ground_at(b.pos[0], b.pos[2] - s)) / (2.0 * s);
+        let gx = (world.ground_at(b.pos[0] + s, b.pos[2])
+            - world.ground_at(b.pos[0] - s, b.pos[2]))
+            / (2.0 * s);
+        let gz = (world.ground_at(b.pos[0], b.pos[2] + s)
+            - world.ground_at(b.pos[0], b.pos[2] - s))
+            / (2.0 * s);
         let g = gx.hypot(gz);
         if gx.abs().max(gz.abs()) > MAX_FOOTHOLD {
             b.on_ground = false;
@@ -1137,7 +1569,11 @@ fn len(a: V3) -> f32 {
     (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt()
 }
 fn cross(a: V3, b: V3) -> V3 {
-    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 }
 fn unit(a: V3) -> V3 {
     let l = len(a);
@@ -1165,7 +1601,15 @@ impl Game {
         let next = self.nav.next(b.body.pos);
         let ledge = next.and_then(|to| {
             let yaw = (to[0] - b.body.pos[0]).atan2(-(to[2] - b.body.pos[2]));
-            find_ledge(b.body.pos, yaw, BOT_REACH, BOT_CLIMB_PACE, true, &self.world).map(|c| c.to)
+            find_ledge(
+                b.body.pos,
+                yaw,
+                BOT_REACH,
+                BOT_CLIMB_PACE,
+                true,
+                &self.world,
+            )
+            .map(|c| c.to)
         });
         format!("pos {:.2?} vel {:.1?} ground {} climbing {} direct {} balk {:.2} next {next:.2?} ledge {ledge:.2?}", b.body.pos, b.body.vel, b.body.on_ground, b.climb.is_some(), b.direct, b.balk_t)
     }
@@ -1181,7 +1625,8 @@ impl Game {
 
     /// Zombies still to kill this wave: those alive plus those yet to arrive.
     pub fn zombies_left(&self) -> u32 {
-        self.remote_left.unwrap_or_else(|| self.bots.iter().filter(|b| b.alive).count() as u32 + self.to_spawn)
+        self.remote_left
+            .unwrap_or_else(|| self.bots.iter().filter(|b| b.alive).count() as u32 + self.to_spawn)
     }
 
     fn new_id(&mut self) -> u32 {
@@ -1199,13 +1644,22 @@ impl Game {
 
     /// Where the players still standing are.
     fn standing(&self) -> Vec<V3> {
-        self.players.iter().filter(|p| p.alive()).map(|p| p.body.pos).collect()
+        self.players
+            .iter()
+            .filter(|p| p.alive())
+            .map(|p| p.body.pos)
+            .collect()
     }
 
     /// The nearest player still standing to `at`, if any, and how far off they are along the ground.
     fn nearest_player(&self, at: V3) -> Option<(usize, f32)> {
         let d = |p: &Player| (p.body.pos[0] - at[0]).hypot(p.body.pos[2] - at[2]);
-        self.players.iter().enumerate().filter(|(_, p)| p.alive()).map(|(i, p)| (i, d(p))).min_by(|a, b| a.1.total_cmp(&b.1))
+        self.players
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.alive())
+            .map(|(i, p)| (i, d(p)))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
     }
 
     /// Someone joining: a new player with id `id`, spawned away from the zombies. Returns their index.
@@ -1261,8 +1715,13 @@ impl Game {
         let mut best = (f32::INFINITY, None);
         for _ in 0..40 {
             let s = self.spawns[(self.rng.next() as usize) % self.spawns.len()];
-            let d = from.iter().map(|p| (s[0] - p[0]).hypot(s[2] - p[2])).fold(f32::INFINITY, f32::min);
-            let Some(walk) = self.nav.route_len(s) else { continue };
+            let d = from
+                .iter()
+                .map(|p| (s[0] - p[0]).hypot(s[2] - p[2]))
+                .fold(f32::INFINITY, f32::min);
+            let Some(walk) = self.nav.route_len(s) else {
+                continue;
+            };
             if d < SPAWN_NEAR {
                 continue;
             }
@@ -1276,8 +1735,16 @@ impl Game {
         // none with a route: the players are somewhere a long walk from every spawn point, as up on the school
         // roof, and the field doesn't reach that far. So it comes in on the ground somewhere along the way
         if best.1.is_none() {
-            let far = |s: &V3| from.iter().all(|p| (s[0] - p[0]).hypot(s[2] - p[2]) >= SPAWN_NEAR);
-            let along: Vec<V3> = self.nav.ground_within(SPAWN_WALK).into_iter().filter(far).collect();
+            let far = |s: &V3| {
+                from.iter()
+                    .all(|p| (s[0] - p[0]).hypot(s[2] - p[2]) >= SPAWN_NEAR)
+            };
+            let along: Vec<V3> = self
+                .nav
+                .ground_within(SPAWN_WALK)
+                .into_iter()
+                .filter(far)
+                .collect();
             if !along.is_empty() {
                 return along[self.rng.next() as usize % along.len()];
             }
@@ -1288,14 +1755,23 @@ impl Game {
     fn spawn_zombie(&mut self) {
         let pos = self.zombie_spawn();
         let (r, w) = (self.rng.f(), self.wave as f32);
-        let p_brute = if self.wave >= 3 { (0.03 * w).min(0.15) } else { 0.0 };
+        let p_brute = if self.wave >= 3 {
+            (0.03 * w).min(0.15)
+        } else {
+            0.0
+        };
         let p_run = (0.21 + 0.045 * w).min(0.6);
         // runners are quicker than a walk and slower than a sprint, so one can be put off but not got away from;
         // walkers can be walked away from, but close in on anyone who stops
         let (kind, hp, speed, scale) = if r < p_brute {
             (2, 320.0, self.rng.range(2.0, 2.4), 1.25)
         } else if r < p_brute + p_run {
-            (1, 60.0, self.rng.range(RUNNER_SPEED.0, RUNNER_SPEED.1), 0.95)
+            (
+                1,
+                60.0,
+                self.rng.range(RUNNER_SPEED.0, RUNNER_SPEED.1),
+                0.95,
+            )
         } else {
             (0, 100.0, self.rng.range(3.5, 4.5), 1.0)
         };
@@ -1307,7 +1783,11 @@ impl Game {
         z.speed = speed;
         z.scale = scale;
         z.growl_t = self.rng.range(1.0, 6.0);
-        match self.bots.iter().position(|b| !b.alive && (!b.corpse || b.dead_t > CORPSE_T)) {
+        match self
+            .bots
+            .iter()
+            .position(|b| !b.alive && (!b.corpse || b.dead_t > CORPSE_T))
+        {
             Some(i) => self.bots[i] = z,
             None => self.bots.push(z),
         }
@@ -1359,10 +1839,18 @@ impl Game {
                 continue;
             }
             // online, away from everyone
-            if players.iter().any(|p| ((at[0] - p[0]).powi(2) + (at[2] - p[2]).powi(2)).sqrt() < BOX_NEAR) {
+            if players
+                .iter()
+                .any(|p| ((at[0] - p[0]).powi(2) + (at[2] - p[2]).powi(2)).sqrt() < BOX_NEAR)
+            {
                 continue;
             }
-            if self.boxes.iter().chain(self.crates.iter().map(|(c, _)| c)).any(|b| ((b[0] - at[0]).powi(2) + (b[2] - at[2]).powi(2)) < BOX_GAP * BOX_GAP) {
+            if self
+                .boxes
+                .iter()
+                .chain(self.crates.iter().map(|(c, _)| c))
+                .any(|b| ((b[0] - at[0]).powi(2) + (b[2] - at[2]).powi(2)) < BOX_GAP * BOX_GAP)
+            {
                 continue;
             }
             return Some(at);
@@ -1411,7 +1899,18 @@ impl Game {
     fn with_walls(seed: u32, walls: Vec<Aabb>) -> Game {
         let colors = vec![[0.5; 3]; walls.len()];
         let mats = vec![0; walls.len()];
-        let mut g = Game::with_map(seed, Map { half: HALF, walls, colors, mats, decals: Vec::new(), spawns: Vec::new(), ground: None });
+        let mut g = Game::with_map(
+            seed,
+            Map {
+                half: HALF,
+                walls,
+                colors,
+                mats,
+                decals: Vec::new(),
+                spawns: Vec::new(),
+                ground: None,
+            },
+        );
         g.wave_t = f32::INFINITY;
         g
     }
@@ -1422,7 +1921,11 @@ impl Game {
         let mut nav = Nav::new(&world, half);
         // only spawn where a body can actually walk to the middle of the map
         nav.set_goal([0.0, 0.0, 14.0]);
-        let spawns = map.spawns.into_iter().filter(|p| nav.reachable(*p)).collect();
+        let spawns = map
+            .spawns
+            .into_iter()
+            .filter(|p| nav.reachable(*p))
+            .collect();
         let mut g = Game {
             role: Role::Solo,
             half,
@@ -1464,13 +1967,29 @@ impl Game {
     fn respawn_player(&mut self, i: usize) {
         // by whoever is still standing, so a team keeps together; alone, the best of a few spawn points: the one
         // furthest from every living bot
-        let mates: Vec<V3> = self.players.iter().enumerate().filter(|(k, p)| *k != i && p.alive()).map(|(_, p)| p.body.pos).collect();
-        let by_mate = mates.first().and_then(|m| self.spawns.iter().min_by(|a, b| (a[0] - m[0]).hypot(a[2] - m[2]).total_cmp(&(b[0] - m[0]).hypot(b[2] - m[2]))).copied());
+        let mates: Vec<V3> = self
+            .players
+            .iter()
+            .enumerate()
+            .filter(|(k, p)| *k != i && p.alive())
+            .map(|(_, p)| p.body.pos)
+            .collect();
+        let by_mate = mates.first().and_then(|m| {
+            self.spawns
+                .iter()
+                .min_by(|a, b| {
+                    (a[0] - m[0])
+                        .hypot(a[2] - m[2])
+                        .total_cmp(&(b[0] - m[0]).hypot(b[2] - m[2]))
+                })
+                .copied()
+        });
         // a step or two to the side of it, where there is room and nobody else is standing
         let by_mate = by_mate.map(|s| {
             let free = |p: V3| {
                 let b = aabb_at(p, HW, H);
-                !self.world.find(&b, |w| overlaps(&b, w)) && mates.iter().all(|m| (m[0] - p[0]).hypot(m[2] - p[2]) > 1.2)
+                !self.world.find(&b, |w| overlaps(&b, w))
+                    && mates.iter().all(|m| (m[0] - p[0]).hypot(m[2] - p[2]) > 1.2)
             };
             (0..24)
                 .map(|k| {
@@ -1481,7 +2000,12 @@ impl Game {
                 .find(|&p| free(p) && (p[1] - s[1]).abs() < 0.5)
                 .unwrap_or(s)
         });
-        let others: Vec<V3> = self.bots.iter().filter(|b| b.alive).map(|b| b.body.pos).collect();
+        let others: Vec<V3> = self
+            .bots
+            .iter()
+            .filter(|b| b.alive)
+            .map(|b| b.body.pos)
+            .collect();
         let at = by_mate.unwrap_or_else(|| self.pick_spawn(&others, f32::INFINITY));
         // looking at the middle of the map
         self.respawn_at(i, at, (-at[0]).atan2(at[2]));
@@ -1493,7 +2017,10 @@ impl Game {
         let p = &mut self.players[i];
         p.life += 1;
         p.rng = Rng((p.id as u32 + 1) * 7919 + p.life * 104_729);
-        p.body = Body { pos: at, ..Body::default() };
+        p.body = Body {
+            pos: at,
+            ..Body::default()
+        };
         p.step_y = 0.0;
         p.climb = None;
         p.yaw = yaw;
@@ -1556,7 +2083,9 @@ impl Game {
             return;
         }
         self.chime_t = CHIME_EVERY;
-        let Some(p) = self.players.get(self.local) else { return };
+        let Some(p) = self.players.get(self.local) else {
+            return;
+        };
         let (ear, (sy, cy)) = (p.body.pos, p.yaw.sin_cos());
         for &(at, _) in &self.crates {
             let (ex, ez) = (ear[0] - at[0], ear[2] - at[2]);
@@ -1603,7 +2132,10 @@ impl Game {
             } else {
                 self.spawns[(self.rng.next() as usize) % self.spawns.len()]
             };
-            let d = from.iter().map(|o| ((o[0] - p[0]).powi(2) + (o[2] - p[2]).powi(2)).sqrt()).fold(f32::INFINITY, f32::min);
+            let d = from
+                .iter()
+                .map(|o| ((o[0] - p[0]).powi(2) + (o[2] - p[2]).powi(2)).sqrt())
+                .fold(f32::INFINITY, f32::min);
             if d >= far.min(30.0) && far.is_finite() {
                 return p;
             }
@@ -1648,7 +2180,11 @@ impl Game {
         self.events.push([ev::HURT, dmg, 0.0]);
         if p.hp <= 0.0 {
             p.deaths += 1;
-            p.respawn_t = if self.role == Role::Solo { OVERRUN_SOLO } else { OVERRUN_ONLINE };
+            p.respawn_t = if self.role == Role::Solo {
+                OVERRUN_SOLO
+            } else {
+                OVERRUN_ONLINE
+            };
             self.events.push([ev::DEATH, 0.0, 0.0]);
         }
     }
@@ -1661,8 +2197,22 @@ impl Game {
         let mut target = None;
         let then = seen.and_then(|t| self.history.iter().find(|(n, _)| *n == t));
         let boxes: Vec<(usize, Aabb, Aabb)> = match then {
-            Some((_, was)) => was.iter().filter_map(|&(id, body, head)| self.bots.iter().position(|b| b.id == id && b.alive).map(|i| (i, body, head))).collect(),
-            None => self.bots.iter().enumerate().filter(|(_, b)| b.alive).map(|(i, b)| (i, b.body_box(), b.head_box())).collect(),
+            Some((_, was)) => was
+                .iter()
+                .filter_map(|&(id, body, head)| {
+                    self.bots
+                        .iter()
+                        .position(|b| b.id == id && b.alive)
+                        .map(|i| (i, body, head))
+                })
+                .collect(),
+            None => self
+                .bots
+                .iter()
+                .enumerate()
+                .filter(|(_, b)| b.alive)
+                .map(|(i, b)| (i, b.body_box(), b.head_box()))
+                .collect(),
         };
         for (i, body, head) in boxes {
             if let Some(t) = ray_aabb(eye, dir, &head) {
@@ -1683,7 +2233,12 @@ impl Game {
 
     /// The server keeping where the zombies are now, for shots fired at them later (see `trace_bots`).
     fn remember_bots(&mut self) {
-        let now = self.bots.iter().filter(|b| b.alive).map(|b| (b.id, b.body_box(), b.head_box())).collect();
+        let now = self
+            .bots
+            .iter()
+            .filter(|b| b.alive)
+            .map(|b| (b.id, b.body_box(), b.head_box()))
+            .collect();
         self.history.push_back((self.tick_n, now));
         while self.history.len() > HISTORY {
             self.history.pop_front();
@@ -1697,11 +2252,28 @@ impl Game {
         }
         for _ in 0..n {
             let r = &mut self.rng;
-            let vel = [dir[0] * r.range(1.0, 4.0) + r.range(-1.5, 1.5), r.range(0.5, 3.5), dir[2] * r.range(1.0, 4.0) + r.range(-1.5, 1.5)];
+            let vel = [
+                dir[0] * r.range(1.0, 4.0) + r.range(-1.5, 1.5),
+                r.range(0.5, 3.5),
+                dir[2] * r.range(1.0, 4.0) + r.range(-1.5, 1.5),
+            ];
             let life = r.range(0.4, 0.9);
             let s = r.range(0.02, 0.04);
-            let color = if r.f() < 0.5 { [0.45, 0.03, 0.04] } else { [0.30, 0.02, 0.03] };
-            self.debris.push(Debris { pos: at, vel, rot: [0.0; 3], spin: [0.0; 3], half: [s; 3], color, life, glow: 0.0 });
+            let color = if r.f() < 0.5 {
+                [0.45, 0.03, 0.04]
+            } else {
+                [0.30, 0.02, 0.03]
+            };
+            self.debris.push(Debris {
+                pos: at,
+                vel,
+                rot: [0.0; 3],
+                spin: [0.0; 3],
+                half: [s; 3],
+                color,
+                life,
+                glow: 0.0,
+            });
         }
         self.trim_debris();
     }
@@ -1724,7 +2296,10 @@ impl Game {
                 d.pos[axis] += d.vel[axis] * dt;
                 let ground = world.ground_at(d.pos[0], d.pos[2]);
                 let floor = axis == 1 && d.pos[1] < ground + r;
-                let probe = Aabb { min: [d.pos[0] - r, d.pos[1] - r, d.pos[2] - r], max: [d.pos[0] + r, d.pos[1] + r, d.pos[2] + r] };
+                let probe = Aabb {
+                    min: [d.pos[0] - r, d.pos[1] - r, d.pos[2] - r],
+                    max: [d.pos[0] + r, d.pos[1] + r, d.pos[2] + r],
+                };
                 if floor || world.find(&probe, |w| overlaps(&probe, w)) {
                     if floor {
                         d.pos[1] = (ground + r).max(old);
@@ -1805,7 +2380,12 @@ impl Game {
                 if self.role == Role::Mirror {
                     // flinching at once, as it will on the server
                     bot.hit_t = 1.0;
-                    self.tracers.push(Tracer { a: muzzle, b: along(eye, dir, dist), life: 0.06, by: self.players[pi].id });
+                    self.tracers.push(Tracer {
+                        a: muzzle,
+                        b: along(eye, dir, dist),
+                        life: 0.06,
+                        by: self.players[pi].id,
+                    });
                     continue;
                 }
                 bot.hp -= if head { w.head_dmg } else { w.body_dmg };
@@ -1813,21 +2393,36 @@ impl Game {
                 if bot.hp <= 0.0 {
                     bot.alive = false;
                     let at = bot.body.pos;
-                    let power = (w.body_dmg * w.pellets as f32 / 34.0).sqrt().clamp(0.8, 1.8);
+                    let power = (w.body_dmg * w.pellets as f32 / 34.0)
+                        .sqrt()
+                        .clamp(0.8, 1.8);
                     // zombies always crumple where they stand; harder kills just spray more blood
                     bot.corpse = true;
                     bot.dead_t = 0.0;
                     bot.face = (pp[0] - at[0]).atan2(-(pp[2] - at[2]));
                     self.players[pi].kills += 1;
                     self.players[pi].kill_t = 1.0;
-                    self.blood([at[0], at[1] + if head { 1.6 } else { 1.2 }, at[2]], dir, if head || power > 1.3 { 32 } else { 16 });
+                    self.blood(
+                        [at[0], at[1] + if head { 1.6 } else { 1.2 }, at[2]],
+                        dir,
+                        if head || power > 1.3 { 32 } else { 16 },
+                    );
                     outcome = ev::KILL;
                 }
             }
             let (a, b) = (muzzle, along(eye, dir, dist));
-            self.tracers.push(Tracer { a, b, life: 0.06, by: self.players[pi].id });
+            self.tracers.push(Tracer {
+                a,
+                b,
+                life: 0.06,
+                by: self.players[pi].id,
+            });
             if self.role == Role::Server {
-                self.shots.push(Shot { by: self.players[pi].id, a, b });
+                self.shots.push(Shot {
+                    by: self.players[pi].id,
+                    a,
+                    b,
+                });
             }
         }
 
@@ -1866,19 +2461,29 @@ impl Game {
         let up = cross(right, fwd);
         // flat across from the right, or every other swing back the other way and down from high on the left
         let back = p.swings.is_multiple_of(2);
-        let going = if back { right } else { [-right[0], 0.0, -right[2]] };
+        let going = if back {
+            right
+        } else {
+            [-right[0], 0.0, -right[2]]
+        };
         let mut struck: Vec<(usize, f32, bool)> = Vec::new();
         let mut wall = RANGE;
         const RAYS: usize = 9;
         for k in 0..RAYS {
             let s = k as f32 / (RAYS - 1) as f32 * 2.0 - 1.0;
             let (dx, dy) = (s * FAN.tan(), if back { -0.3 * s } else { 0.0 });
-            let dir = unit([fwd[0] + right[0] * dx + up[0] * dy, fwd[1] + right[1] * dx + up[1] * dy, fwd[2] + right[2] * dx + up[2] * dy]);
+            let dir = unit([
+                fwd[0] + right[0] * dx + up[0] * dy,
+                fwd[1] + right[1] * dx + up[1] * dy,
+                fwd[2] + right[2] * dx + up[2] * dy,
+            ]);
             match self.trace_bots(eye, dir, seen) {
-                (dist, Some((i, head))) if dist <= REACH => match struck.iter_mut().find(|s| s.0 == i) {
-                    Some(s) => (s.1, s.2) = (s.1.min(dist), s.2 || head),
-                    None => struck.push((i, dist, head)),
-                },
+                (dist, Some((i, head))) if dist <= REACH => {
+                    match struck.iter_mut().find(|s| s.0 == i) {
+                        Some(s) => (s.1, s.2) = (s.1.min(dist), s.2 || head),
+                        None => struck.push((i, dist, head)),
+                    }
+                }
                 (dist, None) => wall = wall.min(dist),
                 _ => {}
             }
@@ -1897,7 +2502,11 @@ impl Game {
             let (px, pz) = (ax / l + 0.7 * going[0], az / l + 0.7 * going[2]);
             let pl = px.hypot(pz).max(1e-3);
             let push = [px / pl, pz / pl];
-            let hit_at = [at[0] - ax / l * 0.25 * s, at[1] + if head { 1.6 } else { 1.15 } * s, at[2] - az / l * 0.25 * s];
+            let hit_at = [
+                at[0] - ax / l * 0.25 * s,
+                at[1] + if head { 1.6 } else { 1.15 } * s,
+                at[2] - az / l * 0.25 * s,
+            ];
             self.blood(hit_at, [push[0], 0.0, push[1]], if head { 16 } else { 10 });
             outcome = outcome.max(if head { ev::HEAD } else { ev::HIT });
             let b = &mut self.bots[i];
@@ -1913,7 +2522,11 @@ impl Game {
             let k = if dead { 7.5 } else { 5.0 } * heavy;
             b.climb = None;
             b.body.on_ground = false;
-            b.body.vel = [push[0] * k, b.body.vel[1].max(if dead { 3.5 } else { 2.2 } * heavy), push[1] * k];
+            b.body.vel = [
+                push[0] * k,
+                b.body.vel[1].max(if dead { 3.5 } else { 2.2 } * heavy),
+                push[1] * k,
+            ];
             if dead {
                 // down on its back, facing the one who swung
                 b.alive = false;
@@ -1933,8 +2546,15 @@ impl Game {
             p.hit_marker = 1.0;
             p.stop_t = if killed { KILL_STOP } else { HIT_STOP };
             p.shake = p.shake.max(if killed { 0.5 } else { 0.35 });
-            p.gore = (p.gore + 0.15 * struck.len() as f32 + if killed { 0.1 } else { 0.0 }).min(1.0);
-            let smack = if killed { 3.0 } else if outcome == ev::HEAD { 2.0 } else { 1.0 };
+            p.gore =
+                (p.gore + 0.15 * struck.len() as f32 + if killed { 0.1 } else { 0.0 }).min(1.0);
+            let smack = if killed {
+                3.0
+            } else if outcome == ev::HEAD {
+                2.0
+            } else {
+                1.0
+            };
             self.events.push([ev::SMACK, smack, 0.0]);
             self.events.push([outcome, 0.0, 0.0]);
         } else if wall <= REACH {
@@ -1946,11 +2566,32 @@ impl Game {
                 let at = along(eye, fwd, (wall - 0.05).max(0.0));
                 for _ in 0..8 {
                     let r = &mut self.rng;
-                    let vel = [going[0] * r.range(0.5, 2.5) - fwd[0] * r.range(0.5, 2.0), r.range(0.5, 2.5), going[2] * r.range(0.5, 2.5) - fwd[2] * r.range(0.5, 2.0)];
-                    let spin = [r.range(-10.0, 10.0), r.range(-10.0, 10.0), r.range(-10.0, 10.0)];
-                    let half = [r.range(0.006, 0.015), r.range(0.004, 0.01), r.range(0.006, 0.02)];
+                    let vel = [
+                        going[0] * r.range(0.5, 2.5) - fwd[0] * r.range(0.5, 2.0),
+                        r.range(0.5, 2.5),
+                        going[2] * r.range(0.5, 2.5) - fwd[2] * r.range(0.5, 2.0),
+                    ];
+                    let spin = [
+                        r.range(-10.0, 10.0),
+                        r.range(-10.0, 10.0),
+                        r.range(-10.0, 10.0),
+                    ];
+                    let half = [
+                        r.range(0.006, 0.015),
+                        r.range(0.004, 0.01),
+                        r.range(0.006, 0.02),
+                    ];
                     let g = r.range(0.35, 0.55);
-                    self.debris.push(Debris { pos: at, vel, rot: [0.0; 3], spin, half, color: [g, g * 0.9, g * 0.8], life: r.range(0.4, 0.9), glow: 0.0 });
+                    self.debris.push(Debris {
+                        pos: at,
+                        vel,
+                        rot: [0.0; 3],
+                        spin,
+                        half,
+                        color: [g, g * 0.9, g * 0.8],
+                        life: r.range(0.4, 0.9),
+                        glow: 0.0,
+                    });
                 }
                 self.trim_debris();
             }
@@ -1972,7 +2613,12 @@ impl Game {
         if self.role != Role::Mirror {
             let goals = self.standing();
             if !goals.is_empty() {
-                let zombies: Vec<V3> = self.bots.iter().filter(|b| b.alive).map(|b| b.body.pos).collect();
+                let zombies: Vec<V3> = self
+                    .bots
+                    .iter()
+                    .filter(|b| b.alive)
+                    .map(|b| b.body.pos)
+                    .collect();
                 self.nav.follow(&goals, &zombies);
             }
             self.tick_respawns(dt);
@@ -2000,7 +2646,13 @@ impl Game {
         }
         // alone the game over card waits for `again`
         let ready = self.role != Role::Solo || self.again;
-        if ready && !self.players.is_empty() && self.players.iter().all(|p| !p.alive() && p.respawn_t <= 0.0) {
+        if ready
+            && !self.players.is_empty()
+            && self
+                .players
+                .iter()
+                .all(|p| !p.alive() && p.respawn_t <= 0.0)
+        {
             let lobby = !self.waves_on();
             self.reset_waves();
             if lobby {
@@ -2058,7 +2710,11 @@ impl Game {
             p.hp = (p.hp + 8.0 * dt).min(100.0);
         }
         p.equip_t = (p.equip_t - dt).max(0.0);
-        let aim = if inp.ads && !w.melee && p.reload_t <= 0.0 && p.equip_t <= 0.0 { 1.0 } else { 0.0 };
+        let aim = if inp.ads && !w.melee && p.reload_t <= 0.0 && p.equip_t <= 0.0 {
+            1.0
+        } else {
+            0.0
+        };
         p.ads += (aim - p.ads).clamp(-8.0 * dt, 8.0 * dt);
 
         let crash = self.move_player(pi, inp, dt, world);
@@ -2101,10 +2757,19 @@ impl Game {
                     }
                 }
             }
-        } else if !p.sprinting && (inp.reload || ammo == 0) && ammo < w.mag && p.reserve[p.weapon] > 0 {
+        } else if !p.sprinting
+            && (inp.reload || ammo == 0)
+            && ammo < w.mag
+            && p.reserve[p.weapon] > 0
+        {
             p.reload_t = w.reload;
             self.events.push([ev::RELOAD, p.weapon as f32, 0.0]);
-        } else if inp.fire && (ammo > 0 || w.melee) && p.cooldown <= 0.0 && p.equip_t <= 0.0 && (w.auto || p.armed) {
+        } else if inp.fire
+            && (ammo > 0 || w.melee)
+            && p.cooldown <= 0.0
+            && p.equip_t <= 0.0
+            && (w.auto || p.armed)
+        {
             if w.melee {
                 self.swing(pi);
             } else {
@@ -2167,13 +2832,18 @@ impl Game {
     /// so the pistol can be swapped for a rifle as well as for another sidearm.
     pub fn take_slot(&self, i: usize) -> usize {
         let p = &self.players[i];
-        p.loadout.iter().position(|&w| w == NO_GUN).unwrap_or(if p.weapon == p.loadout[1] { 1 } else { 0 })
+        p.loadout
+            .iter()
+            .position(|&w| w == NO_GUN)
+            .unwrap_or(if p.weapon == p.loadout[1] { 1 } else { 0 })
     }
 
     /// Take the gun out of the weapon crate in reach: it goes into `take_slot`, loaded, with full reserves, and
     /// raised, and the gun it replaces is left behind.
     fn take_crate(&mut self, pi: usize) {
-        let Some(k) = self.crate_in_reach(pi) else { return };
+        let Some(k) = self.crate_in_reach(pi) else {
+            return;
+        };
         let (_, gun) = self.crates.remove(k);
         let slot = self.take_slot(pi);
         let p = &mut self.players[pi];
@@ -2285,7 +2955,11 @@ impl Game {
         for i in 0..self.bots.len() {
             let (victim, target, player_alive) = match self.nearest_player(self.bots[i].body.pos) {
                 Some((k, _)) => (k, self.players[k].body.pos, true),
-                None => (0, self.players.first().map_or([0.0; 3], |p| p.body.pos), false),
+                None => (
+                    0,
+                    self.players.first().map_or([0.0; 3], |p| p.body.pos),
+                    false,
+                ),
             };
             if !self.bots[i].alive {
                 // one shot off a wall or out of a hop drops to the ground
@@ -2330,12 +3004,17 @@ impl Game {
             // staggers aside
             b.twitch_t -= dt;
             if b.twitch_t <= 0.0 {
-                let ((lo, hi), side) = [((0.3, 1.4), 0.12), ((0.2, 0.8), 0.1), ((0.6, 2.0), 0.07)][b.kind as usize];
+                let ((lo, hi), side) =
+                    [((0.3, 1.4), 0.12), ((0.2, 0.8), 0.1), ((0.6, 2.0), 0.07)][b.kind as usize];
                 b.twitch_t = self.rng.range(lo, hi);
                 b.twitch = if self.rng.f() < 0.3 {
                     [0.0; 3]
                 } else {
-                    [self.rng.range(-side, side), -self.rng.range(0.0, 0.08), self.rng.range(-0.03, 0.07)]
+                    [
+                        self.rng.range(-side, side),
+                        -self.rng.range(0.0, 0.08),
+                        self.rng.range(-0.03, 0.07),
+                    ]
                 };
                 if self.rng.f() < 0.35 {
                     b.stagger = self.rng.range(-1.4, 1.4);
@@ -2358,7 +3037,11 @@ impl Game {
             }
             // it walks at the player until it is close enough to strike, flinching when hit
             let in_reach = (-STRIKE_DOWN..STRIKE_UP).contains(&(target[1] - b.body.pos[1]));
-            let go = if player_alive && (dist > 1.2 || !in_reach) { b.speed } else { 0.0 };
+            let go = if player_alive && (dist > 1.2 || !in_reach) {
+                b.speed
+            } else {
+                0.0
+            };
             let go = go * (1.0 - 0.8 * b.hit_t);
 
             if dist > LOD_RADIUS && player_alive {
@@ -2369,8 +3052,16 @@ impl Game {
                     let l = (rx * rx + rz * rz).sqrt().max(1e-4);
                     let moved = (b.speed * dt).min(l);
                     // it hops up as soon as it starts a rise and comes down only once it arrives, so it is never inside the step
-                    let y = if to[1] > b.body.pos[1] || l - moved < 0.3 { to[1] } else { b.body.pos[1] };
-                    let at = [b.body.pos[0] + rx / l * moved, y, b.body.pos[2] + rz / l * moved];
+                    let y = if to[1] > b.body.pos[1] || l - moved < 0.3 {
+                        to[1]
+                    } else {
+                        b.body.pos[1]
+                    };
+                    let at = [
+                        b.body.pos[0] + rx / l * moved,
+                        y,
+                        b.body.pos[2] + rz / l * moved,
+                    ];
                     // a step that grazes a corner slides along one axis instead, and one under an overhang on the
                     // way down off a ledge drops at once: pushed back to the middle, it would try the same step forever.
                     // Through a window, it goes through
@@ -2378,7 +3069,12 @@ impl Game {
                         let probe = aabb_at(at, HW, H);
                         through || !world.find(&probe, |w| overlaps(&probe, w))
                     };
-                    let tries = [at, [at[0], to[1], at[2]], [at[0], y, b.body.pos[2]], [b.body.pos[0], y, at[2]]];
+                    let tries = [
+                        at,
+                        [at[0], to[1], at[2]],
+                        [at[0], y, b.body.pos[2]],
+                        [b.body.pos[0], y, at[2]],
+                    ];
                     if let Some(at) = tries.into_iter().find(|&t| clear(t)) {
                         b.body.pos = at;
                     } else if let Some(c) = self.nav.snap(b.body.pos) {
@@ -2386,7 +3082,11 @@ impl Game {
                         let (sx, sz) = (c[0] - b.body.pos[0], c[1] - b.body.pos[2]);
                         let m = (b.speed * dt).min((sx * sx + sz * sz).sqrt());
                         let sl = (sx * sx + sz * sz).sqrt().max(1e-4);
-                        b.body.pos = [b.body.pos[0] + sx / sl * m, b.body.pos[1], b.body.pos[2] + sz / sl * m];
+                        b.body.pos = [
+                            b.body.pos[0] + sx / sl * m,
+                            b.body.pos[1],
+                            b.body.pos[2] + sz / sl * m,
+                        ];
                     }
                     b.body.vel = [rx / l * b.speed, 0.0, rz / l * b.speed];
                     b.body.on_ground = true;
@@ -2400,19 +3100,36 @@ impl Game {
             // followed by the route too: seen over the edge of a flight or a roof, they would only be clawed at
             // from below. So is someone the route leads away from: seen over a parapet from the top of a stair,
             // a straight line would step back down it, out of sight again, and up and down it would go for ever
-            let step = if b.climb.is_none() { self.nav.next_step(b.body.pos) } else { None };
+            let step = if b.climb.is_none() {
+                self.nav.next_step(b.body.pos)
+            } else {
+                None
+            };
             let (next, through) = (step.map(|s| s.0), step.is_some_and(|s| s.1));
             if b.body.on_ground {
                 let to_player = [dx, target[1] - b.body.pos[1], dz];
                 let reach = len(to_player).max(0.001);
-                let d = [to_player[0] / reach, to_player[1] / reach, to_player[2] / reach];
-                let side = [-d[2] / d[0].hypot(d[2]).max(1e-4) * HW * 0.9, d[0] / d[0].hypot(d[2]).max(1e-4) * HW * 0.9];
-                let along = next.map_or(true, |to| (to[0] - b.body.pos[0]) * dx + (to[2] - b.body.pos[2]) * dz > 0.0);
+                let d = [
+                    to_player[0] / reach,
+                    to_player[1] / reach,
+                    to_player[2] / reach,
+                ];
+                let side = [
+                    -d[2] / d[0].hypot(d[2]).max(1e-4) * HW * 0.9,
+                    d[0] / d[0].hypot(d[2]).max(1e-4) * HW * 0.9,
+                ];
+                let along = next.map_or(true, |to| {
+                    (to[0] - b.body.pos[0]) * dx + (to[2] - b.body.pos[2]) * dz > 0.0
+                });
                 b.direct = target[1] - b.body.pos[1] < 1.1
                     && (along || dist < 2.0)
                     && [0.6, 1.2, 1.7].iter().all(|&y| {
                         [-1.0, 0.0, 1.0].iter().all(|&s| {
-                            let o = [b.body.pos[0] + side[0] * s, b.body.pos[1] + y, b.body.pos[2] + side[1] * s];
+                            let o = [
+                                b.body.pos[0] + side[0] * s,
+                                b.body.pos[1] + y,
+                                b.body.pos[2] + side[1] * s,
+                            ];
                             world.raycast(o, d, reach) >= reach
                         })
                     });
@@ -2430,16 +3147,26 @@ impl Game {
                 // a climb goes from the spot the route has it on, and the route only knows metre cells: on a fence
                 // across two of them it may be at the far end of the wrong one, and heading straight for the top of
                 // the climb from there takes it in under a tree's canopy, so it goes along into the right one first
-                let climb_to = next.filter(|to| !b.direct && !through && to[1] - b.body.pos[1] > 0.65);
+                let climb_to =
+                    next.filter(|to| !b.direct && !through && to[1] - b.body.pos[1] > 0.65);
                 let near = |to: &V3| (to[0] - b.body.pos[0]).hypot(to[2] - b.body.pos[2]) < 1.5;
-                let from = climb_to.filter(|to| !near(to)).and_then(|_| self.nav.from_cell(b.body.pos));
-                let off = from.map(|c| [c[0] + (b.body.pos[0] - c[0]).clamp(-0.35, 0.35), c[1] + (b.body.pos[2] - c[1]).clamp(-0.35, 0.35)]);
+                let from = climb_to
+                    .filter(|to| !near(to))
+                    .and_then(|_| self.nav.from_cell(b.body.pos));
+                let off = from.map(|c| {
+                    [
+                        c[0] + (b.body.pos[0] - c[0]).clamp(-0.35, 0.35),
+                        c[1] + (b.body.pos[2] - c[1]).clamp(-0.35, 0.35),
+                    ]
+                });
                 let off = off.filter(|o| (o[0] - b.body.pos[0]).hypot(o[1] - b.body.pos[2]) > 0.05);
                 let mut tv = match next {
                     Some(to) if !b.direct => {
                         let to = match off {
                             Some(o) => [o[0], b.body.pos[1], o[1]],
-                            None if b.body.on_ground && !through => look_ahead(&self.nav, world, b.body.pos, to),
+                            None if b.body.on_ground && !through => {
+                                look_ahead(&self.nav, world, b.body.pos, to)
+                            }
                             None => to,
                         };
                         let (rx, rz) = (to[0] - b.body.pos[0], to[2] - b.body.pos[2]);
@@ -2449,7 +3176,11 @@ impl Game {
                     // out in the open it lurches from side to side; on a route it keeps to the route, which may
                     // be a narrow stair
                     _ => {
-                        let st = if dist > 2.5 && go > 0.0 { b.stagger } else { 0.0 };
+                        let st = if dist > 2.5 && go > 0.0 {
+                            b.stagger
+                        } else {
+                            0.0
+                        };
                         [nx * go - nz * st, nz * go + nx * st]
                     }
                 };
@@ -2458,15 +3189,23 @@ impl Game {
                 for (j, (pj, aj)) in snap.iter().enumerate() {
                     let (ox, oz) = (b.body.pos[0] - pj[0], b.body.pos[2] - pj[2]);
                     let d = (ox * ox + oz * oz).sqrt();
-                    if j != i && *aj && d < 0.9 && d > 0.001 && (b.body.pos[1] - pj[1]).abs() < 1.2 {
+                    if j != i && *aj && d < 0.9 && d > 0.001 && (b.body.pos[1] - pj[1]).abs() < 1.2
+                    {
                         tv[0] += ox / d * (0.9 - d) * 4.0;
                         tv[1] += oz / d * (0.9 - d) * 4.0;
                     }
                 }
                 // up on something (a fence, a hedge) with the climb from it not yet found, it keeps still while it
                 // looks: walking on at the edge would take it off what it is on and back to the ground
-                let foot = climb_to.filter(|to| near(to) || off.is_none() && (to[0] - b.body.pos[0]).hypot(to[2] - b.body.pos[2]) < 2.2);
-                if foot.is_some() && b.balk_t > 0.0 && b.body.pos[1] > world.ground_at(b.body.pos[0], b.body.pos[2]) + 0.3 {
+                let foot = climb_to.filter(|to| {
+                    near(to)
+                        || off.is_none()
+                            && (to[0] - b.body.pos[0]).hypot(to[2] - b.body.pos[2]) < 2.2
+                });
+                if foot.is_some()
+                    && b.balk_t > 0.0
+                    && b.body.pos[1] > world.ground_at(b.body.pos[0], b.body.pos[2]) + 0.3
+                {
                     tv = [0.0; 2];
                 }
                 let blocked = step_body(&mut b.body, tv, false, dt, world);
@@ -2481,12 +3220,33 @@ impl Game {
                 }
                 if let Some(to) = foot {
                     let yaw = (to[0] - b.body.pos[0]).atan2(-(to[2] - b.body.pos[2]));
-                    let on = self.nav.standing(b.body.pos).filter(|h| h - b.body.pos[1] > LEDGE_LOW);
-                    let wanted = |c: &Climb| (c.to[1] - to[1]).abs() < 0.15 || on.is_some_and(|h| (c.to[1] - h).abs() < 0.15);
-                    b.climb = find_ledge(b.body.pos, yaw, BOT_REACH, BOT_CLIMB_PACE, true, world).or_else(|| {
-                        (1..8).find_map(|k| find_ledge(b.body.pos, yaw + k as f32 * PI / 4.0, BOT_REACH, BOT_CLIMB_PACE, true, world).filter(wanted))
-                    });
-                    b.balk_t = if b.climb.is_some() { 0.0 } else { b.balk_t + dt };
+                    let on = self
+                        .nav
+                        .standing(b.body.pos)
+                        .filter(|h| h - b.body.pos[1] > LEDGE_LOW);
+                    let wanted = |c: &Climb| {
+                        (c.to[1] - to[1]).abs() < 0.15
+                            || on.is_some_and(|h| (c.to[1] - h).abs() < 0.15)
+                    };
+                    b.climb = find_ledge(b.body.pos, yaw, BOT_REACH, BOT_CLIMB_PACE, true, world)
+                        .or_else(|| {
+                            (1..8).find_map(|k| {
+                                find_ledge(
+                                    b.body.pos,
+                                    yaw + k as f32 * PI / 4.0,
+                                    BOT_REACH,
+                                    BOT_CLIMB_PACE,
+                                    true,
+                                    world,
+                                )
+                                .filter(wanted)
+                            })
+                        });
+                    b.balk_t = if b.climb.is_some() {
+                        0.0
+                    } else {
+                        b.balk_t + dt
+                    };
                     if b.balk_t > BALK && b.body.on_ground && to[1] - b.body.pos[1] <= BOT_REACH {
                         b.climb = scramble(b.body.pos, to, world);
                         b.balk_t = 0.0;
@@ -2513,7 +3273,10 @@ impl Game {
         for i in stuck {
             let at = self.zombie_spawn();
             let b = &mut self.bots[i];
-            b.body = Body { pos: at, ..Body::default() };
+            b.body = Body {
+                pos: at,
+                ..Body::default()
+            };
             b.climb = None;
             b.anchor = at;
             b.stuck_t = 0.0;
@@ -2551,7 +3314,10 @@ mod tests {
 
     #[test]
     fn ray_hits_and_misses_box() {
-        let b = Aabb { min: [-1.0, -1.0, -1.0], max: [1.0, 1.0, 1.0] };
+        let b = Aabb {
+            min: [-1.0, -1.0, -1.0],
+            max: [1.0, 1.0, 1.0],
+        };
         assert!((ray_aabb([0.0, 0.0, -5.0], [0.0, 0.0, 1.0], &b).unwrap() - 4.0).abs() < 1e-4);
         assert!(ray_aabb([3.0, 0.0, -5.0], [0.0, 0.0, 1.0], &b).is_none());
     }
@@ -2563,21 +3329,32 @@ mod tests {
         g.players[0].yaw = 0.0; // facing -z
         g.players[0].input.w = true;
         idle(&mut g, 8.0);
-        assert!(g.players[0].body.pos[2] > -HALF + HW - 0.01, "walked through the wall: {:?}", g.players[0].body.pos);
+        assert!(
+            g.players[0].body.pos[2] > -HALF + HW - 0.01,
+            "walked through the wall: {:?}",
+            g.players[0].body.pos
+        );
     }
 
     #[test]
     fn long_falls_hurt_and_the_clock_tower_kills() {
         // dropped from the top of a jump off: a one-storey roof, a two-storey one, the clock tower's balcony
         let peak = JUMP * JUMP / (2.0 * GRAVITY);
-        for (from, lo, hi) in [(3.3 + peak, 100.0, 100.0), (6.6 + peak, 70.0, 85.0), (21.9 + peak, f32::MIN, 0.0)] {
+        for (from, lo, hi) in [
+            (3.3 + peak, 100.0, 100.0),
+            (6.6 + peak, 70.0, 85.0),
+            (21.9 + peak, f32::MIN, 0.0),
+        ] {
             let mut g = arena();
             g.bots.clear();
             g.players[0].body.pos = [0.0, from, 0.0];
             g.players[0].body.on_ground = false;
             idle(&mut g, 3.0);
             let hp = g.players[0].hp;
-            assert!((lo..=hi).contains(&hp), "a fall from {from} left {hp} health");
+            assert!(
+                (lo..=hi).contains(&hp),
+                "a fall from {from} left {hp} health"
+            );
         }
     }
 
@@ -2588,8 +3365,13 @@ mod tests {
             g.spawn_zombie();
             let p = g.bots.last().unwrap().body.pos;
             let probe = aabb_at(p, HW, H);
-            assert!(!g.world.find(&probe, |w| overlaps(&probe, w)), "spawned in a wall: {p:?}");
-            let d = ((p[0] - g.players[0].body.pos[0]).powi(2) + (p[2] - g.players[0].body.pos[2]).powi(2)).sqrt();
+            assert!(
+                !g.world.find(&probe, |w| overlaps(&probe, w)),
+                "spawned in a wall: {p:?}"
+            );
+            let d = ((p[0] - g.players[0].body.pos[0]).powi(2)
+                + (p[2] - g.players[0].body.pos[2]).powi(2))
+            .sqrt();
             assert!(d > 29.0, "spawned {d} from the player");
         }
     }
@@ -2628,7 +3410,8 @@ mod tests {
                 for b in g.bots.iter().filter(|b| b.alive) {
                     let (bb, hb) = (b.body_box(), b.head_box());
                     assert!(
-                        !g.world.find(&bb, |w| overlaps(&bb, w)) && !g.world.find(&hb, |w| overlaps(&hb, w)),
+                        !g.world.find(&bb, |w| overlaps(&bb, w))
+                            && !g.world.find(&hb, |w| overlaps(&hb, w)),
                         "seed {seed}: bot inside a wall at {:?}",
                         b.body.pos
                     );
@@ -2649,7 +3432,11 @@ mod tests {
         g.players[0].input.w = true;
         g.players[0].input.jump = true;
         idle(&mut g, 1.5);
-        assert!(g.players[0].body.pos[1] >= 0.99, "did not land on the platform: {:?}", g.players[0].body.pos);
+        assert!(
+            g.players[0].body.pos[1] >= 0.99,
+            "did not land on the platform: {:?}",
+            g.players[0].body.pos
+        );
     }
 
     #[test]
@@ -2690,7 +3477,11 @@ mod tests {
         idle(&mut g, 0.5);
         g.players[0].input.fire = true;
         idle(&mut g, 3.0);
-        assert_eq!(g.players[0].ammo[3], WEAPONS[3].mag - 1, "held trigger kept firing a bolt action");
+        assert_eq!(
+            g.players[0].ammo[3],
+            WEAPONS[3].mag - 1,
+            "held trigger kept firing a bolt action"
+        );
         g.select(0);
         assert_eq!(g.players[0].ammo[0], WEAPONS[0].mag);
         assert!(g.players[0].equip_t > 0.0);
@@ -2719,7 +3510,10 @@ mod tests {
         g.bots.clear();
         for _ in 0..(1.0 / STEP) as usize {
             g.tick(STEP);
-            assert!(g.debris.iter().all(|d| d.pos[1] > -0.01), "a piece fell through the floor");
+            assert!(
+                g.debris.iter().all(|d| d.pos[1] > -0.01),
+                "a piece fell through the floor"
+            );
         }
         idle(&mut g, 7.0);
         assert!(g.debris.is_empty());
@@ -2732,7 +3526,10 @@ mod tests {
         g.players[0].cooldown = 0.0;
         g.player_fire(0, None);
         let codes: Vec<f32> = g.events.iter().map(|e| e[0]).collect();
-        assert!(codes.contains(&ev::SHOT) && codes.contains(&ev::HIT), "{codes:?}");
+        assert!(
+            codes.contains(&ev::SHOT) && codes.contains(&ev::HIT),
+            "{codes:?}"
+        );
         g.events.clear();
         g.select(1);
         assert_eq!(g.events[0][0], ev::EQUIP);
@@ -2741,7 +3538,10 @@ mod tests {
         g.players[0].body.pos = [5.0, 0.0, 16.0]; // clear of the low cover in front of the spawn
         g.players[0].input.w = true;
         idle(&mut g, 1.5);
-        assert!(g.events.iter().any(|e| e[0] == ev::STEP), "no footsteps while running");
+        assert!(
+            g.events.iter().any(|e| e[0] == ev::STEP),
+            "no footsteps while running"
+        );
     }
 
     #[test]
@@ -2751,10 +3551,23 @@ mod tests {
             bot_ahead_zombie(&mut g, kind);
             g.events.clear();
             idle(&mut g, 8.0);
-            let growl = g.events.iter().find(|e| e[0] == ev::GROWL).unwrap_or_else(|| panic!("kind {kind} never groaned"));
+            let growl = g
+                .events
+                .iter()
+                .find(|e| e[0] == ev::GROWL)
+                .unwrap_or_else(|| panic!("kind {kind} never groaned"));
             assert_eq!((growl[2] / 4.0).round() as u8, kind);
-            assert!((growl[2] - kind as f32 * 4.0).abs() <= 1.0, "pan out of range: {}", growl[2]);
-            assert!(g.events.iter().any(|e| e[0] == ev::SNARL && e[1] == kind as f32), "kind {kind} struck in silence");
+            assert!(
+                (growl[2] - kind as f32 * 4.0).abs() <= 1.0,
+                "pan out of range: {}",
+                growl[2]
+            );
+            assert!(
+                g.events
+                    .iter()
+                    .any(|e| e[0] == ev::SNARL && e[1] == kind as f32),
+                "kind {kind} struck in silence"
+            );
         }
     }
 
@@ -2769,10 +3582,18 @@ mod tests {
         g.players[0].yaw = 0.0;
         g.players[0].body.pos = [0.0, 0.0, 0.0];
         idle(&mut g, 1.5);
-        assert!(g.players[0].body.pos[2] < -5.0, "the kerb stopped the player: {:?}", g.players[0].body.pos);
+        assert!(
+            g.players[0].body.pos[2] < -5.0,
+            "the kerb stopped the player: {:?}",
+            g.players[0].body.pos
+        );
         g.players[0].body.pos = [10.0, 0.0, 0.0];
         idle(&mut g, 1.5);
-        assert!(g.players[0].body.pos[2] > -3.9, "walked up a 1 m wall: {:?}", g.players[0].body.pos);
+        assert!(
+            g.players[0].body.pos[2] > -3.9,
+            "walked up a 1 m wall: {:?}",
+            g.players[0].body.pos
+        );
     }
 
     #[test]
@@ -2780,20 +3601,45 @@ mod tests {
         for (map, seed) in (0..map::MAPS).flat_map(|m| (1..6).map(move |s| (m, s))) {
             let g = Game::on(map, seed);
             let b = aabb_at(g.players[0].body.pos, HW, H);
-            assert!(!g.world.find(&b, |w| overlaps(&b, w)), "map {map} seed {seed}: spawned in a wall");
+            assert!(
+                !g.world.find(&b, |w| overlaps(&b, w)),
+                "map {map} seed {seed}: spawned in a wall"
+            );
             let f = g.players[0].forward();
             let to_mid = [-g.players[0].body.pos[0], -g.players[0].body.pos[2]];
-            assert!(f[0] * to_mid[0] + f[2] * to_mid[1] > 0.0, "map {map} seed {seed}: facing away from the middle");
+            assert!(
+                f[0] * to_mid[0] + f[2] * to_mid[1] > 0.0,
+                "map {map} seed {seed}: facing away from the middle"
+            );
         }
     }
 
     #[test]
     fn a_hill_is_walked_up_with_the_feet_on_it_and_a_cliff_stops_the_walk() {
         // flat to x = 5, a slope rising 0.4 a metre to x = 20, then a cliff rising 3 a metre
-        let t = crate::terrain::Terrain::new(HALF, |x, _| if x < 5.0 { 0.0 } else if x < 20.0 { (x - 5.0) * 0.4 } else { 6.0 + (x - 20.0) * 3.0 });
+        let t = crate::terrain::Terrain::new(HALF, |x, _| {
+            if x < 5.0 {
+                0.0
+            } else if x < 20.0 {
+                (x - 5.0) * 0.4
+            } else {
+                6.0 + (x - 20.0) * 3.0
+            }
+        });
         let walls = map::perimeter();
         let n = walls.len();
-        let mut g = Game::with_map(1, Map { half: HALF, walls, colors: vec![[0.5; 3]; n], mats: vec![0; n], decals: Vec::new(), spawns: Vec::new(), ground: Some(t) });
+        let mut g = Game::with_map(
+            1,
+            Map {
+                half: HALF,
+                walls,
+                colors: vec![[0.5; 3]; n],
+                mats: vec![0; n],
+                decals: Vec::new(),
+                spawns: Vec::new(),
+                ground: Some(t),
+            },
+        );
         g.bots.clear();
         g.wave_t = f32::INFINITY;
         g.players[0].body.pos = [0.0, 0.0, 0.0];
@@ -2806,12 +3652,21 @@ mod tests {
             lowest = lowest.min(p[1] - g.world.ground_at(p[0], p[2]));
         }
         let p = g.players[0].body.pos;
-        assert!((17.5..20.5).contains(&p[0]), "walked to {p:?}, not up the slope to the foot of the cliff");
-        assert!((p[1] - g.world.ground_at(p[0], p[2])).abs() < 0.05, "the feet are off the ground at {p:?}");
+        assert!(
+            (17.5..20.5).contains(&p[0]),
+            "walked to {p:?}, not up the slope to the foot of the cliff"
+        );
+        assert!(
+            (p[1] - g.world.ground_at(p[0], p[2])).abs() < 0.05,
+            "the feet are off the ground at {p:?}"
+        );
         assert!(lowest > -0.01, "the feet sank {lowest} into the slope");
         // and a shot along the slope hits the cliff, while one back down over it doesn't
         assert!(g.world.raycast([10.0, 5.0, 0.0], [1.0, 0.0, 0.0], 50.0) < 11.0);
-        assert_eq!(g.world.raycast([10.0, 5.0, 0.0], [-1.0, 0.0, 0.0], 50.0), 50.0);
+        assert_eq!(
+            g.world.raycast([10.0, 5.0, 0.0], [-1.0, 0.0, 0.0], 50.0),
+            50.0
+        );
     }
 
     /// A game on bare ground shaped by `f`, the player at the middle facing +x and walking with jump held down.
@@ -2819,7 +3674,18 @@ mod tests {
         let t = crate::terrain::Terrain::new(HALF, f);
         let walls = map::perimeter();
         let n = walls.len();
-        let mut g = Game::with_map(1, Map { half: HALF, walls, colors: vec![[0.5; 3]; n], mats: vec![0; n], decals: Vec::new(), spawns: Vec::new(), ground: Some(t) });
+        let mut g = Game::with_map(
+            1,
+            Map {
+                half: HALF,
+                walls,
+                colors: vec![[0.5; 3]; n],
+                mats: vec![0; n],
+                decals: Vec::new(),
+                spawns: Vec::new(),
+                ground: Some(t),
+            },
+        );
         g.bots.clear();
         g.wave_t = f32::INFINITY;
         g.players[0].hp = 1e6;
@@ -2840,7 +3706,11 @@ mod tests {
             g.tick(STEP);
             top = top.max(g.players[0].body.pos[1]);
         }
-        assert!(top < 1.5, "hopped {top} m up the mountainside, to {:?}", g.players[0].body.pos);
+        assert!(
+            top < 1.5,
+            "hopped {top} m up the mountainside, to {:?}",
+            g.players[0].body.pos
+        );
     }
 
     #[test]
@@ -2852,7 +3722,10 @@ mod tests {
             g.tick(STEP);
         }
         let p = g.players[0].body.pos;
-        assert!(p[0] > 7.0 && (p[1] - 1.0).abs() < 0.1, "didn't get up the bank: at {p:?}");
+        assert!(
+            p[0] > 7.0 && (p[1] - 1.0).abs() < 0.1,
+            "didn't get up the bank: at {p:?}"
+        );
     }
 
     fn zombie_game() -> Game {
@@ -2888,7 +3761,11 @@ mod tests {
                     }
                 }
             }
-            assert!(g.wave >= 3, "map {map} seed {seed}: only got to wave {} in 150s", g.wave);
+            assert!(
+                g.wave >= 3,
+                "map {map} seed {seed}: only got to wave {} in 150s",
+                g.wave
+            );
         }
     }
 
@@ -2901,7 +3778,10 @@ mod tests {
         }
         assert_eq!(g.wave, 1);
         assert!(g.bots.iter().any(|b| b.alive));
-        assert!(g.events.iter().any(|e| e[0] == ev::SNARL), "no zombie ever reached the player");
+        assert!(
+            g.events.iter().any(|e| e[0] == ev::SNARL),
+            "no zombie ever reached the player"
+        );
         assert!(g.events.iter().any(|e| e[0] == ev::WAVE));
     }
 
@@ -2918,7 +3798,11 @@ mod tests {
         assert_eq!(g.zombies_left(), 0);
         idle(&mut g, 5.5);
         assert_eq!(g.wave, 2);
-        assert!(g.zombies_left() > first, "wave 2 had {} zombies against {first}", g.zombies_left());
+        assert!(
+            g.zombies_left() > first,
+            "wave 2 had {} zombies against {first}",
+            g.zombies_left()
+        );
     }
 
     #[test]
@@ -2939,30 +3823,50 @@ mod tests {
         let mut g = arena();
         g.bots.clear();
         assert!(g.pick(2));
-        assert_eq!((g.players[0].weapon, g.players[0].loadout), (2, [2, PISTOL]));
+        assert_eq!(
+            (g.players[0].weapon, g.players[0].loadout),
+            (2, [2, PISTOL])
+        );
         // a sidearm goes in the second slot, and the primary stays in hand
         assert!(g.pick(PISTOL + 1));
-        assert_eq!((g.players[0].weapon, g.players[0].loadout), (2, [2, PISTOL + 1]));
+        assert_eq!(
+            (g.players[0].weapon, g.players[0].loadout),
+            (2, [2, PISTOL + 1])
+        );
         assert!(!g.pick(WEAPON_COUNT));
         idle(&mut g, 0.1);
         // picked while alive: carried from the next life
         assert!(g.pick(1));
         assert!(g.pick(PISTOL));
-        assert_eq!(g.players[0].loadout, [2, PISTOL + 1], "changed guns mid-life");
+        assert_eq!(
+            g.players[0].loadout,
+            [2, PISTOL + 1],
+            "changed guns mid-life"
+        );
         g.select_slot(1);
         assert_eq!(g.players[0].weapon, PISTOL + 1);
         g.hurt_player(0, 1e9);
         assert!(g.pick(3));
-        assert_eq!(g.players[0].loadout[0], 2, "the pick should wait for the respawn");
+        assert_eq!(
+            g.players[0].loadout[0], 2,
+            "the pick should wait for the respawn"
+        );
         play_again(&mut g);
         assert!(g.players[0].alive());
-        assert_eq!((g.players[0].weapon, g.players[0].loadout), (3, [3, PISTOL]));
+        assert_eq!(
+            (g.players[0].weapon, g.players[0].loadout),
+            (3, [3, PISTOL])
+        );
     }
 
     #[test]
     fn primaries_and_sidearms_are_where_the_loadout_expects_them() {
-        assert!(WEAPONS[..PRIMARIES].iter().all(|w| w.class != "Pistol" && !w.melee));
-        assert!(WEAPONS[PRIMARIES..].iter().all(|w| w.class == "Pistol" || w.melee));
+        assert!(WEAPONS[..PRIMARIES]
+            .iter()
+            .all(|w| w.class != "Pistol" && !w.melee));
+        assert!(WEAPONS[PRIMARIES..]
+            .iter()
+            .all(|w| w.class == "Pistol" || w.melee));
         assert_eq!(WEAPONS[PISTOL].name, "Pistol");
         assert!(WEAPONS[BAT].melee && WEAPONS[BAT].mag == 0);
         // a Mosin head shot does most of a brute; the double barrel empties in two
@@ -2989,9 +3893,18 @@ mod tests {
     #[test]
     fn a_runner_catches_a_walk_and_is_put_off_by_a_sprint_but_not_for_long() {
         let fastest = WEAPONS.iter().map(|w| w.speed).fold(0.0, f32::max);
-        let slowest = WEAPONS.iter().map(|w| w.speed).fold(f32::INFINITY, f32::min);
-        assert!(RUNNER_SPEED.0 > WALK * fastest, "a runner is outwalked with the quickest gun");
-        assert!(RUNNER_SPEED.1 < SPRINT * slowest, "a runner outruns a sprint with the slowest gun");
+        let slowest = WEAPONS
+            .iter()
+            .map(|w| w.speed)
+            .fold(f32::INFINITY, f32::min);
+        assert!(
+            RUNNER_SPEED.0 > WALK * fastest,
+            "a runner is outwalked with the quickest gun"
+        );
+        assert!(
+            RUNNER_SPEED.1 < SPRINT * slowest,
+            "a runner outruns a sprint with the slowest gun"
+        );
 
         let chase = |sprint: bool| {
             let mut g = arena();
@@ -3041,10 +3954,17 @@ mod tests {
         // still holding sprint: walking pace, and the bar refills
         let z = g.players[0].body.pos[2];
         idle(&mut g, 1.0);
-        assert!(z - g.players[0].body.pos[2] < WALK * 1.05, "sprinted while winded");
+        assert!(
+            z - g.players[0].body.pos[2] < WALK * 1.05,
+            "sprinted while winded"
+        );
         g.players[0].input = Input::default();
         idle(&mut g, WINDED_UNTIL * STAMINA_REFILL);
-        assert!(!g.players[0].winded, "still winded on {}", g.players[0].stamina);
+        assert!(
+            !g.players[0].winded,
+            "still winded on {}",
+            g.players[0].stamina
+        );
         idle(&mut g, STAMINA_REFILL);
         assert_eq!(g.players[0].stamina, 1.0);
     }
@@ -3056,7 +3976,11 @@ mod tests {
         let hip = g.players[0].gun().spread;
         g.players[0].input.fire = true;
         idle(&mut g, 0.7);
-        assert!(g.players[0].spread() > hip * (1.0 + BLOOM_MAX * 0.95), "held carbine only spread {}", g.players[0].spread());
+        assert!(
+            g.players[0].spread() > hip * (1.0 + BLOOM_MAX * 0.95),
+            "held carbine only spread {}",
+            g.players[0].spread()
+        );
         g.players[0].input.fire = false;
         idle(&mut g, BLOOM_REST + 1.0 / BLOOM_SETTLE);
         assert_eq!(g.players[0].spread(), hip, "never settled");
@@ -3066,7 +3990,11 @@ mod tests {
         idle(&mut g, 0.5);
         g.players[0].input.fire = true;
         idle(&mut g, 0.7);
-        assert!((g.players[0].spread() - g.players[0].gun().ads_spread).abs() < 1e-5, "aimed spread {}", g.players[0].spread());
+        assert!(
+            (g.players[0].spread() - g.players[0].gun().ads_spread).abs() < 1e-5,
+            "aimed spread {}",
+            g.players[0].spread()
+        );
 
         // a sniper has settled again by the time it can fire
         let mut g = arena();
@@ -3098,7 +4026,10 @@ mod tests {
         g.players[0].input.jump = false;
         idle(&mut g, 1.5);
         let p = g.players[0].body.pos;
-        assert!((p[1] - 2.0).abs() < 0.05 && p[2] < -2.5, "ended at {p:?}, not on top of the box");
+        assert!(
+            (p[1] - 2.0).abs() < 0.05 && p[2] < -2.5,
+            "ended at {p:?}, not on top of the box"
+        );
         assert!(g.players[0].body.on_ground);
     }
 
@@ -3108,12 +4039,20 @@ mod tests {
         let mut g = ledge_ahead(3.3);
         g.players[0].input.jump = true;
         idle(&mut g, 2.0);
-        assert!(g.players[0].body.pos[1] < 1.5, "climbed a 3.3 m wall: {:?}", g.players[0].body.pos);
+        assert!(
+            g.players[0].body.pos[1] < 1.5,
+            "climbed a 3.3 m wall: {:?}",
+            g.players[0].body.pos
+        );
         // walking into a crate without jumping only bumps into it
         let mut g = ledge_ahead(1.0);
         g.players[0].input.w = true;
         idle(&mut g, 1.5);
-        assert!(g.players[0].body.pos[1] < 0.01, "got onto the crate without jumping: {:?}", g.players[0].body.pos);
+        assert!(
+            g.players[0].body.pos[1] < 0.01,
+            "got onto the crate without jumping: {:?}",
+            g.players[0].body.pos
+        );
     }
 
     #[test]
@@ -3128,7 +4067,10 @@ mod tests {
         g.players[0].input.jump = false;
         idle(&mut g, 1.5);
         let p = g.players[0].body.pos;
-        assert!((p[1] - 3.5).abs() < 0.05, "fell to {p:?} instead of pulling up");
+        assert!(
+            (p[1] - 3.5).abs() < 0.05,
+            "fell to {p:?} instead of pulling up"
+        );
         assert_eq!(g.players[0].hp, 100.0);
     }
 
@@ -3137,7 +4079,10 @@ mod tests {
         // a tall wall with an upper floor behind it, its top in reach of a player high up beside the wall
         let mut walls = map::perimeter();
         walls.push(block(0.0, -2.3, 4.0, 7.0, 0.4));
-        walls.push(Aabb { min: [-2.0, 3.0, -6.0], max: [2.0, 3.3, -2.5] });
+        walls.push(Aabb {
+            min: [-2.0, 3.0, -6.0],
+            max: [2.0, 3.3, -2.5],
+        });
         let mut g = Game::with_walls(1, walls);
         g.bots.clear();
         g.players[0].body.pos = [0.0, 2.0, -1.6];
@@ -3145,17 +4090,33 @@ mod tests {
         g.players[0].yaw = 0.0;
         g.players[0].input.jump = true;
         idle(&mut g, 1.5);
-        assert!(g.players[0].body.pos[2] > -2.1, "went through the wall to {:?}", g.players[0].body.pos);
+        assert!(
+            g.players[0].body.pos[2] > -2.1,
+            "went through the wall to {:?}",
+            g.players[0].body.pos
+        );
     }
 
     /// A wall 0.4 thick across the way at z = -3.5, with a hole in it `w` wide and `tall` from a sill `sill` up.
     fn hole_in(w: f32, sill: f32, tall: f32) -> Vec<Aabb> {
         let (z0, z1) = (-3.7, -3.3);
         let mut walls = map::perimeter();
-        walls.push(Aabb { min: [-4.0, 0.0, z0], max: [-w / 2.0, 3.5, z1] });
-        walls.push(Aabb { min: [w / 2.0, 0.0, z0], max: [4.0, 3.5, z1] });
-        walls.push(Aabb { min: [-w / 2.0, 0.0, z0], max: [w / 2.0, sill, z1] });
-        walls.push(Aabb { min: [-w / 2.0, sill + tall, z0], max: [w / 2.0, 5.0, z1] });
+        walls.push(Aabb {
+            min: [-4.0, 0.0, z0],
+            max: [-w / 2.0, 3.5, z1],
+        });
+        walls.push(Aabb {
+            min: [w / 2.0, 0.0, z0],
+            max: [4.0, 3.5, z1],
+        });
+        walls.push(Aabb {
+            min: [-w / 2.0, 0.0, z0],
+            max: [w / 2.0, sill, z1],
+        });
+        walls.push(Aabb {
+            min: [-w / 2.0, sill + tall, z0],
+            max: [w / 2.0, 5.0, z1],
+        });
         walls
     }
 
@@ -3176,16 +4137,35 @@ mod tests {
                 low = low.min(g.players[0].eye()[1] - g.players[0].body.pos[1]);
             }
             let p = g.players[0].body.pos;
-            assert!(p[2] > -3.3 || p[2] < -3.7 - HW, "left inside the wall at {p:?}");
+            assert!(
+                p[2] > -3.3 || p[2] < -3.7 - HW,
+                "left inside the wall at {p:?}"
+            );
             (p[2] < -3.7, low)
         };
-        for (w, sill, tall, x) in [(1.4, 0.9, 1.3, 0.0), (1.6, 1.0, 1.3, 0.3), (1.4, 1.0, 1.0, 0.0), (1.4, 1.5, 1.2, -0.2)] {
+        for (w, sill, tall, x) in [
+            (1.4, 0.9, 1.3, 0.0),
+            (1.6, 1.0, 1.3, 0.3),
+            (1.4, 1.0, 1.0, 0.0),
+            (1.4, 1.5, 1.2, -0.2),
+        ] {
             let (out, low) = through(w, sill, tall, x);
             assert!(out, "didn't get through a {w} by {tall} window {sill} up");
-            assert!(low < tall - 0.2, "the eye didn't duck under the head of a {tall} tall window: {low}");
+            assert!(
+                low < tall - 0.2,
+                "the eye didn't duck under the head of a {tall} tall window: {low}"
+            );
         }
-        for (w, sill, tall) in [(0.5, 1.0, 0.5), (0.7, 1.0, 1.3), (1.4, 1.0, 0.7), (1.4, 3.1, 1.3)] {
-            assert!(!through(w, sill, tall, 0.0).0, "got through a {w} by {tall} hole {sill} up");
+        for (w, sill, tall) in [
+            (0.5, 1.0, 0.5),
+            (0.7, 1.0, 1.3),
+            (1.4, 1.0, 0.7),
+            (1.4, 3.1, 1.3),
+        ] {
+            assert!(
+                !through(w, sill, tall, 0.0).0,
+                "got through a {w} by {tall} hole {sill} up"
+            );
         }
     }
 
@@ -3195,9 +4175,18 @@ mod tests {
     fn zombies_climb_in_through_a_window_but_not_a_peephole() {
         let room = |w: f32, tall: f32| {
             let mut walls = hole_in(w, 1.0, tall);
-            walls.push(Aabb { min: [-4.0, 0.0, -10.0], max: [-3.6, 3.5, -3.3] });
-            walls.push(Aabb { min: [3.6, 0.0, -10.0], max: [4.0, 3.5, -3.3] });
-            walls.push(Aabb { min: [-4.0, 0.0, -10.4], max: [4.0, 3.5, -10.0] });
+            walls.push(Aabb {
+                min: [-4.0, 0.0, -10.0],
+                max: [-3.6, 3.5, -3.3],
+            });
+            walls.push(Aabb {
+                min: [3.6, 0.0, -10.0],
+                max: [4.0, 3.5, -3.3],
+            });
+            walls.push(Aabb {
+                min: [-4.0, 0.0, -10.4],
+                max: [4.0, 3.5, -10.0],
+            });
             let mut g = Game::with_walls(1, walls);
             g.bots.clear();
             g.players[0].hp = 1e6;
@@ -3244,7 +4233,10 @@ mod tests {
                 return;
             }
         }
-        panic!("the zombie never got up to the player: it is at {:?}", g.bots[0].body.pos);
+        panic!(
+            "the zombie never got up to the player: it is at {:?}",
+            g.bots[0].body.pos
+        );
     }
 
     #[test]
@@ -3267,14 +4259,26 @@ mod tests {
     #[test]
     fn the_head_hit_box_goes_where_the_head_jerks() {
         let mut z = Bot::zombie([0.0, 0.0, 0.0], 0.0);
-        let mid = |b: Aabb| [(b.min[0] + b.max[0]) / 2.0, b.min[1], (b.min[2] + b.max[2]) / 2.0];
+        let mid = |b: Aabb| {
+            [
+                (b.min[0] + b.max[0]) / 2.0,
+                b.min[1],
+                (b.min[2] + b.max[2]) / 2.0,
+            ]
+        };
         z.head = [0.1, -0.05, 0.04];
         // facing -z its right is +x and forward -z; facing +x its right is +z
         let c = mid(z.head_box());
-        assert!((c[0] - 0.1).abs() < 1e-4 && (c[1] - 1.35).abs() < 1e-4 && (c[2] + 0.04).abs() < 1e-4, "{c:?}");
+        assert!(
+            (c[0] - 0.1).abs() < 1e-4 && (c[1] - 1.35).abs() < 1e-4 && (c[2] + 0.04).abs() < 1e-4,
+            "{c:?}"
+        );
         z.face = std::f32::consts::FRAC_PI_2;
         let c = mid(z.head_box());
-        assert!((c[0] - 0.04).abs() < 1e-4 && (c[2] - 0.1).abs() < 1e-4, "{c:?}");
+        assert!(
+            (c[0] - 0.04).abs() < 1e-4 && (c[2] - 0.1).abs() < 1e-4,
+            "{c:?}"
+        );
     }
 
     #[test]
@@ -3332,7 +4336,11 @@ mod tests {
         idle(&mut g, STRIKE + STEP);
         let b = &g.bots[0];
         assert_eq!(b.hp, 100.0 - WEAPONS[BAT].body_dmg, "a body blow");
-        assert!(b.alive && b.body.vel[2] < -2.0 && b.body.vel[1] > 0.0, "not knocked back: {:?}", b.body.vel);
+        assert!(
+            b.alive && b.body.vel[2] < -2.0 && b.body.vel[1] > 0.0,
+            "not knocked back: {:?}",
+            b.body.vel
+        );
         assert!(g.players[0].stop_t > 0.0 && g.players[0].gore > 0.0);
         assert_eq!(g.players[0].reload_t, 0.0);
     }
@@ -3357,7 +4365,13 @@ mod tests {
         let mut g = arena();
         g.players[0].body.pos = [0.0, 0.0, 16.0];
         g.players[0].yaw = 0.0;
-        for at in [[-0.9, 14.6], [0.0, 14.4], [0.9, 14.6], [0.0, 13.0], [0.0, 17.5]] {
+        for at in [
+            [-0.9, 14.6],
+            [0.0, 14.4],
+            [0.9, 14.6],
+            [0.0, 13.0],
+            [0.0, 17.5],
+        ] {
             g.bots.push(Bot::zombie([at[0], 0.0, at[1]], 0.0));
         }
         bat_out(&mut g);
@@ -3374,14 +4388,20 @@ mod tests {
         bat_out(&mut g);
         g.players[0].input.fire = true;
         idle(&mut g, STRIKE + 2.0 * STEP);
-        assert!(!g.events.iter().any(|e| e[0] == ev::SMACK), "hit something in the open");
+        assert!(
+            !g.events.iter().any(|e| e[0] == ev::SMACK),
+            "hit something in the open"
+        );
         let wall = HALF - HW - 1.0;
         g.players[0].body.pos = [0.0, 0.0, -wall];
         g.players[0].yaw = 0.0;
         g.players[0].cooldown = 0.0;
         g.players[0].armed = true;
         idle(&mut g, STRIKE + 2.0 * STEP);
-        assert!(g.events.iter().any(|e| e[0] == ev::SMACK && e[1] == 0.0), "no thud against the wall");
+        assert!(
+            g.events.iter().any(|e| e[0] == ev::SMACK && e[1] == 0.0),
+            "no thud against the wall"
+        );
     }
 
     /// A new life starts with the magazine full and the reserve at twice the magazine.
@@ -3405,7 +4425,10 @@ mod tests {
         g.players[0].reserve[0] = 5;
         g.players[0].input.reload = true;
         idle(&mut g, WEAPONS[0].reload + 0.3);
-        assert_eq!(g.players[0].ammo[0], 5, "the magazine takes what the reserve has");
+        assert_eq!(
+            g.players[0].ammo[0], 5,
+            "the magazine takes what the reserve has"
+        );
         assert_eq!(g.players[0].reserve[0], 0, "the reserve pays for it");
     }
 
@@ -3442,7 +4465,11 @@ mod tests {
         idle(&mut g, 0.3);
         assert_eq!(g.players[0].reload_t, 0.0, "running cancels the reload");
         assert_eq!(g.players[0].ammo[0], 20, "the loaded magazine comes back");
-        assert_eq!(g.players[0].reserve[0], 2 * WEAPONS[0].mag, "nothing was taken from the reserve");
+        assert_eq!(
+            g.players[0].reserve[0],
+            2 * WEAPONS[0].mag,
+            "nothing was taken from the reserve"
+        );
     }
 
     /// A reload does not start while running.
@@ -3457,7 +4484,11 @@ mod tests {
         g.players[0].input.w = true;
         idle(&mut g, 0.5);
         assert_eq!(g.players[0].reload_t, 0.0, "no reload starts while running");
-        assert_eq!(g.players[0].reserve[0], 2 * WEAPONS[0].mag, "the reserve is untouched");
+        assert_eq!(
+            g.players[0].reserve[0],
+            2 * WEAPONS[0].mag,
+            "the reserve is untouched"
+        );
     }
 
     /// Running over an ammo box leaves it; a standing player still collects it.
@@ -3473,13 +4504,19 @@ mod tests {
         g.players[0].input.w = true;
         idle(&mut g, 0.2);
         assert_eq!(g.boxes.len(), 1, "the box is not picked up while running");
-        assert_eq!(g.players[0].reserve[0], WEAPONS[0].mag, "no rounds came out of it");
+        assert_eq!(
+            g.players[0].reserve[0], WEAPONS[0].mag,
+            "no rounds came out of it"
+        );
         assert!(!g.events.iter().any(|e| e[0] == ev::PICKUP));
         g.players[0].input = Input::default();
         let q = g.players[0].body.pos;
         g.boxes.push([q[0], q[1], q[2]]);
         idle(&mut g, 0.1);
-        assert!(g.events.iter().any(|e| e[0] == ev::PICKUP), "a standing player still collects a box");
+        assert!(
+            g.events.iter().any(|e| e[0] == ev::PICKUP),
+            "a standing player still collects a box"
+        );
     }
 
     /// Reloading a magazine gun swaps the magazine: rounds left in the old one are dropped.
@@ -3492,7 +4529,10 @@ mod tests {
         g.players[0].reserve[0] = 5;
         g.players[0].input.reload = true;
         idle(&mut g, WEAPONS[0].reload + 0.3);
-        assert_eq!(g.players[0].ammo[0], 5, "the new magazine holds what the reserve has");
+        assert_eq!(
+            g.players[0].ammo[0], 5,
+            "the new magazine holds what the reserve has"
+        );
         assert_eq!(g.players[0].reserve[0], 0, "the reserve pays for it");
     }
 
@@ -3507,14 +4547,26 @@ mod tests {
         g.players[0].reserve[2] = 5;
         g.players[0].input.reload = true;
         idle(&mut g, WEAPONS[2].reload + 0.3);
-        assert_eq!(g.players[0].ammo[2], 6, "the loaded shells stay and the tube tops up");
-        assert_eq!(g.players[0].reserve[2], 2, "the reserve pays only for the top-up");
+        assert_eq!(
+            g.players[0].ammo[2], 6,
+            "the loaded shells stay and the tube tops up"
+        );
+        assert_eq!(
+            g.players[0].reserve[2], 2,
+            "the reserve pays only for the top-up"
+        );
         g.select(9);
         g.players[0].ammo[9] = 4;
         g.players[0].reserve[9] = 2;
         idle(&mut g, WEAPONS[9].reload + 0.3);
-        assert_eq!(g.players[0].ammo[9], 6, "the loaded chambers stay and top up");
-        assert_eq!(g.players[0].reserve[9], 0, "the reserve pays for the top-up");
+        assert_eq!(
+            g.players[0].ammo[9], 6,
+            "the loaded chambers stay and top up"
+        );
+        assert_eq!(
+            g.players[0].reserve[9], 0,
+            "the reserve pays for the top-up"
+        );
     }
 
     /// Each wave tops the ammo boxes up to two thirds of its zombies, rounded up, on top of the ones left behind.
@@ -3524,7 +4576,11 @@ mod tests {
         g.players[0].hp = 1e6;
         idle(&mut g, 0.1);
         assert_eq!(g.wave, 1);
-        assert_eq!(g.boxes.len(), 6, "wave one: two thirds of the nine zombies, rounded up");
+        assert_eq!(
+            g.boxes.len(),
+            6,
+            "wave one: two thirds of the nine zombies, rounded up"
+        );
         g.boxes.pop();
         for b in &mut g.bots {
             b.alive = false;
@@ -3532,7 +4588,11 @@ mod tests {
         g.to_spawn = 0;
         idle(&mut g, 5.5);
         assert_eq!(g.wave, 2);
-        assert_eq!(g.boxes.len(), 8, "wave two tops up to two thirds of its twelve");
+        assert_eq!(
+            g.boxes.len(),
+            8,
+            "wave two tops up to two thirds of its twelve"
+        );
     }
 
     /// Every box of a wave lands in bounds, within walking distance of the player, and clear of the others.
@@ -3544,15 +4604,28 @@ mod tests {
         assert_eq!(g.boxes.len(), 6);
         let p = g.players[0].body.pos;
         for at in &g.boxes {
-            assert!(at[0].abs() <= HALF - 2.0 && at[2].abs() <= HALF - 2.0, "box out of bounds: {at:?}");
-            assert!(g.nav.reachable(*at), "box the player cannot walk to: {at:?}");
+            assert!(
+                at[0].abs() <= HALF - 2.0 && at[2].abs() <= HALF - 2.0,
+                "box out of bounds: {at:?}"
+            );
+            assert!(
+                g.nav.reachable(*at),
+                "box the player cannot walk to: {at:?}"
+            );
             let d = ((at[0] - p[0]).powi(2) + (at[2] - p[2]).powi(2)).sqrt();
             assert!(d >= BOX_NEAR, "box only {d:.1} m from the player: {at:?}");
         }
         for i in 0..g.boxes.len() {
             for j in (i + 1)..g.boxes.len() {
-                let d = ((g.boxes[i][0] - g.boxes[j][0]).powi(2) + (g.boxes[i][2] - g.boxes[j][2]).powi(2)).sqrt();
-                assert!(d >= BOX_GAP, "boxes only {d:.2} m apart: {:?} {:?}", g.boxes[i], g.boxes[j]);
+                let d = ((g.boxes[i][0] - g.boxes[j][0]).powi(2)
+                    + (g.boxes[i][2] - g.boxes[j][2]).powi(2))
+                .sqrt();
+                assert!(
+                    d >= BOX_GAP,
+                    "boxes only {d:.2} m apart: {:?} {:?}",
+                    g.boxes[i],
+                    g.boxes[j]
+                );
             }
         }
     }
@@ -3565,9 +4638,16 @@ mod tests {
             g.wave_t = 0.0;
             g.players[0].hp = 1e6;
             idle(&mut g, 0.1);
-            assert_eq!(g.boxes.len(), 6, "map {map} seed {seed}: the wave's boxes are missing");
+            assert_eq!(
+                g.boxes.len(),
+                6,
+                "map {map} seed {seed}: the wave's boxes are missing"
+            );
             for at in &g.boxes {
-                assert!(g.nav.reachable(*at), "map {map} seed {seed}: box the player cannot reach: {at:?}");
+                assert!(
+                    g.nav.reachable(*at),
+                    "map {map} seed {seed}: box the player cannot reach: {at:?}"
+                );
             }
         }
     }
@@ -3584,12 +4664,23 @@ mod tests {
         g.boxes.push([p[0] + 0.5, p[1], p[2]]);
         idle(&mut g, 0.1);
         assert!(g.boxes.is_empty(), "the box was run over");
-        assert_eq!(g.players[0].ammo[0], 15, "the loaded magazine is left alone");
-        assert_eq!(g.players[0].reserve[0], 20 + WEAPONS[0].mag, "one magazine added");
+        assert_eq!(
+            g.players[0].ammo[0], 15,
+            "the loaded magazine is left alone"
+        );
+        assert_eq!(
+            g.players[0].reserve[0],
+            20 + WEAPONS[0].mag,
+            "one magazine added"
+        );
         assert!(g.events.iter().any(|e| e[0] == ev::PICKUP));
         g.boxes.push([p[0] + 0.5, p[1], p[2]]);
         idle(&mut g, 0.1);
-        assert_eq!(g.players[0].reserve[0], 2 * WEAPONS[0].mag, "capped at twice the magazine");
+        assert_eq!(
+            g.players[0].reserve[0],
+            2 * WEAPONS[0].mag,
+            "capped at twice the magazine"
+        );
         assert!(g.boxes.is_empty());
     }
 
@@ -3612,7 +4703,11 @@ mod tests {
         idle(&mut g, 0.1);
         assert!(g.boxes.is_empty(), "room for a grenade: the box is taken");
         assert_eq!(g.players[0].grenades, 2, "the grenade comes out of it");
-        assert_eq!(g.players[0].reserve[0], 2 * WEAPONS[0].mag, "the full reserves are left alone");
+        assert_eq!(
+            g.players[0].reserve[0],
+            2 * WEAPONS[0].mag,
+            "the full reserves are left alone"
+        );
     }
 
     /// Running over a box adds one grenade at a time, up to the limit, and no further.
@@ -3627,10 +4722,16 @@ mod tests {
             g.boxes.push([p[0] + 0.5, p[1], p[2]]);
             idle(&mut g, 0.1);
         }
-        assert_eq!(g.players[0].grenades, MAX_GRENADES, "one per box, up to the limit");
+        assert_eq!(
+            g.players[0].grenades, MAX_GRENADES,
+            "one per box, up to the limit"
+        );
         g.boxes.push([p[0] + 0.5, p[1], p[2]]);
         idle(&mut g, 0.1);
-        assert_eq!(g.players[0].grenades, MAX_GRENADES, "no more than can be carried");
+        assert_eq!(
+            g.players[0].grenades, MAX_GRENADES,
+            "no more than can be carried"
+        );
     }
 
     /// A box just out of reach is left alone, and a dead player takes nothing.
@@ -3662,7 +4763,11 @@ mod tests {
         assert!(g.players[0].alive());
         assert_eq!(g.wave, 0);
         assert!(g.boxes.is_empty(), "the boxes of the old life are gone");
-        assert_eq!(g.players[0].reserve, full_reserve(), "the new life starts with full reserves");
+        assert_eq!(
+            g.players[0].reserve,
+            full_reserve(),
+            "the new life starts with full reserves"
+        );
     }
 
     /// Playing for loot a life starts with only the pistol, and picking a loadout doesn't change that.
@@ -3670,15 +4775,29 @@ mod tests {
     fn a_loot_life_starts_with_only_the_pistol() {
         let mut g = arena();
         g.set_loot(true);
-        assert_eq!((g.players[0].weapon, g.players[0].loadout), (PISTOL, [NO_GUN, PISTOL]));
+        assert_eq!(
+            (g.players[0].weapon, g.players[0].loadout),
+            (PISTOL, [NO_GUN, PISTOL])
+        );
         g.pick(2);
-        assert_eq!(g.players[0].loadout, [NO_GUN, PISTOL], "the pick doesn't arm a loot life");
+        assert_eq!(
+            g.players[0].loadout,
+            [NO_GUN, PISTOL],
+            "the pick doesn't arm a loot life"
+        );
         g.select_slot(0);
-        assert_eq!(g.players[0].weapon, PISTOL, "nothing to switch to in the empty slot");
+        assert_eq!(
+            g.players[0].weapon, PISTOL,
+            "nothing to switch to in the empty slot"
+        );
         g.hurt_player(0, 1e9);
         play_again(&mut g);
         assert!(g.players[0].alive());
-        assert_eq!(g.players[0].loadout, [NO_GUN, PISTOL], "the next life starts with the pistol again");
+        assert_eq!(
+            g.players[0].loadout,
+            [NO_GUN, PISTOL],
+            "the next life starts with the pistol again"
+        );
     }
 
     /// A weapon crate's gun is taken with the take key, in reach: into an empty slot first, then in place of the
@@ -3705,18 +4824,36 @@ mod tests {
         g.crates[0].0 = [p[0] + 1.0, p[1], p[2]];
         take(&mut g);
         assert!(g.crates.is_empty(), "taken");
-        assert_eq!((g.players[0].weapon, g.players[0].loadout), (4, [4, PISTOL]), "the AK-47 in the empty slot, raised");
-        assert_eq!((g.players[0].ammo[4], g.players[0].reserve[4]), (WEAPONS[4].mag, 2 * WEAPONS[4].mag));
-        assert!(g.events.iter().any(|e| e[0] == ev::PICKUP && e[1] == 5.0), "the pickup says which gun");
+        assert_eq!(
+            (g.players[0].weapon, g.players[0].loadout),
+            (4, [4, PISTOL]),
+            "the AK-47 in the empty slot, raised"
+        );
+        assert_eq!(
+            (g.players[0].ammo[4], g.players[0].reserve[4]),
+            (WEAPONS[4].mag, 2 * WEAPONS[4].mag)
+        );
+        assert!(
+            g.events.iter().any(|e| e[0] == ev::PICKUP && e[1] == 5.0),
+            "the pickup says which gun"
+        );
         assert!(!g.players[0].input.take, "the key takes once");
         // holding the AK-47 a sidearm replaces it; holding the pistol a rifle replaces that
         g.crates.push(([p[0] + 0.5, p[1], p[2]], 9));
         take(&mut g);
-        assert_eq!((g.players[0].weapon, g.players[0].loadout), (9, [9, PISTOL]), "the Revolver in the AK-47's place");
+        assert_eq!(
+            (g.players[0].weapon, g.players[0].loadout),
+            (9, [9, PISTOL]),
+            "the Revolver in the AK-47's place"
+        );
         g.select_slot(1);
         g.crates.push(([p[0] + 0.5, p[1], p[2]], 2));
         take(&mut g);
-        assert_eq!((g.players[0].weapon, g.players[0].loadout), (2, [9, 2]), "the Shotgun in the pistol's place");
+        assert_eq!(
+            (g.players[0].weapon, g.players[0].loadout),
+            (2, [9, 2]),
+            "the Shotgun in the pistol's place"
+        );
         // the gun already carried stays in its crate
         g.crates.push(([p[0] + 0.5, p[1], p[2]], 9));
         take(&mut g);
@@ -3734,14 +4871,21 @@ mod tests {
         g.hurt_player(0, 1000.0);
         g.again = true;
         idle(&mut g, 0.5);
-        assert!(!g.players[0].alive(), "too soon: the score is still being read");
+        assert!(
+            !g.players[0].alive(),
+            "too soon: the score is still being read"
+        );
         idle(&mut g, 5.0);
         assert!(!g.players[0].alive(), "waits to be asked");
         assert_eq!(g.players[0].kills, 7, "the score is kept for the card");
         g.again = true;
         idle(&mut g, 0.1);
         assert!(g.players[0].alive(), "a new life");
-        assert_eq!((g.wave, g.players[0].kills, g.players[0].deaths), (0, 0, 0), "from wave one, with a new score");
+        assert_eq!(
+            (g.wave, g.players[0].kills, g.players[0].deaths),
+            (0, 0, 0),
+            "from wave one, with a new score"
+        );
     }
 
     /// Each wave tops up the weapon crates playing for loot, and only then; none holds the pistol.
@@ -3760,10 +4904,16 @@ mod tests {
         let p = g.players[0].body.pos;
         for &(at, gun) in &g.crates {
             assert!(gun < WEAPON_COUNT && gun != PISTOL, "crate with gun {gun}");
-            assert!(g.nav.reachable(at), "crate the player cannot walk to: {at:?}");
+            assert!(
+                g.nav.reachable(at),
+                "crate the player cannot walk to: {at:?}"
+            );
             assert!(((at[0] - p[0]).powi(2) + (at[2] - p[2]).powi(2)).sqrt() >= BOX_NEAR);
             for b in &g.boxes {
-                assert!(((b[0] - at[0]).powi(2) + (b[2] - at[2]).powi(2)).sqrt() >= BOX_GAP, "crate on an ammo box");
+                assert!(
+                    ((b[0] - at[0]).powi(2) + (b[2] - at[2]).powi(2)).sqrt() >= BOX_GAP,
+                    "crate on an ammo box"
+                );
             }
         }
     }

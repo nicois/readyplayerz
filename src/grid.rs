@@ -28,7 +28,14 @@ impl Grid {
             hi = [0.0; 2];
         }
         let dims = [0, 1].map(|i| (((hi[i] - lo[i]) / cell).ceil() as usize).max(1));
-        let mut g = Grid { walls, ground: None, cell, origin: lo, dims, cells: vec![Vec::new(); dims[0] * dims[1]] };
+        let mut g = Grid {
+            walls,
+            ground: None,
+            cell,
+            origin: lo,
+            dims,
+            cells: vec![Vec::new(); dims[0] * dims[1]],
+        };
         for i in 0..g.walls.len() {
             let ([x0, z0], [x1, z1]) = g.span(&g.walls[i]);
             for z in z0..=z1 {
@@ -62,7 +69,10 @@ impl Grid {
 
     /// Inclusive range of cells (x, z) a box touches. Boxes outside the grid clamp to its edge.
     fn span(&self, b: &Aabb) -> ([usize; 2], [usize; 2]) {
-        ([self.index(b.min[0], 0), self.index(b.min[2], 1)], [self.index(b.max[0], 0), self.index(b.max[2], 1)])
+        (
+            [self.index(b.min[0], 0), self.index(b.min[2], 1)],
+            [self.index(b.max[0], 0), self.index(b.max[2], 1)],
+        )
     }
 
     /// Calls `f` on every wall in the cells `b` touches until it returns true. Walls spanning several
@@ -83,7 +93,10 @@ impl Grid {
 
     /// Indices into `walls` of everything within `radius` of `p` on the ground plane, each once, in order.
     pub fn near(&self, p: V3, radius: f32) -> Vec<usize> {
-        let around = Aabb { min: [p[0] - radius, 0.0, p[2] - radius], max: [p[0] + radius, 0.0, p[2] + radius] };
+        let around = Aabb {
+            min: [p[0] - radius, 0.0, p[2] - radius],
+            max: [p[0] + radius, 0.0, p[2] + radius],
+        };
         let ([x0, z0], [x1, z1]) = self.span(&around);
         let mut out = Vec::new();
         for z in z0..=z1 {
@@ -132,7 +145,8 @@ impl Grid {
         for (i, axis) in [0, 2].into_iter().enumerate() {
             if d[axis].abs() >= 1e-8 {
                 dir[i] = if d[axis] > 0.0 { 1 } else { -1 };
-                let edge = self.origin[i] + (at[i] as isize + (dir[i] > 0) as isize) as f32 * self.cell;
+                let edge =
+                    self.origin[i] + (at[i] as isize + (dir[i] > 0) as isize) as f32 * self.cell;
                 next[i] = (edge - o[axis]) / d[axis];
                 step[i] = self.cell / d[axis].abs();
             }
@@ -165,7 +179,10 @@ mod tests {
     use super::*;
 
     fn bx(x: f32, z: f32, s: f32) -> Aabb {
-        Aabb { min: [x - s, 0.0, z - s], max: [x + s, 2.0, z + s] }
+        Aabb {
+            min: [x - s, 0.0, z - s],
+            max: [x + s, 2.0, z + s],
+        }
     }
 
     fn lcg(s: &mut u32) -> f32 {
@@ -176,16 +193,34 @@ mod tests {
     #[test]
     fn raycast_matches_checking_every_wall() {
         let mut s = 7;
-        let walls: Vec<Aabb> = (0..200).map(|_| bx(lcg(&mut s) * 200.0 - 100.0, lcg(&mut s) * 200.0 - 100.0, 0.5 + lcg(&mut s) * 4.0)).collect();
+        let walls: Vec<Aabb> = (0..200)
+            .map(|_| {
+                bx(
+                    lcg(&mut s) * 200.0 - 100.0,
+                    lcg(&mut s) * 200.0 - 100.0,
+                    0.5 + lcg(&mut s) * 4.0,
+                )
+            })
+            .collect();
         let grid = Grid::new(walls.clone(), 4.0);
         for _ in 0..5000 {
-            let o = [lcg(&mut s) * 260.0 - 130.0, lcg(&mut s) * 3.0, lcg(&mut s) * 260.0 - 130.0];
+            let o = [
+                lcg(&mut s) * 260.0 - 130.0,
+                lcg(&mut s) * 3.0,
+                lcg(&mut s) * 260.0 - 130.0,
+            ];
             let (a, b, c) = (lcg(&mut s) - 0.5, lcg(&mut s) - 0.5, lcg(&mut s) - 0.5);
             let l = (a * a + b * b + c * c).sqrt();
             let d = [a / l, b / l, c / l];
-            let want = walls.iter().filter_map(|w| ray_aabb(o, d, w)).fold(120.0, f32::min);
+            let want = walls
+                .iter()
+                .filter_map(|w| ray_aabb(o, d, w))
+                .fold(120.0, f32::min);
             let got = grid.raycast(o, d, 120.0);
-            assert!((want - got).abs() < 1e-3, "o {o:?} d {d:?}: want {want} got {got}");
+            assert!(
+                (want - got).abs() < 1e-3,
+                "o {o:?} d {d:?}: want {want} got {got}"
+            );
         }
     }
 
@@ -200,7 +235,10 @@ mod tests {
 
     #[test]
     fn near_returns_each_wall_once_and_respects_radius() {
-        let grid = Grid::new(vec![bx(0.0, 0.0, 6.0), bx(30.0, 0.0, 1.0), bx(-30.0, 0.0, 1.0)], 4.0);
+        let grid = Grid::new(
+            vec![bx(0.0, 0.0, 6.0), bx(30.0, 0.0, 1.0), bx(-30.0, 0.0, 1.0)],
+            4.0,
+        );
         assert_eq!(grid.near([0.0, 0.0, 0.0], 10.0), vec![0]);
         assert_eq!(grid.near([20.0, 0.0, 0.0], 10.0), vec![1]);
         assert_eq!(grid.near([0.0, 0.0, 0.0], 40.0), vec![0, 1, 2]);

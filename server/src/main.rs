@@ -38,7 +38,12 @@ type Error = Box<dyn std::error::Error + Send + Sync>;
 /// What a session tells its room.
 enum ToRoom {
     /// someone in, or None if there's no seat for them; one sent by quick match isn't let in once the game is on
-    Join { name: String, matched: bool, out: amp::UnboundedSender<Out>, reply: oneshot::Sender<Option<u8>> },
+    Join {
+        name: String,
+        matched: bool,
+        out: amp::UnboundedSender<Out>,
+        reply: oneshot::Sender<Option<u8>>,
+    },
     Inputs(u8, u32, Vec<Input>),
     Start(u8),
     Rename(u8, String),
@@ -70,12 +75,21 @@ enum Turn {
 
 impl Lobby {
     fn new(max: usize) -> Lobby {
-        Lobby { max, rooms: HashMap::new(), matching: HashMap::new(), line: VecDeque::new() }
+        Lobby {
+            max,
+            rooms: HashMap::new(),
+            matching: HashMap::new(),
+            line: VecDeque::new(),
+        }
     }
 
     /// The quick-match room to put someone in: the fullest with a seat left, so games fill and start.
     fn pick(&self) -> Option<mpsc::Sender<ToRoom>> {
-        let (code, _) = self.matching.iter().filter(|(_, &n)| n < net::MAX_PLAYERS).max_by_key(|(_, &n)| n)?;
+        let (code, _) = self
+            .matching
+            .iter()
+            .filter(|(_, &n)| n < net::MAX_PLAYERS)
+            .max_by_key(|(_, &n)| n)?;
         self.rooms.get(code).cloned()
     }
 
@@ -126,7 +140,9 @@ fn new_code(rooms: &HashMap<String, mpsc::Sender<ToRoom>>) -> String {
     const LETTERS: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ";
     loop {
         let r = random();
-        let code: String = (0..4).map(|k| LETTERS[((r >> (k * 8)) % LETTERS.len() as u64) as usize] as char).collect();
+        let code: String = (0..4)
+            .map(|k| LETTERS[((r >> (k * 8)) % LETTERS.len() as u64) as usize] as char)
+            .collect();
         if !rooms.contains_key(&code) {
             return code;
         }
@@ -145,14 +161,39 @@ fn run_room(code: String, mut room: Room, rx: mpsc::Receiver<ToRoom>, rooms: Roo
     let mut empty_since = Some(Instant::now());
     // what everyone was last told of the game starting, and what quick match was last told of the room
     let (mut told, mut listed) = ((false, 0), Some(0));
-    println!("room {code} open, map {}{}", room.map, if room.matched { ", for quick match" } else { "" });
+    println!(
+        "room {code} open, map {}{}",
+        room.map,
+        if room.matched {
+            ", for quick match"
+        } else {
+            ""
+        }
+    );
     loop {
         while let Ok(m) = rx.try_recv() {
             match m {
-                ToRoom::Join { name, matched, out, reply } => {
-                    let id = if matched && room.game.waves_on() { None } else { room.join(&name) };
+                ToRoom::Join {
+                    name,
+                    matched,
+                    out,
+                    reply,
+                } => {
+                    let id = if matched && room.game.waves_on() {
+                        None
+                    } else {
+                        room.join(&name)
+                    };
                     if let Some(id) = id {
-                        let _ = out.send(Out::Stream(Msg::Welcome { id, room: code.clone(), map: room.map, seed: room.seed }.frame()));
+                        let _ = out.send(Out::Stream(
+                            Msg::Welcome {
+                                id,
+                                room: code.clone(),
+                                map: room.map,
+                                seed: room.seed,
+                            }
+                            .frame(),
+                        ));
                         outs.insert(id, out);
                         send_all(&outs, &room.roster());
                         println!("room {code}: {name:?} in as {id}, {} playing", outs.len());
@@ -220,7 +261,10 @@ fn run_room(code: String, mut room: Room, rx: mpsc::Receiver<ToRoom>, rooms: Roo
             _ => {}
         }
         let next = start + Duration::from_secs_f64((ticks + 1) as f64 * STEP as f64);
-        std::thread::sleep(next.saturating_duration_since(Instant::now()).min(Duration::from_millis(5)));
+        std::thread::sleep(
+            next.saturating_duration_since(Instant::now())
+                .min(Duration::from_millis(5)),
+        );
     }
 }
 
@@ -246,20 +290,38 @@ fn open_room(lobby: &mut Lobby, rooms: &Rooms, map: u8, matched: bool) -> mpsc::
 
 /// A room made on map `map` as soon as there is space for one: until then the session waits in line, told its
 /// place whenever that changes. None if they went before their turn came.
-async fn make_room(rooms: &Rooms, map: u8, matched: bool, send: &mut SendStream, recv: &mut RecvStream) -> Result<Option<mpsc::Sender<ToRoom>>, Error> {
+async fn make_room(
+    rooms: &Rooms,
+    map: u8,
+    matched: bool,
+    send: &mut SendStream,
+    recv: &mut RecvStream,
+) -> Result<Option<mpsc::Sender<ToRoom>>, Error> {
     let ticket = Ticket(rooms.clone(), random());
     let (mut told, mut buf) = (0, [0u8; 256]);
     loop {
         let place = {
             let mut lobby = rooms.lock().unwrap();
-            let Turn::Wait(place) = lobby.turn(ticket.1) else { return Ok(Some(open_room(&mut lobby, rooms, map, matched))) };
+            let Turn::Wait(place) = lobby.turn(ticket.1) else {
+                return Ok(Some(open_room(&mut lobby, rooms, map, matched)));
+            };
             if told == 0 {
-                println!("all {} rooms taken, {} waiting", lobby.max, lobby.line.len());
+                println!(
+                    "all {} rooms taken, {} waiting",
+                    lobby.max,
+                    lobby.line.len()
+                );
             }
             place
         };
         if place != told {
-            send.write_all(&Msg::Queued { place: place.min(u16::MAX as usize) as u16 }.frame()).await?;
+            send.write_all(
+                &Msg::Queued {
+                    place: place.min(u16::MAX as usize) as u16,
+                }
+                .frame(),
+            )
+            .await?;
             told = place;
         }
         // nothing is said while waiting: anything read is the end of the stream
@@ -277,38 +339,66 @@ async fn session(incoming: IncomingSession, rooms: Rooms) -> Result<(), Error> {
     let (mut send, mut recv) = conn.accept_bi().await?;
     let (mut frames, mut buf) = (Frames::default(), vec![0u8; 8192]);
     let hello = loop {
-        let Some(n) = recv.read(&mut buf).await? else { return Ok(()) };
+        let Some(n) = recv.read(&mut buf).await? else {
+            return Ok(());
+        };
         if let Some(m) = frames.push(&buf[..n]).into_iter().next() {
             break m;
         }
     };
     let refuse = |why: &str| Msg::Refused { why: why.into() }.frame();
-    let Msg::Hello { version, room: code, map, name } = hello else { return Ok(()) };
+    let Msg::Hello {
+        version,
+        room: code,
+        map,
+        name,
+    } = hello
+    else {
+        return Ok(());
+    };
     if version != net::VERSION {
-        send.write_all(&refuse("The game has been updated: reload the page.")).await?;
+        send.write_all(&refuse("The game has been updated: reload the page."))
+            .await?;
         return Ok(());
     }
     let quick = code == net::QUICK;
     // quick match tries the rooms it finds (one can fill or start on the way in) a few times, then makes its own
     let mut tries = 0;
     let (tx, id, mut outgoing) = loop {
-        let found = if quick && tries < 5 { rooms.lock().unwrap().pick() } else { None };
+        let found = if quick && tries < 5 {
+            rooms.lock().unwrap().pick()
+        } else {
+            None
+        };
         let tx = if let Some(tx) = found {
             tx
         } else if quick || code.is_empty() {
-            let Some(tx) = make_room(&rooms, map, quick, &mut send, &mut recv).await? else { return Ok(()) };
+            let Some(tx) = make_room(&rooms, map, quick, &mut send, &mut recv).await? else {
+                return Ok(());
+            };
             tx
         } else {
-            let tx = rooms.lock().unwrap().rooms.get(&code.to_uppercase()).cloned();
+            let tx = rooms
+                .lock()
+                .unwrap()
+                .rooms
+                .get(&code.to_uppercase())
+                .cloned();
             let Some(tx) = tx else {
-                send.write_all(&refuse("There is no room with that code.")).await?;
+                send.write_all(&refuse("There is no room with that code."))
+                    .await?;
                 return Ok(());
             };
             tx
         };
         let (out, outgoing) = amp::unbounded_channel();
         let (reply, id) = oneshot::channel();
-        tx.send(ToRoom::Join { name: name.clone(), matched: quick, out, reply })?;
+        tx.send(ToRoom::Join {
+            name: name.clone(),
+            matched: quick,
+            out,
+            reply,
+        })?;
         // no answer is a room that closed as the message went
         match id.await.ok().flatten() {
             Some(id) => break (tx, id, outgoing),
@@ -353,7 +443,12 @@ async fn session(incoming: IncomingSession, rooms: Rooms) -> Result<(), Error> {
 
 /// The page, over plain HTTP: the files in `web`, and `/net`, which says where the game is and the hash of its
 /// certificate (null when it has a real one).
-async fn serve_http(port: u16, web: String, game_port: u16, hash: Arc<Mutex<Option<String>>>) -> std::io::Result<()> {
+async fn serve_http(
+    port: u16,
+    web: String,
+    game_port: u16,
+    hash: Arc<Mutex<Option<String>>>,
+) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
     loop {
         let (mut sock, _) = listener.accept().await?;
@@ -367,13 +462,36 @@ async fn serve_http(port: u16, web: String, game_port: u16, hash: Arc<Mutex<Opti
                     Ok(n) => req.extend_from_slice(&buf[..n]),
                 }
             }
-            let line = String::from_utf8_lossy(&req).lines().next().unwrap_or("").to_string();
-            let path = line.split(' ').nth(1).unwrap_or("/").split('?').next().unwrap_or("/").to_string();
+            let line = String::from_utf8_lossy(&req)
+                .lines()
+                .next()
+                .unwrap_or("")
+                .to_string();
+            let path = line
+                .split(' ')
+                .nth(1)
+                .unwrap_or("/")
+                .split('?')
+                .next()
+                .unwrap_or("/")
+                .to_string();
             let (status, kind, body) = if path == "/net" {
-                let hash = hash.lock().unwrap().clone().unwrap_or_else(|| "null".into());
-                ("200 OK", "application/json", format!("{{\"port\":{game_port},\"hash\":{hash}}}").into_bytes())
+                let hash = hash
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .unwrap_or_else(|| "null".into());
+                (
+                    "200 OK",
+                    "application/json",
+                    format!("{{\"port\":{game_port},\"hash\":{hash}}}").into_bytes(),
+                )
             } else {
-                let file = if path.ends_with('/') { format!("{path}index.html") } else { path.clone() };
+                let file = if path.ends_with('/') {
+                    format!("{path}index.html")
+                } else {
+                    path.clone()
+                };
                 let kind = match file.rsplit('.').next().unwrap_or("") {
                     "html" => "text/html; charset=utf-8",
                     "js" => "text/javascript",
@@ -385,7 +503,10 @@ async fn serve_http(port: u16, web: String, game_port: u16, hash: Arc<Mutex<Opti
                     "css" => "text/css",
                     _ => "text/plain",
                 };
-                match (file.contains(".."), tokio::fs::read(format!("{web}{file}")).await) {
+                match (
+                    file.contains(".."),
+                    tokio::fs::read(format!("{web}{file}")).await,
+                ) {
                     (false, Ok(b)) => ("200 OK", kind, b),
                     _ => ("404 Not Found", "text/plain", b"not found".to_vec()),
                 }
@@ -402,7 +523,9 @@ async fn serve_http(port: u16, web: String, game_port: u16, hash: Arc<Mutex<Opti
 /// QUIC's least, as Fly's tunnels leave only about 1300 bytes of a packet (see `net::DATAGRAM`).
 fn transport() -> wtransport::quinn::TransportConfig {
     let mut t = wtransport::quinn::TransportConfig::default();
-    t.enable_segmentation_offload(false).initial_mtu(1200).mtu_discovery_config(None);
+    t.enable_segmentation_offload(false)
+        .initial_mtu(1200)
+        .mtu_discovery_config(None);
     t
 }
 
@@ -410,12 +533,21 @@ fn config(identity: Identity, port: u16) -> ServerConfig {
     let builder = match std::env::var("GAME_BIND") {
         Ok(host) => {
             use std::net::ToSocketAddrs;
-            let addr = (host.as_str(), port).to_socket_addrs().expect("GAME_BIND").find(|a| a.is_ipv4()).expect("an IPv4 address for GAME_BIND");
+            let addr = (host.as_str(), port)
+                .to_socket_addrs()
+                .expect("GAME_BIND")
+                .find(|a| a.is_ipv4())
+                .expect("an IPv4 address for GAME_BIND");
             ServerConfig::builder().with_bind_address(addr)
         }
         Err(_) => ServerConfig::builder().with_bind_default(port),
     };
-    builder.with_custom_transport(identity, transport()).keep_alive_interval(Some(Duration::from_secs(3))).max_idle_timeout(Some(Duration::from_secs(15))).unwrap().build()
+    builder
+        .with_custom_transport(identity, transport())
+        .keep_alive_interval(Some(Duration::from_secs(3)))
+        .max_idle_timeout(Some(Duration::from_secs(15)))
+        .unwrap()
+        .build()
 }
 
 fn self_signed() -> Identity {
@@ -430,12 +562,20 @@ async fn main() {
     let game_port: u16 = env_or("GAME_PORT", "4433").parse().expect("GAME_PORT");
     let web = env_or("WEB", "web");
     let real = match (std::env::var("TLS_CERT"), std::env::var("TLS_KEY")) {
-        (Ok(cert), Ok(key)) => Some(Identity::load_pemfiles(cert, key).await.expect("TLS_CERT and TLS_KEY")),
+        (Ok(cert), Ok(key)) => Some(
+            Identity::load_pemfiles(cert, key)
+                .await
+                .expect("TLS_CERT and TLS_KEY"),
+        ),
         _ => None,
     };
     let own = real.is_none();
     let identity = real.unwrap_or_else(self_signed);
-    let digest = |id: &Identity| id.certificate_chain().as_slice()[0].hash().fmt(Sha256DigestFmt::BytesArray);
+    let digest = |id: &Identity| {
+        id.certificate_chain().as_slice()[0]
+            .hash()
+            .fmt(Sha256DigestFmt::BytesArray)
+    };
     let hash = Arc::new(Mutex::new(own.then(|| digest(&identity))));
     let endpoint = Arc::new(Endpoint::server(config(identity, game_port)).expect("the game port"));
     if own {
@@ -445,13 +585,18 @@ async fn main() {
                 tokio::time::sleep(Duration::from_secs(7 * 24 * 3600)).await;
                 let identity = self_signed();
                 let next = digest(&identity);
-                if endpoint.reload_config(config(identity, game_port), false).is_ok() {
+                if endpoint
+                    .reload_config(config(identity, game_port), false)
+                    .is_ok()
+                {
                     *hash.lock().unwrap() = Some(next);
                 }
             }
         });
     }
-    let rooms: Rooms = Arc::new(Mutex::new(Lobby::new(env_or("MAX_ROOMS", "20").parse().expect("MAX_ROOMS"))));
+    let rooms: Rooms = Arc::new(Mutex::new(Lobby::new(
+        env_or("MAX_ROOMS", "20").parse().expect("MAX_ROOMS"),
+    )));
     tokio::spawn(async move {
         if let Err(e) = serve_http(http_port, web, game_port, hash).await {
             eprintln!("the page can't be served on port {http_port}: {e}");
@@ -525,8 +670,19 @@ mod tests {
         // the room it picks is the one that hears from it
         let pick = |lobby: &Lobby| {
             let (out, reply) = (amp::unbounded_channel().0, oneshot::channel().0);
-            lobby.pick().unwrap().send(ToRoom::Join { name: "".into(), matched: true, out, reply }).unwrap();
-            tx.iter().find(|(_, r)| r.try_recv().is_ok()).map(|(c, _)| *c)
+            lobby
+                .pick()
+                .unwrap()
+                .send(ToRoom::Join {
+                    name: "".into(),
+                    matched: true,
+                    out,
+                    reply,
+                })
+                .unwrap();
+            tx.iter()
+                .find(|(_, r)| r.try_recv().is_ok())
+                .map(|(c, _)| *c)
         };
         assert_eq!(pick(&lobby), Some("B"));
         // started (or closed): not matched into any more

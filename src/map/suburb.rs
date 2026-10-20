@@ -36,7 +36,8 @@ fn land(x: f32, z: f32, seed: u32) -> f32 {
     if d <= 0.0 {
         return 0.0;
     }
-    let foot = 6.0 * smooth(0.0, 26.0, d) + 5.0 * (fbm(x / 40.0, z / 40.0, seed, 3) * 0.5 + 0.5) * smooth(0.0, 18.0, d);
+    let foot = 6.0 * smooth(0.0, 26.0, d)
+        + 5.0 * (fbm(x / 40.0, z / 40.0, seed, 3) * 0.5 + 0.5) * smooth(0.0, 18.0, d);
     // ridges with sharp crests, peaks and saddles between them, some ranges higher than others, rising gently
     // at the foot and steeply to the top
     let start = 30.0 + 14.0 * fbm(x / 90.0, z / 90.0, seed + 7, 2);
@@ -50,7 +51,9 @@ fn land(x: f32, z: f32, seed: u32) -> f32 {
 
 /// The land with the pads levelled into it, each blending back into the slope around it.
 fn height(x: f32, z: f32, seed: u32, pads: &[Pad]) -> f32 {
-    pads.iter().fold(land(x, z, seed), |h, p| h + (p.h - h) * (1.0 - smooth(p.r, p.r + 12.0, (x - p.x).hypot(z - p.z))))
+    pads.iter().fold(land(x, z, seed), |h, p| {
+        h + (p.h - h) * (1.0 - smooth(p.r, p.r + 12.0, (x - p.x).hypot(z - p.z)))
+    })
 }
 
 /// A house lot seen from its street: `u` runs along the street (world x) from `x0` to `x1`, `v` back from the
@@ -85,8 +88,16 @@ fn windows(ops: &mut Vec<Op>, a0: f32, a1: f32) {
     let n = ((a1 - a0 - 1.0) / 3.0).floor().max(0.0) as i32;
     for k in 0..n {
         let c = a0 + 0.5 + (k as f32 + 0.5) * (a1 - a0 - 1.0) / n as f32;
-        if ops.iter().all(|o| (o.c - c).abs() > (o.w + 1.4) / 2.0 + 0.4) {
-            ops.push(Op { c, w: 1.4, sill: 0.9, head: 2.2 });
+        if ops
+            .iter()
+            .all(|o| (o.c - c).abs() > (o.w + 1.4) / 2.0 + 0.4)
+        {
+            ops.push(Op {
+                c,
+                w: 1.4,
+                sill: 0.9,
+                head: 2.2,
+            });
         }
     }
 }
@@ -105,16 +116,43 @@ impl B {
     }
 
     /// A wall running back into a lot at `u`, from `v0` to `v1`, with openings placed along v.
-    fn lot_side(&mut self, l: &Lot, u: f32, v0: f32, v1: f32, thick: f32, y0: f32, y1: f32, ops: &[Op], col: Col) {
+    fn lot_side(
+        &mut self,
+        l: &Lot,
+        u: f32,
+        v0: f32,
+        v1: f32,
+        thick: f32,
+        y0: f32,
+        y1: f32,
+        ops: &[Op],
+        col: Col,
+    ) {
         let (z0, z1) = l.zs(v0, v1);
-        let ops: Vec<Op> = ops.iter().map(|o| Op { c: l.z(o.c), w: o.w, sill: o.sill, head: o.head }).collect();
+        let ops: Vec<Op> = ops
+            .iter()
+            .map(|o| Op {
+                c: l.z(o.c),
+                w: o.w,
+                sill: o.sill,
+                head: o.head,
+            })
+            .collect();
         self.wall(2, z0, z1, u, thick, y0, y1, &ops, col);
     }
 
     fn tree(&mut self, x: f32, z: f32, s: f32) {
         // on whatever the ground is doing, its foot sunk a little so a slope never shows under it
         let g = self.ground_at(x, z);
-        self.bx(x - 0.18, g - 0.3, z - 0.18, x + 0.18, g + 2.6 * s, z + 0.18, WOOD);
+        self.bx(
+            x - 0.18,
+            g - 0.3,
+            z - 0.18,
+            x + 0.18,
+            g + 2.6 * s,
+            z + 0.18,
+            WOOD,
+        );
         // two crossed boxes and a smaller one on top, so it reads round from every side
         let (r, q, y) = (1.8 * s, 1.25 * s, g + 2.3 * s);
         self.bx(x - r, y, z - q, x + r, y + 1.5 * s, z + q, LEAF);
@@ -126,12 +164,28 @@ impl B {
     /// A pine: a tall trunk and tiers narrowing to a point, the lowest clear of a head.
     fn pine(&mut self, x: f32, z: f32, s: f32) {
         let g = self.ground_at(x, z);
-        self.bx(x - 0.2, g - 0.4, z - 0.2, x + 0.2, g + 3.0 * s, z + 0.2, WOOD);
+        self.bx(
+            x - 0.2,
+            g - 0.4,
+            z - 0.2,
+            x + 0.2,
+            g + 3.0 * s,
+            z + 0.2,
+            WOOD,
+        );
         for k in 0..4 {
             let (r, y) = ((1.7 - 0.38 * k as f32) * s, g + (2.0 + 1.25 * k as f32) * s);
             self.bx(x - r, y, z - r, x + r, y + 1.35 * s, z + r, HEDGE);
         }
-        self.bx(x - 0.25 * s, g + 7.0 * s, z - 0.25 * s, x + 0.25 * s, g + 7.8 * s, z + 0.25 * s, HEDGE);
+        self.bx(
+            x - 0.25 * s,
+            g + 7.0 * s,
+            z - 0.25 * s,
+            x + 0.25 * s,
+            g + 7.8 * s,
+            z + 0.25 * s,
+            HEDGE,
+        );
     }
 
     /// Trees dotted over a rectangle wherever there is room, `n` of them if they fit.
@@ -141,10 +195,28 @@ impl B {
             if placed == n {
                 break;
             }
-            let (x, z, s) = (self.rng.range(x0 + 2.0, x1 - 2.0), self.rng.range(z0 + 2.0, z1 - 2.0), self.rng.range(0.9, 1.4));
+            let (x, z, s) = (
+                self.rng.range(x0 + 2.0, x1 - 2.0),
+                self.rng.range(z0 + 2.0, z1 - 2.0),
+                self.rng.range(0.9, 1.4),
+            );
             let r = 2.4 * s;
-            let near = Aabb { min: [x - r, 0.0, z - r], max: [x + r, 1.0, z + r] };
-            if self.keep_out.iter().any(|k| overlaps(&near, k)) || self.w.iter().any(|w| w.min[1] < 6.0 && overlaps(&near, &Aabb { min: [w.min[0], 0.0, w.min[2]], max: [w.max[0], 1.0, w.max[2]] })) {
+            let near = Aabb {
+                min: [x - r, 0.0, z - r],
+                max: [x + r, 1.0, z + r],
+            };
+            if self.keep_out.iter().any(|k| overlaps(&near, k))
+                || self.w.iter().any(|w| {
+                    w.min[1] < 6.0
+                        && overlaps(
+                            &near,
+                            &Aabb {
+                                min: [w.min[0], 0.0, w.min[2]],
+                                max: [w.max[0], 1.0, w.max[2]],
+                            },
+                        )
+                })
+            {
                 continue;
             }
             self.tree(x, z, s);
@@ -156,7 +228,15 @@ impl B {
     fn lamp(&mut self, x: f32, z: f32, dx: f32, dz: f32) {
         self.bx(x - 0.1, 0.0, z - 0.1, x + 0.1, 6.5, z + 0.1, STEEL);
         let (ax, az) = (x + dx * 1.8, z + dz * 1.8);
-        self.bx(x.min(ax) - 0.06, 6.3, z.min(az) - 0.06, x.max(ax) + 0.06, 6.42, z.max(az) + 0.06, STEEL);
+        self.bx(
+            x.min(ax) - 0.06,
+            6.3,
+            z.min(az) - 0.06,
+            x.max(ax) + 0.06,
+            6.42,
+            z.max(az) + 0.06,
+            STEEL,
+        );
         self.bx(ax - 0.25, 6.15, az - 0.25, ax + 0.25, 6.3, az + 0.25, BLACK);
     }
 
@@ -170,7 +250,11 @@ impl B {
         let two = self.rng.f() < 0.5;
         let left = self.rng.f() < 0.5;
         // house and garage across the lot, with 2 m spare at each side
-        let hw = if garage { w - 10.0 } else { (w - 7.0).min(13.0) };
+        let hw = if garage {
+            w - 10.0
+        } else {
+            (w - 7.0).min(13.0)
+        };
         let (h0, g0) = match (garage, left) {
             (true, true) => (l.x0 + 8.0, l.x0 + 2.0),
             (true, false) => (l.x0 + 2.0, l.x0 + 2.0 + hw),
@@ -178,24 +262,47 @@ impl B {
             (false, false) => (l.x0 + 2.0, 0.0),
         };
         let h1 = h0 + hw;
-        let (v0, v1) = { let sv = self.rng.range(5.0, 6.5); (sv, sv + self.rng.range(9.0, 10.0)) };
+        let (v0, v1) = {
+            let sv = self.rng.range(5.0, 6.5);
+            (sv, sv + self.rng.range(9.0, 10.0))
+        };
         let (za, zb) = l.zs(v0, v1);
         self.decal(h0, za, h1, zb, WOOD);
         let r = self.rng.f();
-        let col = if r < 0.65 { *self.one_of(&SIDING) } else if r < 0.9 { *self.one_of(&[BRICK, BRICK_LIGHT]) } else { PLASTER };
+        let col = if r < 0.65 {
+            *self.one_of(&SIDING)
+        } else if r < 0.9 {
+            *self.one_of(&[BRICK, BRICK_LIGHT])
+        } else {
+            PLASTER
+        };
         let roof = *self.one_of(&[SHINGLE, SHINGLE, TILE]);
-        self.ruin = if self.rng.f() < 0.3 { self.rng.range(0.1, 0.35) } else { 0.0 };
+        self.ruin = if self.rng.f() < 0.3 {
+            self.rng.range(0.1, 0.35)
+        } else {
+            0.0
+        };
         let stories = if two { 2 } else { 1 };
         // the garage's wall is the house's; the stairs go up the other side
         let (inner, outer) = if left { (h0, h1) } else { (h1, h0) };
-        let lane = if outer == h1 { h1 - T / 2.0 - 0.8 } else { h0 + T / 2.0 + 0.8 };
+        let lane = if outer == h1 {
+            h1 - T / 2.0 - 0.8
+        } else {
+            h0 + T / 2.0 + 0.8
+        };
         let foot = v0 + T / 2.0 + 0.9;
         let door = self.pick(h0 + 2.0, h1 - 2.0);
         let patio = self.pick(h0 + 2.0, h1 - 2.0);
         let part = v0 + (v1 - v0) * 0.5;
         let part_door = self.pick(h0 + 2.0, h1 - 3.5);
         // the partition stops short of the stairs, which climb through where it would be
-        let (p0, p1) = if !two { (h0, h1) } else if outer == h1 { (h0, h1 - 2.0) } else { (h0 + 2.0, h1) };
+        let (p0, p1) = if !two {
+            (h0, h1)
+        } else if outer == h1 {
+            (h0, h1 - 2.0)
+        } else {
+            (h0 + 2.0, h1)
+        };
         let part_door = part_door.clamp(p0 + 1.4, p1 - 1.4);
 
         for s in 0..stories {
@@ -204,8 +311,18 @@ impl B {
             let mut front = Vec::new();
             let mut back = Vec::new();
             if s == 0 {
-                front.push(Op { c: door, w: 2.2, sill: 0.0, head: 2.3 });
-                back.push(Op { c: patio, w: 2.4, sill: 0.0, head: 2.3 });
+                front.push(Op {
+                    c: door,
+                    w: 2.2,
+                    sill: 0.0,
+                    head: 2.3,
+                });
+                back.push(Op {
+                    c: patio,
+                    w: 2.4,
+                    sill: 0.0,
+                    head: 2.3,
+                });
             }
             windows(&mut front, h0, h1);
             windows(&mut back, h0, h1);
@@ -214,7 +331,12 @@ impl B {
             for u in [h0, h1] {
                 let mut ops = Vec::new();
                 if s == 0 && garage && u == inner {
-                    ops.push(Op { c: v0 + 4.5, w: 2.2, sill: 0.0, head: 2.3 });
+                    ops.push(Op {
+                        c: v0 + 4.5,
+                        w: 2.2,
+                        sill: 0.0,
+                        head: 2.3,
+                    });
                 }
                 // the wall the flight runs up stays whole, so the steps never cut across a window
                 if !(two && s == 0 && u == outer) && !(garage && s == 0 && u == inner) {
@@ -222,19 +344,47 @@ impl B {
                 }
                 self.lot_side(&l, u, v0, v1, T, y0, y1, &ops, col);
             }
-            self.wall(0, p0, p1, l.z(part), T * 0.6, y0, y1, &[Op { c: part_door, w: 2.2, sill: 0.0, head: 2.3 }], PLASTER);
+            self.wall(
+                0,
+                p0,
+                p1,
+                l.z(part),
+                T * 0.6,
+                y0,
+                y1,
+                &[Op {
+                    c: part_door,
+                    w: 2.2,
+                    sill: 0.0,
+                    head: 2.3,
+                }],
+                PLASTER,
+            );
 
             let last = s + 1 == stories;
             let top = [h0 - T / 2.0, za - T / 2.0, h1 + T / 2.0, zb + T / 2.0];
             let hole = (two && s == 0).then(|| {
-                let (u0, u1) = if outer == h1 { (lane - 1.3, lane + 0.8) } else { (lane - 0.8, lane + 1.3) };
+                let (u0, u1) = if outer == h1 {
+                    (lane - 1.3, lane + 0.8)
+                } else {
+                    (lane - 0.8, lane + 1.3)
+                };
                 let (z0, z1) = l.zs(foot, foot + 10.0 * TREAD);
                 [u0, z0, u1, z1]
             });
             self.slab(top, y1, y0 + STORY, hole, if last { PLASTER } else { WOOD });
         }
         if two {
-            self.stairs(lane, l.z(foot), if l.dir > 0.0 { 2 } else { 3 }, 11, 1.6, 0.0, true, WOOD);
+            self.stairs(
+                lane,
+                l.z(foot),
+                if l.dir > 0.0 { 2 } else { 3 },
+                11,
+                1.6,
+                0.0,
+                true,
+                WOOD,
+            );
         }
         self.ruin = 0.0;
 
@@ -246,16 +396,40 @@ impl B {
             if b - a < 1.0 {
                 break;
             }
-            self.lot_box(&l, h0 - 0.6, base + k as f32 * 0.38, a, h1 + 0.6, base + (k + 1) as f32 * 0.38, b, roof);
+            self.lot_box(
+                &l,
+                h0 - 0.6,
+                base + k as f32 * 0.38,
+                a,
+                h1 + 0.6,
+                base + (k + 1) as f32 * 0.38,
+                b,
+                roof,
+            );
             k += 1;
         }
         if self.rng.f() < 0.4 {
             let (cu, cv) = (if left { h1 - 1.6 } else { h0 + 0.8 }, part);
-            self.lot_box(&l, cu, base, cv - 0.4, cu + 0.8, base + k as f32 * 0.38 + 0.9, cv + 0.4, BRICK);
+            self.lot_box(
+                &l,
+                cu,
+                base,
+                cv - 0.4,
+                cu + 0.8,
+                base + k as f32 * 0.38 + 0.9,
+                cv + 0.4,
+                BRICK,
+            );
         }
 
         // the garage, a car in it or on the drive
-        let drive = if garage { (g0 + 0.5, g0 + 5.5) } else if left { (l.x0 + 1.5, h0 - 1.5) } else { (h1 + 1.5, l.x1 - 1.5) };
+        let drive = if garage {
+            (g0 + 0.5, g0 + 5.5)
+        } else if left {
+            (l.x0 + 1.5, h0 - 1.5)
+        } else {
+            (h1 + 1.5, l.x1 - 1.5)
+        };
         let du = (drive.0 + drive.1) / 2.0;
         self.decal(drive.0, l.zs(0.0, v0).0, drive.1, l.zs(0.0, v0).1, PAVING);
         if garage {
@@ -263,10 +437,49 @@ impl B {
             let outside = if left { g0 } else { g0 + 6.0 };
             let (gz0, gz1) = l.zs(v0, gv1);
             self.decal(g0, gz0, g0 + 6.0, gz1, PAVING);
-            self.wall(0, g0, g0 + 6.0, l.z(v0), T, 0.0, gh, &[Op { c: g0 + 3.0, w: 4.6, sill: 0.0, head: 2.4 }], col);
-            self.wall(0, g0, g0 + 6.0, l.z(gv1), T, 0.0, gh, &[Op { c: g0 + 3.0, w: 1.4, sill: 1.0, head: 2.0 }], col);
+            self.wall(
+                0,
+                g0,
+                g0 + 6.0,
+                l.z(v0),
+                T,
+                0.0,
+                gh,
+                &[Op {
+                    c: g0 + 3.0,
+                    w: 4.6,
+                    sill: 0.0,
+                    head: 2.4,
+                }],
+                col,
+            );
+            self.wall(
+                0,
+                g0,
+                g0 + 6.0,
+                l.z(gv1),
+                T,
+                0.0,
+                gh,
+                &[Op {
+                    c: g0 + 3.0,
+                    w: 1.4,
+                    sill: 1.0,
+                    head: 2.0,
+                }],
+                col,
+            );
             self.lot_side(&l, outside, v0, gv1, T, 0.0, gh, &[], col);
-            self.lot_box(&l, g0 - T / 2.0, gh, v0 - 0.4, g0 + 6.0 + T / 2.0, gh + 0.3, gv1 + T / 2.0, roof);
+            self.lot_box(
+                &l,
+                g0 - T / 2.0,
+                gh,
+                v0 - 0.4,
+                g0 + 6.0 + T / 2.0,
+                gh + 0.3,
+                gv1 + T / 2.0,
+                roof,
+            );
             // a car parked well in, so there is room to walk round its nose, or else shelves along the back
             if self.rng.f() < 0.5 {
                 self.car(g0 + 3.0, l.z(v0 + 4.6), false);
@@ -281,9 +494,31 @@ impl B {
         // a path to the door, a mailbox by the drive, shrubs under the front windows
         let (pz0, pz1) = l.zs(WALK, v0);
         self.decal(door - 0.6, pz0, door + 0.6, pz1, PAVING);
-        let mu = if du < door { drive.1 + 0.6 } else { drive.0 - 0.6 };
-        self.lot_box(&l, mu - 0.05, 0.0, WALK + 0.4, mu + 0.05, 1.0, WALK + 0.5, STEEL);
-        self.lot_box(&l, mu - 0.15, 1.0, WALK + 0.2, mu + 0.15, 1.3, WALK + 0.7, BLACK);
+        let mu = if du < door {
+            drive.1 + 0.6
+        } else {
+            drive.0 - 0.6
+        };
+        self.lot_box(
+            &l,
+            mu - 0.05,
+            0.0,
+            WALK + 0.4,
+            mu + 0.05,
+            1.0,
+            WALK + 0.5,
+            STEEL,
+        );
+        self.lot_box(
+            &l,
+            mu - 0.15,
+            1.0,
+            WALK + 0.2,
+            mu + 0.15,
+            1.3,
+            WALK + 0.7,
+            BLACK,
+        );
         for u in [h0 + 1.2, h1 - 1.2] {
             if (u - door).abs() > 2.2 {
                 self.lot_box(&l, u - 0.7, 0.0, v0 - 1.3, u + 0.7, 0.9, v0 - 0.3, HEDGE);
@@ -291,7 +526,11 @@ impl B {
         }
         if self.rng.f() < 0.5 {
             // a tree in the front lawn, on the side away from the drive
-            let u = if du < (l.x0 + l.x1) / 2.0 { l.x1 - 3.0 } else { l.x0 + 3.0 };
+            let u = if du < (l.x0 + l.x1) / 2.0 {
+                l.x1 - 3.0
+            } else {
+                l.x0 + 3.0
+            };
             let s = self.rng.range(0.9, 1.2);
             self.tree(u, l.z(WALK + 1.6), s);
         }
@@ -313,12 +552,39 @@ impl B {
             let pick = self.rng.f();
             if pick < 0.35 {
                 let u = if left { l.x1 - 3.0 } else { l.x0 + 1.6 };
-                self.lot_box(&l, u - 0.5, 0.0, l.depth - 2.6, u + 1.4, 2.2, l.depth - 0.4, WOOD);
-                self.lot_box(&l, u - 0.6, 2.2, l.depth - 2.8, u + 1.6, 2.4, l.depth - 0.2, roof);
+                self.lot_box(
+                    &l,
+                    u - 0.5,
+                    0.0,
+                    l.depth - 2.6,
+                    u + 1.4,
+                    2.2,
+                    l.depth - 0.4,
+                    WOOD,
+                );
+                self.lot_box(
+                    &l,
+                    u - 0.6,
+                    2.2,
+                    l.depth - 2.8,
+                    u + 1.6,
+                    2.4,
+                    l.depth - 0.2,
+                    roof,
+                );
             } else if pick < 0.6 {
                 let (u, v) = ((h0 + h1) / 2.0, v1 + yard / 2.0);
                 for (du, dv) in [(-1.3, -1.3), (1.3, -1.3), (-1.3, 1.3), (1.3, 1.3)] {
-                    self.lot_box(&l, u + du - 0.05, 0.0, v + dv - 0.05, u + du + 0.05, 0.8, v + dv + 0.05, STEEL);
+                    self.lot_box(
+                        &l,
+                        u + du - 0.05,
+                        0.0,
+                        v + dv - 0.05,
+                        u + du + 0.05,
+                        0.8,
+                        v + dv + 0.05,
+                        STEEL,
+                    );
                 }
                 self.lot_box(&l, u - 1.6, 0.8, v - 1.6, u + 1.6, 0.9, v + 1.6, BLACK);
             } else if pick < 0.9 {
@@ -328,7 +594,16 @@ impl B {
         }
         // the lawn, under everything else on the lot
         let (lz0, lz1) = l.zs(0.0, l.depth);
-        self.decals.insert(0, (Aabb { min: [l.x0, 0.0, lz0], max: [l.x1, 0.02, lz1] }, GRASS));
+        self.decals.insert(
+            0,
+            (
+                Aabb {
+                    min: [l.x0, 0.0, lz0],
+                    max: [l.x1, 0.02, lz1],
+                },
+                GRASS,
+            ),
+        );
         two.then(|| [(p0 + p1) / 2.0, STORY, l.z((v0 + part) / 2.0)])
     }
 
@@ -338,7 +613,15 @@ impl B {
             let n = ((x1 - x0) / 19.0).floor().max(1.0) as usize;
             let w = (x1 - x0) / n as f32;
             for i in 0..n {
-                let lot = Lot { x0: x0 + i as f32 * w, x1: x0 + (i + 1) as f32 * w, zf, dir, depth, back, last: i + 1 == n };
+                let lot = Lot {
+                    x0: x0 + i as f32 * w,
+                    x1: x0 + (i + 1) as f32 * w,
+                    zf,
+                    dir,
+                    depth,
+                    back,
+                    last: i + 1 == n,
+                };
                 self.house(lot);
             }
         }
@@ -364,7 +647,11 @@ impl B {
         }
         for s in streets {
             let [x0, z0, x1, z1] = s.r;
-            let (a0, a1, mid) = if s.along_x { (x0, x1, (z0 + z1) / 2.0) } else { (z0, z1, (x0 + x1) / 2.0) };
+            let (a0, a1, mid) = if s.along_x {
+                (x0, x1, (z0 + z1) / 2.0)
+            } else {
+                (z0, z1, (x0 + x1) / 2.0)
+            };
             let mut a = a0 + 2.0;
             while a + 3.0 < a1 {
                 if s.along_x {
@@ -377,7 +664,13 @@ impl B {
         }
         // nothing stands where another street crosses
         let crossing = |x: f32, z: f32, s: &Street| {
-            streets.iter().any(|o| !std::ptr::eq(o, s) && x > o.r[0] - 4.0 && x < o.r[2] + 4.0 && z > o.r[1] - 4.0 && z < o.r[3] + 4.0)
+            streets.iter().any(|o| {
+                !std::ptr::eq(o, s)
+                    && x > o.r[0] - 4.0
+                    && x < o.r[2] + 4.0
+                    && z > o.r[1] - 4.0
+                    && z < o.r[3] + 4.0
+            })
         };
         for s in streets {
             let [x0, z0, x1, z1] = s.r;
@@ -385,17 +678,29 @@ impl B {
             let mut a = a0 + 9.0;
             let mut side = 0;
             while a + 4.0 < a1 {
-                let mid = if s.along_x { [a, (z0 + z1) / 2.0] } else { [(x0 + x1) / 2.0, a] };
+                let mid = if s.along_x {
+                    [a, (z0 + z1) / 2.0]
+                } else {
+                    [(x0 + x1) / 2.0, a]
+                };
                 if crossing(mid[0], mid[1], s) {
                     a += 3.0;
                     continue;
                 }
                 // lamps on alternate sides, just off the kerb
                 if s.along_x {
-                    let (z, dz) = if side == 0 { (z0 - 0.4, 1.0) } else { (z1 + 0.4, -1.0) };
+                    let (z, dz) = if side == 0 {
+                        (z0 - 0.4, 1.0)
+                    } else {
+                        (z1 + 0.4, -1.0)
+                    };
                     self.lamp(a, z, 0.0, dz);
                 } else {
-                    let (x, dx) = if side == 0 { (x0 - 0.4, 1.0) } else { (x1 + 0.4, -1.0) };
+                    let (x, dx) = if side == 0 {
+                        (x0 - 0.4, 1.0)
+                    } else {
+                        (x1 + 0.4, -1.0)
+                    };
                     self.lamp(x, a, dx, 0.0);
                 }
                 side ^= 1;
@@ -403,7 +708,11 @@ impl B {
             }
             let mut a = a0 + 14.0;
             while a + 8.0 < a1 {
-                let mid = if s.along_x { [a, (z0 + z1) / 2.0] } else { [(x0 + x1) / 2.0, a] };
+                let mid = if s.along_x {
+                    [a, (z0 + z1) / 2.0]
+                } else {
+                    [(x0 + x1) / 2.0, a]
+                };
                 if crossing(mid[0], mid[1], s) {
                     a += 3.0;
                     continue;
@@ -440,21 +749,60 @@ impl B {
         let mut back = Vec::new();
         for i in 0..n {
             let a = x0 + i as f32 * shop;
-            front.push(Op { c: a + 2.2, w: 2.2, sill: 0.0, head: 2.5 });
-            front.push(Op { c: a + shop / 2.0 + 1.6, w: shop - 6.4, sill: 0.6, head: 2.6 });
+            front.push(Op {
+                c: a + 2.2,
+                w: 2.2,
+                sill: 0.0,
+                head: 2.5,
+            });
+            front.push(Op {
+                c: a + shop / 2.0 + 1.6,
+                w: shop - 6.4,
+                sill: 0.6,
+                head: 2.6,
+            });
             if i % 2 == 0 {
-                back.push(Op { c: a + 2.0, w: 2.2, sill: 0.0, head: 2.3 });
+                back.push(Op {
+                    c: a + 2.0,
+                    w: 2.2,
+                    sill: 0.0,
+                    head: 2.3,
+                });
             }
         }
         self.wall(0, x0, x1, z1, T, 0.0, CLEAR, &front, col);
         self.wall(0, x0, x1, z0, T, 0.0, CLEAR, &back, col);
         for x in [x0, x1] {
-            self.wall(2, z0, z1, x, T, 0.0, CLEAR, &[Op { c: (z0 + z1) / 2.0, w: 1.6, sill: 1.0, head: 2.3 }], col);
+            self.wall(
+                2,
+                z0,
+                z1,
+                x,
+                T,
+                0.0,
+                CLEAR,
+                &[Op {
+                    c: (z0 + z1) / 2.0,
+                    w: 1.6,
+                    sill: 1.0,
+                    head: 2.3,
+                }],
+                col,
+            );
         }
         for i in 1..n {
             let a = x0 + i as f32 * shop;
             // every other pair of shops knocked through at the back
-            let ops: Vec<Op> = if i % 2 == 1 { vec![Op { c: z0 + 2.5, w: 2.2, sill: 0.0, head: 2.3 }] } else { Vec::new() };
+            let ops: Vec<Op> = if i % 2 == 1 {
+                vec![Op {
+                    c: z0 + 2.5,
+                    w: 2.2,
+                    sill: 0.0,
+                    head: 2.3,
+                }]
+            } else {
+                Vec::new()
+            };
             self.wall(2, z0, z1, a, T * 0.6, 0.0, CLEAR, &ops, PLASTER);
             // counters
             self.bx(a - shop + 2.0, 0.0, z0 + 3.0, a - 4.0, 1.0, z0 + 3.8, WOOD);
@@ -463,17 +811,49 @@ impl B {
         self.slab(top, CLEAR, STORY, None, ROOF);
         // a tall sign band along the front with a panel for each shop, a low parapet elsewhere with a gap where
         // the stair arrives, and an awning over the pavement
-        self.bx(top[0], STORY, top[3] - 0.3, top[2], STORY + 1.2, top[3], col);
+        self.bx(
+            top[0],
+            STORY,
+            top[3] - 0.3,
+            top[2],
+            STORY + 1.2,
+            top[3],
+            col,
+        );
         for i in 0..n {
             let a = x0 + i as f32 * shop;
             let c = *self.one_of(&CONTAINERS);
-            self.bx(a + 1.0, STORY + 0.2, top[3], a + shop - 1.0, STORY + 1.0, top[3] + 0.1, c);
+            self.bx(
+                a + 1.0,
+                STORY + 0.2,
+                top[3],
+                a + shop - 1.0,
+                STORY + 1.0,
+                top[3] + 0.1,
+                c,
+            );
         }
         let (sx0, sx1) = (x1 - 9.0, x1 - 7.4);
         self.bx(top[0], STORY, top[1], sx0, STORY + 0.6, top[1] + 0.3, col);
         self.bx(sx1, STORY, top[1], top[2], STORY + 0.6, top[1] + 0.3, col);
-        self.bx(top[0], STORY, top[1], top[0] + 0.3, STORY + 0.6, top[3], col);
-        self.bx(top[2] - 0.3, STORY, top[1], top[2], STORY + 0.6, top[3], col);
+        self.bx(
+            top[0],
+            STORY,
+            top[1],
+            top[0] + 0.3,
+            STORY + 0.6,
+            top[3],
+            col,
+        );
+        self.bx(
+            top[2] - 0.3,
+            STORY,
+            top[1],
+            top[2],
+            STORY + 0.6,
+            top[3],
+            col,
+        );
         self.bx(x0, 2.7, z1 + 0.2, x1, 2.85, z1 + 1.8, STEEL);
         self.stairs(x1 - 15.6, z0 - 1.0, 0, 11, 1.2, 0.0, false, STEEL);
         self.bx(sx0, 0.0, z0 - 1.6, sx1, STORY, z0 - 0.2, STEEL);
@@ -506,12 +886,32 @@ impl B {
     /// The school: a two-storey brick block, a football pitch with a stand, a basketball court and a car park.
     fn school(&mut self) {
         self.decal(-123.0, 72.0, -6.5, 123.0, GRASS);
-        self.building(-66.0, 78.0, -16.0, 94.0, 2, BRICK, 0.15, [true, true, true, true]);
+        self.building(
+            -66.0,
+            78.0,
+            -16.0,
+            94.0,
+            2,
+            BRICK,
+            0.15,
+            [true, true, true, true],
+        );
         // the pitch, lined, with a goal at each end
         let (px0, pz0, px1, pz1) = (-118.0, 78.0, -78.0, 120.0);
         self.reserve(px0, pz0, px1 + 6.0, pz1);
         let l = 0.15;
-        for r in [[px0, pz0, px1, pz0 + l], [px0, pz1 - l, px1, pz1], [px0, pz0, px0 + l, pz1], [px1 - l, pz0, px1, pz1], [px0, (pz0 + pz1) / 2.0 - l / 2.0, px1, (pz0 + pz1) / 2.0 + l / 2.0]] {
+        for r in [
+            [px0, pz0, px1, pz0 + l],
+            [px0, pz1 - l, px1, pz1],
+            [px0, pz0, px0 + l, pz1],
+            [px1 - l, pz0, px1, pz1],
+            [
+                px0,
+                (pz0 + pz1) / 2.0 - l / 2.0,
+                px1,
+                (pz0 + pz1) / 2.0 + l / 2.0,
+            ],
+        ] {
             self.decal(r[0], r[1], r[2], r[3], LINE);
         }
         let mx = (px0 + px1) / 2.0;
@@ -520,7 +920,15 @@ impl B {
                 self.block(mx + dx, z, 0.15, 2.4, 0.15, LINE);
             }
             self.bx(mx - 3.7, 2.3, z - 0.075, mx + 3.7, 2.45, z + 0.075, LINE);
-            self.bx(mx - 3.7, 0.0, z + d * 1.5 - 0.05, mx + 3.7, 0.1, z + d * 1.5 + 0.05, STEEL);
+            self.bx(
+                mx - 3.7,
+                0.0,
+                z + d * 1.5 - 0.05,
+                mx + 3.7,
+                0.1,
+                z + d * 1.5 + 0.05,
+                STEEL,
+            );
         }
         // the stand along the east touchline, four rows rising away from the pitch
         for i in 0..4 {
@@ -532,7 +940,15 @@ impl B {
         self.decal(-60.0, 107.92, -36.0, 108.08, LINE);
         for (z, d) in [(100.6, 1.0), (115.4, -1.0)] {
             self.block(-48.0, z, 0.2, 3.4, 0.2, STEEL);
-            self.bx(-48.9, 2.9, z + d * 0.2 - 0.05, -47.1, 3.9, z + d * 0.2 + 0.05, LINE);
+            self.bx(
+                -48.9,
+                2.9,
+                z + d * 0.2 - 0.05,
+                -47.1,
+                3.9,
+                z + d * 0.2 + 0.05,
+                LINE,
+            );
         }
         self.decal(-14.0, 98.0, -6.5, 122.0, ASPHALT);
         for z in [102.0, 108.0, 118.0] {
@@ -557,23 +973,106 @@ impl B {
         }
         for k in 0..4 {
             let i = k as f32 * 0.6;
-            self.bx(gx - r - 0.4 + i, 3.0 + k as f32 * 0.35, gz - r - 0.4 + i, gx + r + 0.4 - i, 3.35 + k as f32 * 0.35, gz + r + 0.4 - i, SHINGLE);
+            self.bx(
+                gx - r - 0.4 + i,
+                3.0 + k as f32 * 0.35,
+                gz - r - 0.4 + i,
+                gx + r + 0.4 - i,
+                3.35 + k as f32 * 0.35,
+                gz + r + 0.4 - i,
+                SHINGLE,
+            );
         }
         for (a, b) in [(-r, -1.4), (1.4, r)] {
-            self.bx(gx + a, 0.85, gz - r - 0.05, gx + b, 1.0, gz - r + 0.05, WOOD);
-            self.bx(gx + a, 0.85, gz + r - 0.05, gx + b, 1.0, gz + r + 0.05, WOOD);
-            self.bx(gx - r - 0.05, 0.85, gz + a, gx - r + 0.05, 1.0, gz + b, WOOD);
-            self.bx(gx + r - 0.05, 0.85, gz + a, gx + r + 0.05, 1.0, gz + b, WOOD);
+            self.bx(
+                gx + a,
+                0.85,
+                gz - r - 0.05,
+                gx + b,
+                1.0,
+                gz - r + 0.05,
+                WOOD,
+            );
+            self.bx(
+                gx + a,
+                0.85,
+                gz + r - 0.05,
+                gx + b,
+                1.0,
+                gz + r + 0.05,
+                WOOD,
+            );
+            self.bx(
+                gx - r - 0.05,
+                0.85,
+                gz + a,
+                gx - r + 0.05,
+                1.0,
+                gz + b,
+                WOOD,
+            );
+            self.bx(
+                gx + r - 0.05,
+                0.85,
+                gz + a,
+                gx + r + 0.05,
+                1.0,
+                gz + b,
+                WOOD,
+            );
         }
         // the pond in the north-west quarter, behind a low stone rim
         let (qx, qz) = ((x0 + mx) / 2.0, (z0 + mz) / 2.0);
         let (pw, pd, t) = (12.0, 8.0, 0.5);
-        self.reserve(qx - pw / 2.0 - 1.0, qz - pd / 2.0 - 1.0, qx + pw / 2.0 + 1.0, qz + pd / 2.0 + 1.0);
-        self.decal(qx - pw / 2.0, qz - pd / 2.0, qx + pw / 2.0, qz + pd / 2.0, WATER);
-        self.bx(qx - pw / 2.0, 0.0, qz - pd / 2.0, qx + pw / 2.0, 0.45, qz - pd / 2.0 + t, STONE);
-        self.bx(qx - pw / 2.0, 0.0, qz + pd / 2.0 - t, qx + pw / 2.0, 0.45, qz + pd / 2.0, STONE);
-        self.bx(qx - pw / 2.0, 0.0, qz - pd / 2.0 + t, qx - pw / 2.0 + t, 0.45, qz + pd / 2.0 - t, STONE);
-        self.bx(qx + pw / 2.0 - t, 0.0, qz - pd / 2.0 + t, qx + pw / 2.0, 0.45, qz + pd / 2.0 - t, STONE);
+        self.reserve(
+            qx - pw / 2.0 - 1.0,
+            qz - pd / 2.0 - 1.0,
+            qx + pw / 2.0 + 1.0,
+            qz + pd / 2.0 + 1.0,
+        );
+        self.decal(
+            qx - pw / 2.0,
+            qz - pd / 2.0,
+            qx + pw / 2.0,
+            qz + pd / 2.0,
+            WATER,
+        );
+        self.bx(
+            qx - pw / 2.0,
+            0.0,
+            qz - pd / 2.0,
+            qx + pw / 2.0,
+            0.45,
+            qz - pd / 2.0 + t,
+            STONE,
+        );
+        self.bx(
+            qx - pw / 2.0,
+            0.0,
+            qz + pd / 2.0 - t,
+            qx + pw / 2.0,
+            0.45,
+            qz + pd / 2.0,
+            STONE,
+        );
+        self.bx(
+            qx - pw / 2.0,
+            0.0,
+            qz - pd / 2.0 + t,
+            qx - pw / 2.0 + t,
+            0.45,
+            qz + pd / 2.0 - t,
+            STONE,
+        );
+        self.bx(
+            qx + pw / 2.0 - t,
+            0.0,
+            qz - pd / 2.0 + t,
+            qx + pw / 2.0,
+            0.45,
+            qz + pd / 2.0 - t,
+            STONE,
+        );
         // the playground in the south-east quarter: a climbing frame with a slide, and swings
         let (qx, qz) = ((mx + x1) / 2.0, (mz + z1) / 2.0);
         self.reserve(qx - 7.0, qz - 5.0, qx + 7.0, qz + 5.0);
@@ -585,16 +1084,37 @@ impl B {
         self.stairs(qx - 4.0 - 5.0 * TREAD, qz, 0, 5, 0.8, 0.0, true, STEEL);
         for i in 0..5 {
             let x = qx - 2.0 + i as f32 * 0.6;
-            self.bx(x, 1.5 - (i + 1) as f32 * 0.3, qz - 0.4, x + 0.6, 1.62 - i as f32 * 0.3, qz + 0.4, CONTAINERS[0]);
+            self.bx(
+                x,
+                1.5 - (i + 1) as f32 * 0.3,
+                qz - 0.4,
+                x + 0.6,
+                1.62 - i as f32 * 0.3,
+                qz + 0.4,
+                CONTAINERS[0],
+            );
         }
         for dz in [-2.0, 2.0] {
             self.block(qx + 4.0, qz + dz, 0.15, 2.4, 0.15, STEEL);
         }
         self.bx(qx + 3.9, 2.4, qz - 2.0, qx + 4.1, 2.55, qz + 2.0, STEEL);
         for dz in [-0.8, 0.8] {
-            self.bx(qx + 3.75, 0.5, qz + dz - 0.25, qx + 4.25, 0.56, qz + dz + 0.25, BLACK);
+            self.bx(
+                qx + 3.75,
+                0.5,
+                qz + dz - 0.25,
+                qx + 4.25,
+                0.56,
+                qz + dz + 0.25,
+                BLACK,
+            );
         }
-        for (x, z) in [(mx - 4.0, z0 + 6.0), (mx + 4.0, z1 - 6.0), (x0 + 8.0, mz + 3.0), (x1 - 8.0, mz - 3.0)] {
+        for (x, z) in [
+            (mx - 4.0, z0 + 6.0),
+            (mx + 4.0, z1 - 6.0),
+            (x0 + 8.0, mz + 3.0),
+            (x1 - 8.0, mz - 3.0),
+        ] {
             self.block(x, z, 2.4, 0.6, 0.7, WOOD);
         }
         self.reserve(mx - 2.0, z0, mx + 2.0, z1);
@@ -615,8 +1135,19 @@ impl B {
         self.bx(x + 3.3, STORY - 0.3, z - 1.6, x + 4.6, STORY, z + 1.6, WOOD);
         self.stairs(x + 3.3, z + 1.0, 1, 11, 1.2, STORY, true, WOOD);
         let deck = 2.0 * STORY;
-        self.slab([x - 3.5, z - 3.5, x + 3.5, z + 3.5], deck - 0.3, deck, Some([x - 3.4, z + 0.3, x + 1.5, z + 1.75]), WOOD);
-        for [x0, z0, x1, z1] in [[x - 3.5, z - 3.5, x + 3.5, z - 3.4], [x - 3.5, z + 3.4, x + 3.5, z + 3.5], [x - 3.5, z - 3.5, x - 3.4, z + 3.5], [x + 3.4, z - 3.5, x + 3.5, z + 3.5]] {
+        self.slab(
+            [x - 3.5, z - 3.5, x + 3.5, z + 3.5],
+            deck - 0.3,
+            deck,
+            Some([x - 3.4, z + 0.3, x + 1.5, z + 1.75]),
+            WOOD,
+        );
+        for [x0, z0, x1, z1] in [
+            [x - 3.5, z - 3.5, x + 3.5, z - 3.4],
+            [x - 3.5, z + 3.4, x + 3.5, z + 3.5],
+            [x - 3.5, z - 3.5, x - 3.4, z + 3.5],
+            [x + 3.4, z - 3.5, x + 3.5, z + 3.5],
+        ] {
             self.bx(x0, deck + 0.9, z0, x1, deck + 1.05, z1, WOOD);
         }
         self.bx(x - 3.9, 9.5, z - 3.9, x + 3.9, 9.8, z + 3.9, SHINGLE);
@@ -625,10 +1156,27 @@ impl B {
 
     /// A hunting cabin with a pickup outside and a woodpile.
     fn cabin(&mut self, x: f32, z: f32) {
-        self.building(x - 7.0, z - 5.0, x + 7.0, z + 5.0, 1, WOOD, 0.35, [true, true, false, true]);
+        self.building(
+            x - 7.0,
+            z - 5.0,
+            x + 7.0,
+            z + 5.0,
+            1,
+            WOOD,
+            0.35,
+            [true, true, false, true],
+        );
         for k in 0..3 {
             let i = k as f32 * 1.4;
-            self.bx(x - 7.6, STORY + k as f32 * 0.4, z - 5.6 + i, x + 7.6, STORY + (k + 1) as f32 * 0.4, z + 5.6 - i, SHINGLE);
+            self.bx(
+                x - 7.6,
+                STORY + k as f32 * 0.4,
+                z - 5.6 + i,
+                x + 7.6,
+                STORY + (k + 1) as f32 * 0.4,
+                z + 5.6 - i,
+                SHINGLE,
+            );
         }
         self.car(x - 2.0, z - 8.5, true);
         self.bx(x - 9.5, 0.0, z - 3.0, x - 8.3, 1.2, z + 3.0, WOOD);
@@ -636,10 +1184,27 @@ impl B {
 
     /// A radio mast with crossbars and a dish, and the hut that runs it.
     fn mast(&mut self, x: f32, z: f32) {
-        self.building(x - 4.0, z - 2.5, x + 2.0, z + 2.5, 1, CONCRETE, 0.0, [false, true, false, false]);
+        self.building(
+            x - 4.0,
+            z - 2.5,
+            x + 2.0,
+            z + 2.5,
+            1,
+            CONCRETE,
+            0.0,
+            [false, true, false, false],
+        );
         self.block(x + 5.0, z, 1.2, 42.0, 1.2, STEEL);
         for (y, w) in [(14.0, 5.0), (26.0, 3.8), (36.0, 2.6)] {
-            self.bx(x + 5.0 - w, y, z - 0.3, x + 5.0 + w, y + 0.5, z + 0.3, STEEL);
+            self.bx(
+                x + 5.0 - w,
+                y,
+                z - 0.3,
+                x + 5.0 + w,
+                y + 0.5,
+                z + 0.3,
+                STEEL,
+            );
         }
         self.bx(x + 5.6, 30.0, z - 1.2, x + 6.0, 32.4, z + 1.2, LINE);
     }
@@ -648,10 +1213,19 @@ impl B {
     /// isn't sheer.
     fn hills(&mut self, pads: &[Pad]) {
         let [look, cabin, mast] = pads else { return };
-        for (p, f) in [(look, B::lookout as fn(&mut B, f32, f32)), (cabin, B::cabin), (mast, B::mast)] {
+        for (p, f) in [
+            (look, B::lookout as fn(&mut B, f32, f32)),
+            (cabin, B::cabin),
+            (mast, B::mast),
+        ] {
             self.lift = p.h;
             f(self, p.x, p.z);
-            self.reserve(p.x - p.r - 2.0, p.z - p.r - 2.0, p.x + p.r + 2.0, p.z + p.r + 2.0);
+            self.reserve(
+                p.x - p.r - 2.0,
+                p.z - p.r - 2.0,
+                p.x + p.r + 2.0,
+                p.z + p.r + 2.0,
+            );
         }
         self.lift = 0.0;
         let (mut pines, mut rocks) = (0, 0);
@@ -659,17 +1233,33 @@ impl B {
             if pines >= 240 && rocks >= 70 {
                 break;
             }
-            let (x, z) = (self.rng.range(-SIZE + 4.0, SIZE - 4.0), self.rng.range(-SIZE + 4.0, SIZE - 4.0));
+            let (x, z) = (
+                self.rng.range(-SIZE + 4.0, SIZE - 4.0),
+                self.rng.range(-SIZE + 4.0, SIZE - 4.0),
+            );
             if x.abs() < CORE + 4.0 && z.abs() < CORE + 4.0 {
                 continue;
             }
             let g = self.ground_at(x, z);
-            let slope = (self.ground_at(x + 1.0, z) - self.ground_at(x - 1.0, z)).hypot(self.ground_at(x, z + 1.0) - self.ground_at(x, z - 1.0)) / 2.0;
+            let slope = (self.ground_at(x + 1.0, z) - self.ground_at(x - 1.0, z))
+                .hypot(self.ground_at(x, z + 1.0) - self.ground_at(x, z - 1.0))
+                / 2.0;
             if slope > 0.9 || g > 45.0 {
                 continue;
             }
-            let near = Aabb { min: [x - 2.5, 0.0, z - 2.5], max: [x + 2.5, 1.0, z + 2.5] };
-            if self.keep_out.iter().any(|k| overlaps(&near, k)) || self.w.iter().any(|w| w.max[1] > g && w.min[0] < near.max[0] && w.max[0] > near.min[0] && w.min[2] < near.max[2] && w.max[2] > near.min[2]) {
+            let near = Aabb {
+                min: [x - 2.5, 0.0, z - 2.5],
+                max: [x + 2.5, 1.0, z + 2.5],
+            };
+            if self.keep_out.iter().any(|k| overlaps(&near, k))
+                || self.w.iter().any(|w| {
+                    w.max[1] > g
+                        && w.min[0] < near.max[0]
+                        && w.max[0] > near.min[0]
+                        && w.min[2] < near.max[2]
+                        && w.max[2] > near.min[2]
+                })
+            {
                 continue;
             }
             if pines < 240 && (rocks >= 70 || self.rng.f() < 0.78) {
@@ -677,9 +1267,24 @@ impl B {
                 self.pine(x, z, s);
                 pines += 1;
             } else {
-                let (sx, sy, sz) = (self.rng.range(1.2, 3.6), self.rng.range(0.8, 2.6), self.rng.range(1.2, 3.6));
-                let low = [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)].iter().map(|(a, c)| self.ground_at(x + a * sx / 2.0, z + c * sz / 2.0)).fold(g, f32::min);
-                self.bx(x - sx / 2.0, low - 0.3, z - sz / 2.0, x + sx / 2.0, g + sy, z + sz / 2.0, STONE);
+                let (sx, sy, sz) = (
+                    self.rng.range(1.2, 3.6),
+                    self.rng.range(0.8, 2.6),
+                    self.rng.range(1.2, 3.6),
+                );
+                let low = [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)]
+                    .iter()
+                    .map(|(a, c)| self.ground_at(x + a * sx / 2.0, z + c * sz / 2.0))
+                    .fold(g, f32::min);
+                self.bx(
+                    x - sx / 2.0,
+                    low - 0.3,
+                    z - sz / 2.0,
+                    x + sx / 2.0,
+                    g + sy,
+                    z + sz / 2.0,
+                    STONE,
+                );
                 rocks += 1;
             }
         }
@@ -689,7 +1294,19 @@ impl B {
 /// The level spots in the hills, for the fire lookout, the cabin and the mast, each at the height the land has
 /// there.
 fn pads(seed: u32) -> Vec<Pad> {
-    [(30.0, 146.0, 7.0), (-146.0, 40.0, 10.0), (141.0, -141.0, 8.0)].into_iter().map(|(x, z, r)| Pad { x, z, r, h: land(x, z, seed) }).collect()
+    [
+        (30.0, 146.0, 7.0),
+        (-146.0, 40.0, 10.0),
+        (141.0, -141.0, 8.0),
+    ]
+    .into_iter()
+    .map(|(x, z, r)| Pad {
+        x,
+        z,
+        r,
+        h: land(x, z, seed),
+    })
+    .collect()
 }
 
 pub fn build(seed: u32) -> Map {
@@ -700,12 +1317,28 @@ pub fn build(seed: u32) -> Map {
 
     // the street plan: the main road along the north, three streets across, and avenues down between them
     let main = [-123.5, -78.0, 123.5, -64.0];
-    let (elm, oak, pine) = ([-123.5, -18.5, 123.5, -9.5], [-123.5, 40.5, 123.5, 49.5], [4.5, 74.0, 123.5, 83.0]);
-    let (centre, west, east) = ([-4.5, -64.0, 4.5, 104.0], [-74.5, -64.0, -65.5, 72.0], [65.5, -64.0, 74.5, 74.0]);
-    let streets: Vec<Street> = [(main, true), (elm, true), (oak, true), (pine, true), (centre, false), (west, false), (east, false)]
-        .into_iter()
-        .map(|(r, along_x)| Street { r, along_x })
-        .collect();
+    let (elm, oak, pine) = (
+        [-123.5, -18.5, 123.5, -9.5],
+        [-123.5, 40.5, 123.5, 49.5],
+        [4.5, 74.0, 123.5, 83.0],
+    );
+    let (centre, west, east) = (
+        [-4.5, -64.0, 4.5, 104.0],
+        [-74.5, -64.0, -65.5, 72.0],
+        [65.5, -64.0, 74.5, 74.0],
+    );
+    let streets: Vec<Street> = [
+        (main, true),
+        (elm, true),
+        (oak, true),
+        (pine, true),
+        (centre, false),
+        (west, false),
+        (east, false),
+    ]
+    .into_iter()
+    .map(|(r, along_x)| Street { r, along_x })
+    .collect();
 
     // the houses go in first so their lawns lie under the pavements; the park takes one block's two rows
     let all = [(-123.0, -76.5), (-63.5, -6.5), (6.5, 63.5), (76.5, 123.0)];
@@ -740,11 +1373,24 @@ pub fn build(seed: u32) -> Map {
     }
     b.strip_mall(-112.0, -118.0, -40.0, -102.0);
     b.gas_station(-4.0, -92.0);
-    b.building(6.0, -118.0, 20.0, -108.0, 1, PLASTER, 0.1, [false, true, true, false]);
+    b.building(
+        6.0,
+        -118.0,
+        20.0,
+        -108.0,
+        1,
+        PLASTER,
+        0.1,
+        [false, true, true, false],
+    );
     b.warehouse(36.0, -122.0, 100.0, -102.0, 7.5, BRICK_LIGHT);
     b.bx(52.0, 7.9, -101.8, 84.0, 9.6, -101.6, CONTAINERS[1]);
     for _ in 0..14 {
-        let (x, z) = if b.rng.f() < 0.55 { (b.pick(-116.0, -38.0), *b.one_of(&[-97.5, -84.5])) } else { (b.pick(36.0, 118.0), *b.one_of(&[-97.5, -84.5])) };
+        let (x, z) = if b.rng.f() < 0.55 {
+            (b.pick(-116.0, -38.0), *b.one_of(&[-97.5, -84.5]))
+        } else {
+            (b.pick(36.0, 118.0), *b.one_of(&[-97.5, -84.5]))
+        };
         b.car(x, z, false);
     }
     for (x, z) in [(104.0, -116.0), (108.0, -116.0), (-118.0, -121.0)] {
@@ -775,10 +1421,23 @@ mod tests {
             let m = build(seed);
             assert_eq!(m.walls.len(), m.colors.len());
             for w in &m.walls {
-                assert!(w.min[0] >= -SIZE - 1.1 && w.max[0] <= SIZE + 1.1 && w.min[2] >= -SIZE - 1.1 && w.max[2] <= SIZE + 1.1, "seed {seed}: {w:?}");
-                assert!((0..3).all(|i| w.max[i] > w.min[i]), "seed {seed}: empty box {w:?}");
+                assert!(
+                    w.min[0] >= -SIZE - 1.1
+                        && w.max[0] <= SIZE + 1.1
+                        && w.min[2] >= -SIZE - 1.1
+                        && w.max[2] <= SIZE + 1.1,
+                    "seed {seed}: {w:?}"
+                );
+                assert!(
+                    (0..3).all(|i| w.max[i] > w.min[i]),
+                    "seed {seed}: empty box {w:?}"
+                );
             }
-            assert!(m.spawns.len() > 60, "seed {seed}: only {} spawn points", m.spawns.len());
+            assert!(
+                m.spawns.len() > 60,
+                "seed {seed}: only {} spawn points",
+                m.spawns.len()
+            );
         }
     }
 
@@ -792,25 +1451,62 @@ mod tests {
             // the whole suburb, and most of the foothills: the first 25 m of them, where the land is still gentle
             let (mut town, mut hills) = ([0, 0], [0, 0]);
             for i in 0..(2.0 * SIZE) as usize * (2.0 * SIZE) as usize {
-                let (x, z) = (-SIZE + 0.5 + (i % (2 * SIZE as usize)) as f32, -SIZE + 0.5 + (i / (2 * SIZE as usize)) as f32);
+                let (x, z) = (
+                    -SIZE + 0.5 + (i % (2 * SIZE as usize)) as f32,
+                    -SIZE + 0.5 + (i / (2 * SIZE as usize)) as f32,
+                );
                 let d = (x.abs() - CORE).max(0.0).hypot((z.abs() - CORE).max(0.0));
                 let p = [x, land(x, z, seed), z];
-                let tally = if d == 0.0 { &mut town } else if d < 25.0 { &mut hills } else { continue };
+                let tally = if d == 0.0 {
+                    &mut town
+                } else if d < 25.0 {
+                    &mut hills
+                } else {
+                    continue;
+                };
                 if nav.open_at(p) {
                     tally[0] += 1;
                     tally[1] += nav.reachable(p) as usize;
                 }
             }
             println!("seed {seed}: town {town:?}, foothills {hills:?}");
-            assert!(town[1] * 100 >= town[0] * 98, "seed {seed}: only {} of {} open cells in the suburb can reach the middle", town[1], town[0]);
-            assert!(hills[1] * 100 >= hills[0] * 85, "seed {seed}: only {} of {} open cells in the foothills can reach the middle", hills[1], hills[0]);
-            let [look, cabin, mast] = &pads(seed)[..] else { panic!() };
+            assert!(
+                town[1] * 100 >= town[0] * 98,
+                "seed {seed}: only {} of {} open cells in the suburb can reach the middle",
+                town[1],
+                town[0]
+            );
+            assert!(
+                hills[1] * 100 >= hills[0] * 85,
+                "seed {seed}: only {} of {} open cells in the foothills can reach the middle",
+                hills[1],
+                hills[0]
+            );
+            let [look, cabin, mast] = &pads(seed)[..] else {
+                panic!()
+            };
             let up_in_the_hills = [
-                ("fire lookout's deck", [look.x - 1.5, look.h + 2.0 * STORY, look.z - 2.5]),
+                (
+                    "fire lookout's deck",
+                    [look.x - 1.5, look.h + 2.0 * STORY, look.z - 2.5],
+                ),
                 ("cabin", [cabin.x, cabin.h, cabin.z]),
                 ("mast's hut", [mast.x - 1.0, mast.h, mast.z]),
             ];
-            for (name, p) in [("strip mall", [-76.0, 0.0, -110.0]), ("strip mall roof", [-60.0, 3.3, -112.0]), ("hardware store", [68.0, 0.0, -112.0]), ("gas station", [-4.0, 0.0, -92.0]), ("school", [-30.0, 0.0, 90.0]), ("school roof", [-40.0, 6.6, 86.0]), ("pitch", [-98.0, 0.0, 99.0]), ("park", [20.0, 0.0, 30.0]), ("woods", [60.0, 0.0, 115.0])].into_iter().chain(up_in_the_hills) {
+            for (name, p) in [
+                ("strip mall", [-76.0, 0.0, -110.0]),
+                ("strip mall roof", [-60.0, 3.3, -112.0]),
+                ("hardware store", [68.0, 0.0, -112.0]),
+                ("gas station", [-4.0, 0.0, -92.0]),
+                ("school", [-30.0, 0.0, 90.0]),
+                ("school roof", [-40.0, 6.6, 86.0]),
+                ("pitch", [-98.0, 0.0, 99.0]),
+                ("park", [20.0, 0.0, 30.0]),
+                ("woods", [60.0, 0.0, 115.0]),
+            ]
+            .into_iter()
+            .chain(up_in_the_hills)
+            {
                 assert!(nav.reachable(p), "seed {seed}: {name} is cut off");
             }
         }
@@ -821,10 +1517,22 @@ mod tests {
         // both ways round, on lots as narrow and as wide as the rows make them
         let mut upstairs = 0;
         for seed in 1..16 {
-            let (dir, w) = if seed % 2 == 0 { (1.0, 19.0) } else { (-1.0, 23.25) };
+            let (dir, w) = if seed % 2 == 0 {
+                (1.0, 19.0)
+            } else {
+                (-1.0, 23.25)
+            };
             let mut b = B::new(seed, 40.0);
             b.perimeter();
-            let up = b.house(Lot { x0: -w / 2.0, x1: w / 2.0, zf: -12.0 * dir, dir, depth: 25.0, back: true, last: true });
+            let up = b.house(Lot {
+                x0: -w / 2.0,
+                x1: w / 2.0,
+                zf: -12.0 * dir,
+                dir,
+                depth: 25.0,
+                back: true,
+                last: true,
+            });
             let world = Grid::new(b.finish().walls, 4.0);
             let mut nav = Nav::new(&world, 40.0);
             nav.set_goal([0.0, 0.0, -30.0 * dir]);
@@ -832,9 +1540,15 @@ mod tests {
                 .map(|i| [-39.5 + (i % 80) as f32, -39.5 + (i / 80) as f32])
                 .filter(|p| nav.open_at([p[0], 0.0, p[1]]) && !nav.reachable([p[0], 0.0, p[1]]))
                 .collect();
-            assert!(shut.is_empty(), "seed {seed}: the ground at {shut:?} is shut off");
+            assert!(
+                shut.is_empty(),
+                "seed {seed}: the ground at {shut:?} is shut off"
+            );
             if let Some(at) = up {
-                assert!(nav.reachable(at), "seed {seed}: the upstairs at {at:?} can't be reached");
+                assert!(
+                    nav.reachable(at),
+                    "seed {seed}: the upstairs at {at:?} can't be reached"
+                );
                 upstairs += 1;
             }
         }
@@ -889,7 +1603,10 @@ mod tests {
                     let (i, j) = (k % n, k / n);
                     let h = t.at(i, j);
                     top = top.max(h);
-                    let (x, z) = (-t.half + i as f32 * crate::terrain::STEP, -t.half + j as f32 * crate::terrain::STEP);
+                    let (x, z) = (
+                        -t.half + i as f32 * crate::terrain::STEP,
+                        -t.half + j as f32 * crate::terrain::STEP,
+                    );
                     outside += (x.abs().max(z.abs()) > CORE + 25.0) as usize;
                     for (di, dj) in [(1i32, 0i32), (-1, 0), (0, 1), (0, -1)] {
                         let (a, b) = (i as i32 + di, j as i32 + dj);
@@ -897,7 +1614,9 @@ mod tests {
                             continue;
                         }
                         let k2 = b as usize * n + a as usize;
-                        if !seen[k2] && t.at(a as usize, b as usize) - h <= limit * crate::terrain::STEP {
+                        if !seen[k2]
+                            && t.at(a as usize, b as usize) - h <= limit * crate::terrain::STEP
+                        {
                             seen[k2] = true;
                             queue.push(k2);
                         }
@@ -912,11 +1631,22 @@ mod tests {
     #[test]
     #[ignore]
     fn near() {
-        let seed = std::env::var("SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(1);
-        let at: Vec<f32> = std::env::var("AT").unwrap_or("0,0".into()).split(',').map(|s| s.parse().unwrap()).collect();
+        let seed = std::env::var("SEED")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1);
+        let at: Vec<f32> = std::env::var("AT")
+            .unwrap_or("0,0".into())
+            .split(',')
+            .map(|s| s.parse().unwrap())
+            .collect();
         let m = build(seed);
         for (w, c) in m.walls.iter().zip(&m.colors) {
-            if w.max[0] > at[0] - 2.5 && w.min[0] < at[0] + 2.5 && w.max[2] > at[1] - 2.5 && w.min[2] < at[1] + 2.5 {
+            if w.max[0] > at[0] - 2.5
+                && w.min[0] < at[0] + 2.5
+                && w.max[2] > at[1] - 2.5
+                && w.min[2] < at[1] + 2.5
+            {
                 println!("{:?} {:?} {c:.2?}", w.min, w.max);
             }
         }
@@ -928,7 +1658,13 @@ mod tests {
             let row: String = (-10..=10)
                 .map(|xi| {
                     let p = [at[0].floor() + 0.5 + xi as f32, 0.0, z];
-                    if !nav.open_at(p) { '#' } else if nav.reachable(p) { '.' } else { 'X' }
+                    if !nav.open_at(p) {
+                        '#'
+                    } else if nav.reachable(p) {
+                        '.'
+                    } else {
+                        'X'
+                    }
                 })
                 .collect();
             println!("{z:6.1} {row}");
@@ -939,11 +1675,26 @@ mod tests {
     #[test]
     #[ignore]
     fn house_ascii() {
-        let seed = std::env::var("SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(2);
-        let (dir, w) = if seed % 2 == 0 { (1.0, 19.0) } else { (-1.0, 23.25) };
+        let seed = std::env::var("SEED")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(2);
+        let (dir, w) = if seed % 2 == 0 {
+            (1.0, 19.0)
+        } else {
+            (-1.0, 23.25)
+        };
         let mut b = B::new(seed, 40.0);
         b.perimeter();
-        b.house(Lot { x0: -w / 2.0, x1: w / 2.0, zf: -12.0 * dir, dir, depth: 25.0, back: true, last: true });
+        b.house(Lot {
+            x0: -w / 2.0,
+            x1: w / 2.0,
+            zf: -12.0 * dir,
+            dir,
+            depth: 25.0,
+            back: true,
+            last: true,
+        });
         let world = Grid::new(b.finish().walls, 4.0);
         let mut nav = Nav::new(&world, 40.0);
         nav.set_goal([0.0, 0.0, -30.0 * dir]);
@@ -952,7 +1703,13 @@ mod tests {
             let row: String = (0..26)
                 .map(|xi| {
                     let p = [-12.5 + xi as f32, 0.0, z];
-                    if !nav.open_at(p) { '#' } else if nav.reachable(p) { '.' } else { 'X' }
+                    if !nav.open_at(p) {
+                        '#'
+                    } else if nav.reachable(p) {
+                        '.'
+                    } else {
+                        'X'
+                    }
                 })
                 .collect();
             println!("{z:6.1} {row}");
@@ -980,7 +1737,11 @@ mod tests {
             }
             for (i, z) in g.bots.iter().enumerate() {
                 let p = z.body.pos;
-                assert!((p[0] - at[0]).hypot(p[2] - at[1]) < 3.0, "a zombie stalled on the way to {at:?}: {}", g.describe_bot(i));
+                assert!(
+                    (p[0] - at[0]).hypot(p[2] - at[1]) < 3.0,
+                    "a zombie stalled on the way to {at:?}: {}",
+                    g.describe_bot(i)
+                );
             }
         }
     }

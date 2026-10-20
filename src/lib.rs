@@ -1,7 +1,7 @@
 pub mod body;
 pub mod brass;
-pub mod gunmodel;
 pub mod grid;
+pub mod gunmodel;
 pub mod map;
 pub mod nav;
 pub mod net;

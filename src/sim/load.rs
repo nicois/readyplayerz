@@ -15,7 +15,10 @@ use crate::net::{self, Snapshot, MAX_PLAYERS};
 /// The CPU time this thread has taken, in milliseconds: unlike the time on the clock, it doesn't grow while another
 /// program has the CPU, so a busy machine changes it little.
 fn cpu_ms() -> f64 {
-    let mut t = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    let mut t = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
     unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) };
     t.tv_sec as f64 * 1000.0 + t.tv_nsec as f64 / 1e6
 }
@@ -34,8 +37,13 @@ fn limits() -> Vec<(String, f64)> {
         .map(|l| l.split('#').next().unwrap().trim())
         .filter(|l| !l.is_empty())
         .map(|l| {
-            let (k, v) = l.split_once(char::is_whitespace).expect("a limit is a name and a value");
-            (k.to_string(), v.trim().parse().expect("a limit's value is a number"))
+            let (k, v) = l
+                .split_once(char::is_whitespace)
+                .expect("a limit is a name and a value");
+            (
+                k.to_string(),
+                v.trim().parse().expect("a limit's value is a number"),
+            )
         })
         .collect()
 }
@@ -52,15 +60,43 @@ struct Parts {
 
 /// The bytes each kind of record of `s` takes, by encoding it alone, less the datagram's own header.
 fn parts(s: &Snapshot) -> Parts {
-    let size = |part: Snapshot| net::encode_snapshot(&part).iter().map(|d| d.len() - 5).sum::<usize>();
-    let base = || Snapshot { tick: s.tick, ..Default::default() };
+    let size = |part: Snapshot| {
+        net::encode_snapshot(&part)
+            .iter()
+            .map(|d| d.len() - 5)
+            .sum::<usize>()
+    };
+    let base = || Snapshot {
+        tick: s.tick,
+        ..Default::default()
+    };
     Parts {
-        own: size(Snapshot { own: s.own.clone(), world: s.world, ..base() }),
-        mates: size(Snapshot { mates: s.mates.clone(), ..base() }),
-        zombies: size(Snapshot { zombies: s.zombies.clone(), ..base() }),
-        shots: size(Snapshot { shots: s.shots.clone(), ..base() }),
-        loot: size(Snapshot { loot: s.loot.clone(), ..base() }),
-        nades: size(Snapshot { nades: s.nades.clone(), booms: s.booms.clone(), ..base() }),
+        own: size(Snapshot {
+            own: s.own.clone(),
+            world: s.world,
+            ..base()
+        }),
+        mates: size(Snapshot {
+            mates: s.mates.clone(),
+            ..base()
+        }),
+        zombies: size(Snapshot {
+            zombies: s.zombies.clone(),
+            ..base()
+        }),
+        shots: size(Snapshot {
+            shots: s.shots.clone(),
+            ..base()
+        }),
+        loot: size(Snapshot {
+            loot: s.loot.clone(),
+            ..base()
+        }),
+        nades: size(Snapshot {
+            nades: s.nades.clone(),
+            booms: s.booms.clone(),
+            ..base()
+        }),
     }
 }
 
@@ -68,13 +104,16 @@ fn parts(s: &Snapshot) -> Parts {
 #[ignore = "a minute of a full room: run by ./bench.sh, or with --ignored"]
 fn load_six_players_against_a_full_horde_stay_within_the_limits() {
     let mut room = Room::new(bench::MAP, bench::SEED);
-    let ids: Vec<u8> = (0..MAX_PLAYERS).map(|k| room.join(&format!("Bench {k}")).unwrap()).collect();
+    let ids: Vec<u8> = (0..MAX_PLAYERS)
+        .map(|k| room.join(&format!("Bench {k}")).unwrap())
+        .collect();
     room.start(ids[0]);
     let (warmup, measured) = ((WARMUP / STEP) as u32, (MEASURED / STEP) as u32);
     let per_sec = (1.0 / STEP).round() as u32;
     let snaps_per_sec = (per_sec / SNAPSHOT_EVERY) as f64;
 
-    let (mut snaps, mut bytes, mut wire, mut worst, mut most_datagrams) = (0usize, 0usize, 0usize, 0usize, 0usize);
+    let (mut snaps, mut bytes, mut wire, mut worst, mut most_datagrams) =
+        (0usize, 0usize, 0usize, 0usize, 0usize);
     let mut sum = Parts::default();
     let (mut zombies_sent, mut alive_seen) = (0usize, 0usize);
     // bytes on the wire to each player in each second, for the worst second
@@ -93,7 +132,11 @@ fn load_six_players_against_a_full_horde_stay_within_the_limits() {
         room.tick();
         let mut out = Vec::new();
         if room.snapshot_due() {
-            out = room.snapshots().into_iter().map(|(_, datagrams)| datagrams).collect();
+            out = room
+                .snapshots()
+                .into_iter()
+                .map(|(_, datagrams)| datagrams)
+                .collect();
         }
         let ms = cpu_ms() - t0;
         // what the bytes go on, from one player's snapshot (they differ only in whose own record it is)
@@ -119,7 +162,14 @@ fn load_six_players_against_a_full_horde_stay_within_the_limits() {
             let p = parts(&s);
             zombies_sent += s.zombies.len();
             alive_seen += room.game.bots.iter().filter(|b| b.alive).count();
-            for (a, b) in [(&mut sum.own, p.own), (&mut sum.mates, p.mates), (&mut sum.zombies, p.zombies), (&mut sum.shots, p.shots), (&mut sum.loot, p.loot), (&mut sum.nades, p.nades)] {
+            for (a, b) in [
+                (&mut sum.own, p.own),
+                (&mut sum.mates, p.mates),
+                (&mut sum.zombies, p.zombies),
+                (&mut sum.shots, p.shots),
+                (&mut sum.loot, p.loot),
+                (&mut sum.nades, p.nades),
+            ] {
                 *a += b;
             }
         }
@@ -136,13 +186,22 @@ fn load_six_players_against_a_full_horde_stay_within_the_limits() {
     let tick_ms = ticks_ms.iter().sum::<f64>() / ticks_ms.len() as f64;
     // the slowest one in a hundred, and the very slowest
     ticks_ms.sort_by(f64::total_cmp);
-    let (tick_p99, tick_max) = (ticks_ms[ticks_ms.len() * 99 / 100], *ticks_ms.last().unwrap());
+    let (tick_p99, tick_max) = (
+        ticks_ms[ticks_ms.len() * 99 / 100],
+        *ticks_ms.last().unwrap(),
+    );
     let kb = |b: f64| b / 1000.0;
     let per_snap = snaps as f64 / MAX_PLAYERS as f64;
     let results = [
-        ("net_down_kbps", kb(wire as f64 / snaps as f64 * snaps_per_sec)),
+        (
+            "net_down_kbps",
+            kb(wire as f64 / snaps as f64 * snaps_per_sec),
+        ),
         ("net_down_peak_kbps", kb(worst_second as f64)),
-        ("net_server_out_kbps", kb(wire as f64 / snaps as f64 * snaps_per_sec * MAX_PLAYERS as f64)),
+        (
+            "net_server_out_kbps",
+            kb(wire as f64 / snaps as f64 * snaps_per_sec * MAX_PLAYERS as f64),
+        ),
         ("net_up_kbps", kb((up * per_sec as usize) as f64)),
         ("net_snapshot_bytes", bytes as f64 / snaps as f64),
         ("net_snapshot_bytes_max", worst as f64),
@@ -170,7 +229,10 @@ fn load_six_players_against_a_full_horde_stay_within_the_limits() {
             Some(_) => "ok",
             None => "",
         };
-        println!("bench {name} {value:.2}  limit {} {mark}", limit.map_or("-".into(), |l| l.to_string()));
+        println!(
+            "bench {name} {value:.2}  limit {} {mark}",
+            limit.map_or("-".into(), |l| l.to_string())
+        );
     }
     assert!(over.is_empty(), "{}", over.join("\n"));
 }

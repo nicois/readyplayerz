@@ -49,12 +49,20 @@ pub const HEAD_LIFT: f32 = 0.025;
 
 /// A point of the body to where it is on the face as modelled.
 fn to_head(p: V) -> V {
-    [p[0] / HEAD_K, HEAD_PIVOT + (p[1] - HEAD_PIVOT - HEAD_LIFT) / HEAD_K, p[2] / HEAD_K]
+    [
+        p[0] / HEAD_K,
+        HEAD_PIVOT + (p[1] - HEAD_PIVOT - HEAD_LIFT) / HEAD_K,
+        p[2] / HEAD_K,
+    ]
 }
 
 /// A point on the face as modelled to where it is on the body.
 pub fn head_to_rest(p: V) -> V {
-    [p[0] * HEAD_K, HEAD_PIVOT + HEAD_LIFT + (p[1] - HEAD_PIVOT) * HEAD_K, p[2] * HEAD_K]
+    [
+        p[0] * HEAD_K,
+        HEAD_PIVOT + HEAD_LIFT + (p[1] - HEAD_PIVOT) * HEAD_K,
+        p[2] * HEAD_K,
+    ]
 }
 
 pub struct Mesh {
@@ -95,7 +103,11 @@ pub(crate) fn cone(p: V, a: V, b: V, r1: f32, r2: f32) -> f32 {
     let pa = sub(p, a);
     let y = dot(pa, ba);
     let z = y - l2;
-    let w = [pa[0] * l2 - ba[0] * y, pa[1] * l2 - ba[1] * y, pa[2] * l2 - ba[2] * y];
+    let w = [
+        pa[0] * l2 - ba[0] * y,
+        pa[1] * l2 - ba[1] * y,
+        pa[2] * l2 - ba[2] * y,
+    ];
     let x2 = dot(w, w);
     let y2 = y * y * l2;
     let z2 = z * z * l2;
@@ -111,7 +123,11 @@ pub(crate) fn cone(p: V, a: V, b: V, r1: f32, r2: f32) -> f32 {
 
 /// An ellipsoid of half-sizes `r` centred on `c` (a good bound on the distance, not the exact distance).
 pub(crate) fn ell(p: V, c: V, r: V) -> f32 {
-    let q = [(p[0] - c[0]) / r[0], (p[1] - c[1]) / r[1], (p[2] - c[2]) / r[2]];
+    let q = [
+        (p[0] - c[0]) / r[0],
+        (p[1] - c[1]) / r[1],
+        (p[2] - c[2]) / r[2],
+    ];
     let k0 = len(q);
     let k1 = len([q[0] / r[0], q[1] / r[1], q[2] / r[2]]);
     if k1 < 1e-6 {
@@ -123,21 +139,35 @@ pub(crate) fn ell(p: V, c: V, r: V) -> f32 {
 
 /// A cone whose cross-section is squashed front to back to `flat` of its width.
 fn flat_cone(p: V, a: V, b: V, r1: f32, r2: f32, flat: f32) -> f32 {
-    cone([p[0], p[1], p[2] / flat], [a[0], a[1], a[2] / flat], [b[0], b[1], b[2] / flat], r1, r2) * flat
+    cone(
+        [p[0], p[1], p[2] / flat],
+        [a[0], a[1], a[2] / flat],
+        [b[0], b[1], b[2] / flat],
+        r1,
+        r2,
+    ) * flat
 }
 
 /// A point in the rest pose, in the frame of the arm hanging straight down from the right shoulder.
 fn arm_down(p: V) -> V {
     let (sn, cs) = ARM_ANGLE.sin_cos();
     let q = [p[0].abs() - ARM_X, p[1] - SHOULDER_Y];
-    [ARM_X + cs * q[0] + sn * q[1], SHOULDER_Y - sn * q[0] + cs * q[1], p[2]]
+    [
+        ARM_X + cs * q[0] + sn * q[1],
+        SHOULDER_Y - sn * q[0] + cs * q[1],
+        p[2],
+    ]
 }
 
 /// The other way: a point on the right arm hanging down, to where it is in the rest pose.
 pub fn arm_rest(side: f32, p: V) -> V {
     let (sn, cs) = ARM_ANGLE.sin_cos();
     let q = [p[0] - ARM_X, p[1] - SHOULDER_Y];
-    [side * (ARM_X + cs * q[0] - sn * q[1]), SHOULDER_Y + sn * q[0] + cs * q[1], p[2]]
+    [
+        side * (ARM_X + cs * q[0] - sn * q[1]),
+        SHOULDER_Y + sn * q[0] + cs * q[1],
+        p[2],
+    ]
 }
 
 /// Neck to hips: a ribcage broad across the chest narrowing to the waist (the V of a man's back), a pelvis no
@@ -146,22 +176,62 @@ fn torso(p: V) -> f32 {
     let ax = [p[0].abs(), p[1], p[2]];
     // ribcage, belly and pelvis
     let mut d = ell(p, [0.0, 1.265, 0.008], [0.152, 0.2, 0.112]);
-    d = smin(d, flat_cone(p, [0.0, 1.13, 0.01], [0.0, 0.99, 0.008], 0.132, 0.138, 0.74), 0.07);
+    d = smin(
+        d,
+        flat_cone(p, [0.0, 1.13, 0.01], [0.0, 0.99, 0.008], 0.132, 0.138, 0.74),
+        0.07,
+    );
     d = smin(d, ell(p, [0.0, 1.06, -0.035], [0.115, 0.1, 0.075]), 0.05);
     d = smin(d, ell(p, [0.0, 0.935, 0.01], [0.158, 0.1, 0.105]), 0.06);
     // the broad back under the arms, the shoulder blades, and the buttocks
     d = smin(d, ell(ax, [0.1, 1.27, 0.035], [0.075, 0.15, 0.072]), 0.05);
-    d = smin(d, ell(ax, [0.075, 1.355, 0.072], [0.068, 0.075, 0.045]), 0.04);
+    d = smin(
+        d,
+        ell(ax, [0.075, 1.355, 0.072], [0.068, 0.075, 0.045]),
+        0.04,
+    );
     d = smin(d, ell(ax, [0.068, 0.875, 0.055], [0.08, 0.085, 0.07]), 0.04);
     // chest muscles: broad flat plates
-    d = smin(d, ell(ax, [0.075, 1.335, -0.08], [0.09, 0.055, 0.032]), 0.05);
+    d = smin(
+        d,
+        ell(ax, [0.075, 1.335, -0.08], [0.09, 0.055, 0.032]),
+        0.05,
+    );
     // the mass between the ribs and the arm, then the trapezius sloping from the neck to the shoulder
     d = smin(d, ell(ax, [0.15, 1.39, 0.0], [0.07, 0.055, 0.065]), 0.04);
-    d = smin(d, cone(ax, [0.025, 1.5, 0.025], [0.17, 1.435, 0.012], 0.048, 0.034), 0.045);
+    d = smin(
+        d,
+        cone(ax, [0.025, 1.5, 0.025], [0.17, 1.435, 0.012], 0.048, 0.034),
+        0.045,
+    );
     // collarbones, the neck and its two strap muscles
-    d = smin(d, cone(ax, [0.015, 1.443, -0.06], [0.165, 1.452, -0.028], 0.011, 0.011), 0.02);
-    d = smin(d, cone(p, [0.0, 1.43, 0.012], [0.0, 1.62, -0.004], 0.06, 0.053), 0.04);
-    d = smin(d, cone(ax, [0.045, 1.6, 0.012], [0.018, 1.455, -0.052], 0.015, 0.013), 0.02);
+    d = smin(
+        d,
+        cone(
+            ax,
+            [0.015, 1.443, -0.06],
+            [0.165, 1.452, -0.028],
+            0.011,
+            0.011,
+        ),
+        0.02,
+    );
+    d = smin(
+        d,
+        cone(p, [0.0, 1.43, 0.012], [0.0, 1.62, -0.004], 0.06, 0.053),
+        0.04,
+    );
+    d = smin(
+        d,
+        cone(
+            ax,
+            [0.045, 1.6, 0.012],
+            [0.018, 1.455, -0.052],
+            0.015,
+            0.013,
+        ),
+        0.02,
+    );
     d
 }
 
@@ -175,17 +245,37 @@ fn legs(p: V) -> f32 {
     d = smin(d, ell(q, [0.085, 0.72, 0.028], [0.06, 0.15, 0.058]), 0.04);
     // the knee and its cap
     d = smin(d, ell(q, [0.085, 0.5, -0.01], [0.046, 0.06, 0.046]), 0.04);
-    d = smin(d, ell(q, [0.085, 0.497, -0.044], [0.027, 0.032, 0.018]), 0.025);
+    d = smin(
+        d,
+        ell(q, [0.085, 0.497, -0.044], [0.027, 0.032, 0.018]),
+        0.025,
+    );
     // the shin, the calf behind it and the shinbone down the front
-    d = smin(d, cone(q, [0.085, 0.49, 0.0], [0.08, 0.095, 0.004], 0.048, 0.031), 0.03);
+    d = smin(
+        d,
+        cone(q, [0.085, 0.49, 0.0], [0.08, 0.095, 0.004], 0.048, 0.031),
+        0.03,
+    );
     d = smin(d, ell(q, [0.087, 0.37, 0.024], [0.048, 0.11, 0.052]), 0.04);
     d = smin(d, ell(q, [0.075, 0.34, 0.022], [0.04, 0.08, 0.04]), 0.03);
-    d = smin(d, cone(q, [0.085, 0.45, -0.038], [0.08, 0.14, -0.026], 0.014, 0.011), 0.02);
+    d = smin(
+        d,
+        cone(q, [0.085, 0.45, -0.038], [0.08, 0.14, -0.026], 0.014, 0.011),
+        0.02,
+    );
     // ankle, heel, foot and toes
     d = smin(d, ell(q, [0.08, 0.085, 0.0], [0.037, 0.045, 0.038]), 0.02);
     d = smin(d, ell(q, [0.08, 0.04, 0.028], [0.034, 0.04, 0.045]), 0.02);
-    d = smin(d, ell(q, [0.083, 0.042, -0.06], [0.045, 0.038, 0.115]), 0.02);
-    d = smin(d, ell(q, [0.087, 0.026, -0.155], [0.044, 0.025, 0.045]), 0.015);
+    d = smin(
+        d,
+        ell(q, [0.083, 0.042, -0.06], [0.045, 0.038, 0.115]),
+        0.02,
+    );
+    d = smin(
+        d,
+        ell(q, [0.087, 0.026, -0.155], [0.044, 0.025, 0.045]),
+        0.015,
+    );
     // the thighs apart below the crotch, a little wider than the trousers' gap (see `pants`) so they stay inside
     d.max((0.024 - p[0].abs()).min(0.79 - p[1]))
 }
@@ -193,10 +283,30 @@ fn legs(p: V) -> f32 {
 /// One hand in the arm's own frame: a palm, a thumb and four curled fingers.
 fn hand(q: V) -> f32 {
     let mut d = ell(q, [ARM_X, 0.818, 0.0], [0.023, 0.058, 0.042]);
-    d = smin(d, cone(q, [ARM_X - 0.012, 0.855, -0.028], [ARM_X - 0.042, 0.79, -0.054], 0.013, 0.01), 0.012);
+    d = smin(
+        d,
+        cone(
+            q,
+            [ARM_X - 0.012, 0.855, -0.028],
+            [ARM_X - 0.042, 0.79, -0.054],
+            0.013,
+            0.01,
+        ),
+        0.012,
+    );
     for (i, dz) in [-0.029f32, -0.0095, 0.0095, 0.028].iter().enumerate() {
-        let longer = if i == 1 || i == 2 { 0.009 } else if i == 3 { -0.01 } else { 0.0 };
-        let (a, b, c) = ([ARM_X, 0.775, *dz], [ARM_X - 0.014, 0.728 - longer, *dz], [ARM_X - 0.036, 0.695 - longer, *dz]);
+        let longer = if i == 1 || i == 2 {
+            0.009
+        } else if i == 3 {
+            -0.01
+        } else {
+            0.0
+        };
+        let (a, b, c) = (
+            [ARM_X, 0.775, *dz],
+            [ARM_X - 0.014, 0.728 - longer, *dz],
+            [ARM_X - 0.036, 0.695 - longer, *dz],
+        );
         d = smin(d, cone(q, a, b, 0.0105, 0.0093), 0.006);
         d = smin(d, cone(q, b, c, 0.0093, 0.0078), 0.006);
     }
@@ -208,14 +318,36 @@ fn hand(q: V) -> f32 {
 fn arm(p: V) -> f32 {
     let q = arm_down(p);
     let mut d = ell(q, [ARM_X + 0.006, 1.37, 0.0], [0.054, 0.085, 0.06]);
-    d = smin(d, cone(q, [ARM_X, 1.40, 0.0], [ARM_X, 1.13, 0.0], 0.046, 0.036), 0.03);
+    d = smin(
+        d,
+        cone(q, [ARM_X, 1.40, 0.0], [ARM_X, 1.13, 0.0], 0.046, 0.036),
+        0.03,
+    );
     d = smin(d, ell(q, [ARM_X, 1.255, -0.016], [0.04, 0.085, 0.04]), 0.03);
-    d = smin(d, ell(q, [ARM_X + 0.004, 1.28, 0.02], [0.04, 0.095, 0.04]), 0.03);
+    d = smin(
+        d,
+        ell(q, [ARM_X + 0.004, 1.28, 0.02], [0.04, 0.095, 0.04]),
+        0.03,
+    );
     d = smin(d, ell(q, [ARM_X, 1.13, 0.006], [0.036, 0.04, 0.038]), 0.02);
     // the forearm is broader across the back of the hand than through it
     let flat = [q[0], q[1], q[2] * 0.78];
-    d = smin(d, cone(flat, [ARM_X, 1.12, 0.0], [ARM_X, WRIST_Y, 0.0], 0.034, 0.024), 0.025);
-    d = smin(d, ell(q, [ARM_X, 1.055, -0.004], [0.042, 0.085, 0.043]), 0.035);
+    d = smin(
+        d,
+        cone(
+            flat,
+            [ARM_X, 1.12, 0.0],
+            [ARM_X, WRIST_Y, 0.0],
+            0.034,
+            0.024,
+        ),
+        0.025,
+    );
+    d = smin(
+        d,
+        ell(q, [ARM_X, 1.055, -0.004], [0.042, 0.085, 0.043]),
+        0.035,
+    );
     smin(d, hand(q), 0.015)
 }
 
@@ -226,31 +358,85 @@ fn head(p: V) -> f32 {
     let mut d = ell(p, [0.0, 1.68, 0.012], [0.098, 0.118, 0.108]);
     d = smin(d, ell(p, [0.0, 1.62, -0.028], [0.088, 0.088, 0.084]), 0.02);
     // cheekbones and the hollows under them, brow ridge, nose, ears
-    d = smin(d, ell(q, [0.053, 1.638, -0.07], [0.032, 0.024, 0.026]), 0.015);
-    d = smin(d, cone(q, [0.008, 1.683, -0.092], [0.064, 1.702, -0.068], 0.014, 0.011), 0.014);
-    d = smin(d, cone(p, [0.0, 1.665, -0.094], [0.0, 1.612, -0.112], 0.008, 0.013), 0.012);
+    d = smin(
+        d,
+        ell(q, [0.053, 1.638, -0.07], [0.032, 0.024, 0.026]),
+        0.015,
+    );
+    d = smin(
+        d,
+        cone(
+            q,
+            [0.008, 1.683, -0.092],
+            [0.064, 1.702, -0.068],
+            0.014,
+            0.011,
+        ),
+        0.014,
+    );
+    d = smin(
+        d,
+        cone(p, [0.0, 1.665, -0.094], [0.0, 1.612, -0.112], 0.008, 0.013),
+        0.012,
+    );
     d = smin(d, ell(q, [0.015, 1.604, -0.1], [0.011, 0.008, 0.01]), 0.01);
     d = smin(d, ell(p, [0.0, 1.605, -0.114], [0.012, 0.011, 0.012]), 0.01);
     d = smin(d, ell(q, [0.097, 1.655, 0.012], [0.01, 0.028, 0.018]), 0.01);
     // jaw and chin
-    d = smin(d, cone(q, [0.047, 1.60, 0.0], [0.0, 1.535, -0.07], 0.034, 0.028), 0.02);
-    d = smin(d, ell(p, [0.0, 1.533, -0.079], [0.031, 0.024, 0.026]), 0.014);
-    d = smin(d, ell(p, [0.0, 1.592, -0.094], [0.029, 0.0075, 0.013]), 0.008);
-    d = smin(d, ell(p, [0.0, 1.558, -0.092], [0.027, 0.0085, 0.013]), 0.008);
+    d = smin(
+        d,
+        cone(q, [0.047, 1.60, 0.0], [0.0, 1.535, -0.07], 0.034, 0.028),
+        0.02,
+    );
+    d = smin(
+        d,
+        ell(p, [0.0, 1.533, -0.079], [0.031, 0.024, 0.026]),
+        0.014,
+    );
+    d = smin(
+        d,
+        ell(p, [0.0, 1.592, -0.094], [0.029, 0.0075, 0.013]),
+        0.008,
+    );
+    d = smin(
+        d,
+        ell(p, [0.0, 1.558, -0.092], [0.027, 0.0085, 0.013]),
+        0.008,
+    );
     // hollow cheeks
     d = smooth_sub(d, ell(q, [0.075, 1.6, -0.055], [0.016, 0.024, 0.02]), 0.035);
     // eye sockets and the open mouth
-    d = smooth_sub(d, ell(q, [0.04, 1.668, -0.084], [0.021, 0.016, 0.02]), 0.008);
+    d = smooth_sub(
+        d,
+        ell(q, [0.04, 1.668, -0.084], [0.021, 0.016, 0.02]),
+        0.008,
+    );
     // lids close over the top and bottom of each eye, leaving an angry squint
-    d = smin(d, ell(q, [0.04, 1.681, -0.088], [0.0165, 0.0055, 0.013]), 0.004);
-    d = smin(d, ell(q, [0.04, 1.6615, -0.089], [0.0145, 0.0035, 0.011]), 0.004);
-    d = smooth_sub(d, ell(p, [0.0, 1.574, -0.083], [0.023, 0.0075, 0.03]), 0.006);
+    d = smin(
+        d,
+        ell(q, [0.04, 1.681, -0.088], [0.0165, 0.0055, 0.013]),
+        0.004,
+    );
+    d = smin(
+        d,
+        ell(q, [0.04, 1.6615, -0.089], [0.0145, 0.0035, 0.011]),
+        0.004,
+    );
+    d = smooth_sub(
+        d,
+        ell(p, [0.0, 1.574, -0.083], [0.023, 0.0075, 0.03]),
+        0.006,
+    );
     d
 }
 
 /// A box of half-sizes `r` centred on `c`, its edges rounded over `round`.
 fn rbox(p: V, c: V, r: V, round: f32) -> f32 {
-    let d = [(p[0] - c[0]).abs() - r[0] + round, (p[1] - c[1]).abs() - r[1] + round, (p[2] - c[2]).abs() - r[2] + round];
+    let d = [
+        (p[0] - c[0]).abs() - r[0] + round,
+        (p[1] - c[1]).abs() - r[1] + round,
+        (p[2] - c[2]).abs() - r[2] + round,
+    ];
     len([d[0].max(0.0), d[1].max(0.0), d[2].max(0.0)]) + d[0].max(d[1]).max(d[2]).min(0.0) - round
 }
 
@@ -264,30 +450,84 @@ fn living_head(p: V) -> f32 {
     let f = [p[0], p[1], p[2] - 7.0 * p[0] * p[0]];
     d = smin(d, ell(f, [0.0, 1.63, -0.035], [0.066, 0.056, 0.058]), 0.035);
     // full cheeks, and a softened corner at the cheekbone so the face turns from its front to its sides
-    d = smin(d, ell(q, [0.044, 1.626, -0.058], [0.028, 0.026, 0.026]), 0.03);
-    d = smin(d, rbox(q, [0.056, 1.647, -0.052], [0.016, 0.011, 0.02], 0.01), 0.025);
+    d = smin(
+        d,
+        ell(q, [0.044, 1.626, -0.058], [0.028, 0.026, 0.026]),
+        0.03,
+    );
+    d = smin(
+        d,
+        rbox(q, [0.056, 1.647, -0.052], [0.016, 0.011, 0.02], 0.01),
+        0.025,
+    );
     // the jaw: a box sheared narrower the lower it goes, a wedge to a square chin
     let j = [p[0].abs() + ((1.62 - p[1]) * 0.45).max(0.0), p[1], p[2]];
-    d = smin(d, rbox(j, [0.0, 1.585, -0.035], [0.064, 0.034, 0.048], 0.018), 0.03);
-    d = smin(d, rbox(p, [0.0, 1.556, -0.081], [0.023, 0.016, 0.013], 0.011), 0.025);
+    d = smin(
+        d,
+        rbox(j, [0.0, 1.585, -0.035], [0.064, 0.034, 0.048], 0.018),
+        0.03,
+    );
+    d = smin(
+        d,
+        rbox(p, [0.0, 1.556, -0.081], [0.023, 0.016, 0.013], 0.011),
+        0.025,
+    );
     // the mouth is bent back round the curve of the teeth, the corners of the mouth well behind its middle
     let b = [p[0], p[1], p[2] - 16.0 * p[0] * p[0]];
     d = smin(d, ell(b, [0.0, 1.595, -0.067], [0.034, 0.025, 0.022]), 0.03);
     // one flat shelf of a brow, and a flat front across the eyes under it, so the sockets are cut into a plane
     // rather than leaving a groove between brow and lid
-    d = smin(d, rbox(p, [0.0, 1.69, -0.08], [0.058, 0.009, 0.012], 0.008), 0.016);
-    d = smin(d, rbox(p, [0.0, 1.672, -0.062], [0.058, 0.02, 0.022], 0.014), 0.02);
+    d = smin(
+        d,
+        rbox(p, [0.0, 1.69, -0.08], [0.058, 0.009, 0.012], 0.008),
+        0.016,
+    );
+    d = smin(
+        d,
+        rbox(p, [0.0, 1.672, -0.062], [0.058, 0.02, 0.022], 0.014),
+        0.02,
+    );
     // the nose, ears
-    d = smin(d, cone(p, [0.0, 1.669, -0.093], [0.0, 1.628, -0.108], 0.0065, 0.0105), 0.01);
-    d = smin(d, ell(q, [0.0125, 1.621, -0.099], [0.009, 0.007, 0.009]), 0.008);
+    d = smin(
+        d,
+        cone(
+            p,
+            [0.0, 1.669, -0.093],
+            [0.0, 1.628, -0.108],
+            0.0065,
+            0.0105,
+        ),
+        0.01,
+    );
+    d = smin(
+        d,
+        ell(q, [0.0125, 1.621, -0.099], [0.009, 0.007, 0.009]),
+        0.008,
+    );
     d = smin(d, ell(q, [0.087, 1.655, 0.012], [0.01, 0.027, 0.017]), 0.01);
     // closed lips, the upper one in two curves (the shader draws the line between them), and the eyes
     let b = [p[0], p[1], p[2] - 18.0 * p[0] * p[0]];
     let bq = [b[0].abs(), b[1], b[2]];
-    d = smin(d, ell(bq, [0.009, 1.5985, -0.089], [0.017, 0.006, 0.011]), 0.008);
-    d = smin(d, ell(b, [0.0, 1.5805, -0.0855], [0.024, 0.009, 0.012]), 0.008);
-    d = smooth_sub(d, ell(q, [0.04, 1.668, -0.084], [0.019, 0.014, 0.018]), 0.008);
-    smin(d, ell(q, [0.04, 1.678, -0.0885], [0.0155, 0.0045, 0.0115]), 0.004)
+    d = smin(
+        d,
+        ell(bq, [0.009, 1.5985, -0.089], [0.017, 0.006, 0.011]),
+        0.008,
+    );
+    d = smin(
+        d,
+        ell(b, [0.0, 1.5805, -0.0855], [0.024, 0.009, 0.012]),
+        0.008,
+    );
+    d = smooth_sub(
+        d,
+        ell(q, [0.04, 1.668, -0.084], [0.019, 0.014, 0.018]),
+        0.008,
+    );
+    smin(
+        d,
+        ell(q, [0.04, 1.678, -0.0885], [0.0155, 0.0045, 0.0115]),
+        0.004,
+    )
 }
 
 /// The whole body, hands and head included, in the rest pose.
@@ -314,7 +554,11 @@ fn figure(p: V, human: bool) -> f32 {
     }
     if p[1] > 1.36 {
         let h = to_head(p);
-        d = smin(d, if human { living_head(h) } else { head(h) } * HEAD_K, 0.03);
+        d = smin(
+            d,
+            if human { living_head(h) } else { head(h) } * HEAD_K,
+            0.03,
+        );
     }
     if p[0].abs() > 0.1 && p[1] > 0.55 && p[1] < 1.62 {
         d = smin(d, arm(p), 0.02);
@@ -357,14 +601,22 @@ fn shirt(p: V) -> f32 {
 /// boot over the foot.
 fn pants(p: V) -> f32 {
     let q = [p[0].abs(), p[1], p[2]];
-    let mut d = smin(ell(p, [0.0, 0.935, 0.01], [0.158, 0.1, 0.105]), legs(p), 0.045);
+    let mut d = smin(
+        ell(p, [0.0, 0.935, 0.01], [0.158, 0.1, 0.105]),
+        legs(p),
+        0.045,
+    );
     d = smin(d, ell(q, [0.068, 0.875, 0.055], [0.08, 0.085, 0.07]), 0.04) - 0.014;
     let leg = cone(q, [0.092, 0.86, 0.006], [0.083, 0.13, 0.004], 0.1, 0.058);
     d = smin(d, leg, 0.03);
     // a gap between the trouser legs below the seat, or they web together like a skirt as the legs part
     d = d.max((0.012 - p[0].abs()).min(0.8 - p[1]));
     // shoes: a low upper over the foot and round the ankle, on a flat sole
-    let shoe = smin(ell(q, [0.084, 0.05, -0.058], [0.05, 0.05, 0.13]), ell(q, [0.081, 0.085, 0.0], [0.045, 0.055, 0.048]), 0.03);
+    let shoe = smin(
+        ell(q, [0.084, 0.05, -0.058], [0.05, 0.05, 0.13]),
+        ell(q, [0.081, 0.085, 0.0], [0.045, 0.055, 0.048]),
+        0.03,
+    );
     d = smin(d, shoe.max(-p[1]), 0.02);
     d.max(p[1] - 1.04)
 }
@@ -374,14 +626,23 @@ fn hair(p: V) -> f32 {
     let h = to_head(p);
     let q = [h[0].abs(), h[1], h[2]];
     let mut d = ell(h, [0.0, 1.695, 0.03], [0.112, 0.126, 0.122]);
-    d = smin(d, cone(q, [0.047, 1.60, 0.0], [0.0, 1.535, -0.07], 0.047, 0.04), 0.03);
+    d = smin(
+        d,
+        cone(q, [0.047, 1.60, 0.0], [0.0, 1.535, -0.07], 0.047, 0.04),
+        0.03,
+    );
     (d * HEAD_K).max(NECK_Y - p[1])
 }
 
 /// Close-cropped hair for the living: a thin shell over the skull.
 fn crop(p: V) -> f32 {
     let h = to_head(p);
-    (smin(ell(h, [0.0, 1.69, 0.017], [0.092, 0.119, 0.107]), ell(h, [0.0, 1.72, -0.033], [0.074, 0.076, 0.058]), 0.03) * HEAD_K).max(NECK_Y - p[1])
+    (smin(
+        ell(h, [0.0, 1.69, 0.017], [0.092, 0.119, 0.107]),
+        ell(h, [0.0, 1.72, -0.033], [0.074, 0.076, 0.058]),
+        0.03,
+    ) * HEAD_K)
+        .max(NECK_Y - p[1])
 }
 
 /// Where each bone runs in the rest pose, for the weights.
@@ -394,20 +655,75 @@ struct Seg {
 
 fn segments() -> Vec<Seg> {
     let mut s = vec![
-        Seg { bone: PELVIS, a: [0.0, 0.88, 0.0], b: [0.0, 1.0, 0.0], r: 0.15 },
-        Seg { bone: SPINE, a: [0.0, 1.0, 0.0], b: [0.0, 1.17, 0.0], r: 0.13 },
-        Seg { bone: CHEST, a: [0.0, 1.17, 0.0], b: [0.0, 1.44, 0.0], r: 0.15 },
-        Seg { bone: HEAD, a: head_to_rest([0.0, 1.52, 0.0]), b: head_to_rest([0.0, 1.76, 0.0]), r: 0.09 * HEAD_K },
-        Seg { bone: JAW, a: head_to_rest([0.0, 1.585, -0.02]), b: head_to_rest([0.0, 1.54, -0.07]), r: 0.035 * HEAD_K },
+        Seg {
+            bone: PELVIS,
+            a: [0.0, 0.88, 0.0],
+            b: [0.0, 1.0, 0.0],
+            r: 0.15,
+        },
+        Seg {
+            bone: SPINE,
+            a: [0.0, 1.0, 0.0],
+            b: [0.0, 1.17, 0.0],
+            r: 0.13,
+        },
+        Seg {
+            bone: CHEST,
+            a: [0.0, 1.17, 0.0],
+            b: [0.0, 1.44, 0.0],
+            r: 0.15,
+        },
+        Seg {
+            bone: HEAD,
+            a: head_to_rest([0.0, 1.52, 0.0]),
+            b: head_to_rest([0.0, 1.76, 0.0]),
+            r: 0.09 * HEAD_K,
+        },
+        Seg {
+            bone: JAW,
+            a: head_to_rest([0.0, 1.585, -0.02]),
+            b: head_to_rest([0.0, 1.54, -0.07]),
+            r: 0.035 * HEAD_K,
+        },
     ];
     for (k, side) in [-1.0f32, 1.0].iter().enumerate() {
         let x = |v: f32| side * v;
-        s.push(Seg { bone: HIP + k, a: [x(0.092), 0.92, 0.0], b: [x(0.085), 0.5, 0.0], r: 0.09 });
-        s.push(Seg { bone: KNEE + k, a: [x(0.085), 0.5, 0.0], b: [x(0.08), 0.095, 0.0], r: 0.05 });
-        s.push(Seg { bone: ANKLE + k, a: [x(0.08), 0.093, 0.0], b: [x(0.085), 0.04, -0.15], r: 0.04 });
-        s.push(Seg { bone: SHOULDER + k, a: arm_rest(*side, [ARM_X, 1.40, 0.0]), b: arm_rest(*side, [ARM_X, 1.13, 0.0]), r: 0.055 });
-        s.push(Seg { bone: ELBOW + k, a: arm_rest(*side, [ARM_X, 1.13, 0.0]), b: arm_rest(*side, [ARM_X, WRIST_Y, 0.0]), r: 0.04 });
-        s.push(Seg { bone: WRIST + k, a: arm_rest(*side, [ARM_X, WRIST_Y, 0.0]), b: arm_rest(*side, [ARM_X, 0.715, 0.0]), r: 0.035 });
+        s.push(Seg {
+            bone: HIP + k,
+            a: [x(0.092), 0.92, 0.0],
+            b: [x(0.085), 0.5, 0.0],
+            r: 0.09,
+        });
+        s.push(Seg {
+            bone: KNEE + k,
+            a: [x(0.085), 0.5, 0.0],
+            b: [x(0.08), 0.095, 0.0],
+            r: 0.05,
+        });
+        s.push(Seg {
+            bone: ANKLE + k,
+            a: [x(0.08), 0.093, 0.0],
+            b: [x(0.085), 0.04, -0.15],
+            r: 0.04,
+        });
+        s.push(Seg {
+            bone: SHOULDER + k,
+            a: arm_rest(*side, [ARM_X, 1.40, 0.0]),
+            b: arm_rest(*side, [ARM_X, 1.13, 0.0]),
+            r: 0.055,
+        });
+        s.push(Seg {
+            bone: ELBOW + k,
+            a: arm_rest(*side, [ARM_X, 1.13, 0.0]),
+            b: arm_rest(*side, [ARM_X, WRIST_Y, 0.0]),
+            r: 0.04,
+        });
+        s.push(Seg {
+            bone: WRIST + k,
+            a: arm_rest(*side, [ARM_X, WRIST_Y, 0.0]),
+            b: arm_rest(*side, [ARM_X, 0.715, 0.0]),
+            r: 0.035,
+        });
     }
     s
 }
@@ -454,10 +770,21 @@ fn weights(p: V, segs: &[Seg]) -> ([f32; 4], [f32; 4]) {
 
 /// Surface nets: samples `f` on a grid of spacing `h` over the box `lo..hi`, only near the surface, and builds a
 /// smooth mesh of where it crosses zero. Returns triangles over vertices at (position, normal).
-pub(crate) fn surface_nets(f: &dyn Fn(V) -> f32, lo: V, hi: V, h: f32) -> (Vec<V>, Vec<V>, Vec<u32>) {
+pub(crate) fn surface_nets(
+    f: &dyn Fn(V) -> f32,
+    lo: V,
+    hi: V,
+    h: f32,
+) -> (Vec<V>, Vec<V>, Vec<u32>) {
     let n = [0, 1, 2].map(|a| ((hi[a] - lo[a]) / h).ceil() as usize + 1);
     let at = |i: usize, j: usize, k: usize| i + n[0] * (j + n[1] * k);
-    let pos = |i: usize, j: usize, k: usize| [lo[0] + i as f32 * h, lo[1] + j as f32 * h, lo[2] + k as f32 * h];
+    let pos = |i: usize, j: usize, k: usize| {
+        [
+            lo[0] + i as f32 * h,
+            lo[1] + j as f32 * h,
+            lo[2] + k as f32 * h,
+        ]
+    };
     let mut field = vec![f32::NAN; n[0] * n[1] * n[2]];
 
     // blocks of 8 cells: sample one only if the surface could pass through it
@@ -467,7 +794,11 @@ pub(crate) fn surface_nets(f: &dyn Fn(V) -> f32, lo: V, hi: V, h: f32) -> (Vec<V
     for bk in 0..blocks[2] {
         for bj in 0..blocks[1] {
             for bi in 0..blocks[0] {
-                let c = [lo[0] + ((bi * B) as f32 + B as f32 / 2.0) * h, lo[1] + ((bj * B) as f32 + B as f32 / 2.0) * h, lo[2] + ((bk * B) as f32 + B as f32 / 2.0) * h];
+                let c = [
+                    lo[0] + ((bi * B) as f32 + B as f32 / 2.0) * h,
+                    lo[1] + ((bj * B) as f32 + B as f32 / 2.0) * h,
+                    lo[2] + ((bk * B) as f32 + B as f32 / 2.0) * h,
+                ];
                 if f(c).abs() > reach {
                     continue;
                 }
@@ -486,7 +817,20 @@ pub(crate) fn surface_nets(f: &dyn Fn(V) -> f32, lo: V, hi: V, h: f32) -> (Vec<V
     }
 
     // one vertex in every cell the surface crosses, at the mean of where it crosses the cell's edges
-    const EDGES: [(usize, usize); 12] = [(0, 1), (2, 3), (4, 5), (6, 7), (0, 2), (1, 3), (4, 6), (5, 7), (0, 4), (1, 5), (2, 6), (3, 7)];
+    const EDGES: [(usize, usize); 12] = [
+        (0, 1),
+        (2, 3),
+        (4, 5),
+        (6, 7),
+        (0, 2),
+        (1, 3),
+        (4, 6),
+        (5, 7),
+        (0, 4),
+        (1, 5),
+        (2, 6),
+        (3, 7),
+    ];
     let corner = |c: usize| [c & 1, (c >> 1) & 1, (c >> 2) & 1];
     let mut cell = vec![u32::MAX; n[0] * n[1] * n[2]];
     let mut points: Vec<V> = Vec::new();
@@ -520,7 +864,11 @@ pub(crate) fn surface_nets(f: &dyn Fn(V) -> f32, lo: V, hi: V, h: f32) -> (Vec<V
                 }
                 let base = pos(i, j, k);
                 cell[at(i, j, k)] = points.len() as u32;
-                points.push([base[0] + sum[0] / cnt * h, base[1] + sum[1] / cnt * h, base[2] + sum[2] / cnt * h]);
+                points.push([
+                    base[0] + sum[0] / cnt * h,
+                    base[1] + sum[1] / cnt * h,
+                    base[2] + sum[2] / cnt * h,
+                ]);
             }
         }
     }
@@ -596,7 +944,11 @@ fn onto_skin(mut p: V) -> V {
         let g = gradient(&skin, p, 0.002);
         let l = len(g).max(1e-6);
         let d = skin(p).clamp(-0.08, 0.08);
-        p = [p[0] - g[0] / l * d, p[1] - g[1] / l * d, p[2] - g[2] / l * d];
+        p = [
+            p[0] - g[0] / l * d,
+            p[1] - g[1] / l * d,
+            p[2] - g[2] / l * d,
+        ];
     }
     p
 }
@@ -611,8 +963,27 @@ fn build(f: &dyn Fn(V) -> f32, lo: V, hi: V, h: f32, cloth: bool) -> Mesh {
         let (bi, bw) = weights(if cloth { onto_skin(*p) } else { *p }, &segs);
         // how far down an arm this is, in the arm's own frame, or 9 elsewhere
         let q = arm_down(*p);
-        let on_arm = ((q[0] - ARM_X).powi(2) + q[2] * q[2]).sqrt() < 0.12 && q[1] < 1.47 && q[1] > 0.6 && p[0].abs() > 0.14;
-        verts.extend_from_slice(&[p[0], p[1], p[2], n[0], n[1], n[2], bi[0], bi[1], bi[2], bi[3], bw[0], bw[1], bw[2], bw[3], if on_arm { q[1] } else { 9.0 }]);
+        let on_arm = ((q[0] - ARM_X).powi(2) + q[2] * q[2]).sqrt() < 0.12
+            && q[1] < 1.47
+            && q[1] > 0.6
+            && p[0].abs() > 0.14;
+        verts.extend_from_slice(&[
+            p[0],
+            p[1],
+            p[2],
+            n[0],
+            n[1],
+            n[2],
+            bi[0],
+            bi[1],
+            bi[2],
+            bi[3],
+            bw[0],
+            bw[1],
+            bw[2],
+            bw[3],
+            if on_arm { q[1] } else { 9.0 },
+        ]);
     }
     Mesh { verts, idx }
 }
@@ -633,18 +1004,81 @@ impl Figure {
     /// `scale` makes every grid coarser (2 for far away, say), for less detail at a distance.
     pub fn new(scale: f32) -> Figure {
         let s = scale;
-        let body = build(&body_part, [-0.62, -0.02, -0.28], [0.62, 1.52, 0.26], 0.011 * s, false);
-        let head = build(&head_part, [-0.13, 1.48, -0.16], [0.13, 1.82, 0.17], 0.0045 * s, false);
-        let face = build(&face_part, [-0.13, 1.48, -0.16], [0.13, 1.82, 0.17], 0.0045 * s, false);
+        let body = build(
+            &body_part,
+            [-0.62, -0.02, -0.28],
+            [0.62, 1.52, 0.26],
+            0.011 * s,
+            false,
+        );
+        let head = build(
+            &head_part,
+            [-0.13, 1.48, -0.16],
+            [0.13, 1.82, 0.17],
+            0.0045 * s,
+            false,
+        );
+        let face = build(
+            &face_part,
+            [-0.13, 1.48, -0.16],
+            [0.13, 1.82, 0.17],
+            0.0045 * s,
+            false,
+        );
         let hands = [
-            build(&hand_part, [-0.62, 0.66, -0.1], [-0.36, 0.98, 0.1], 0.0045 * s, false),
-            build(&hand_part, [0.36, 0.66, -0.1], [0.62, 0.98, 0.1], 0.0045 * s, false),
+            build(
+                &hand_part,
+                [-0.62, 0.66, -0.1],
+                [-0.36, 0.98, 0.1],
+                0.0045 * s,
+                false,
+            ),
+            build(
+                &hand_part,
+                [0.36, 0.66, -0.1],
+                [0.62, 0.98, 0.1],
+                0.0045 * s,
+                false,
+            ),
         ];
-        let shirt = build(&shirt, [-0.62, 0.82, -0.28], [0.62, 1.56, 0.26], 0.011 * s, true);
-        let pants = build(&pants, [-0.3, -0.02, -0.3], [0.3, 1.06, 0.2], 0.011 * s, true);
-        let hair = build(&hair, [-0.14, 1.48, -0.16], [0.14, 1.84, 0.18], 0.007 * s, false);
-        let crop = build(&crop, [-0.14, 1.48, -0.16], [0.14, 1.84, 0.18], 0.006 * s, false);
-        Figure { body, head, face, hands, shirt, pants, hair, crop }
+        let shirt = build(
+            &shirt,
+            [-0.62, 0.82, -0.28],
+            [0.62, 1.56, 0.26],
+            0.011 * s,
+            true,
+        );
+        let pants = build(
+            &pants,
+            [-0.3, -0.02, -0.3],
+            [0.3, 1.06, 0.2],
+            0.011 * s,
+            true,
+        );
+        let hair = build(
+            &hair,
+            [-0.14, 1.48, -0.16],
+            [0.14, 1.84, 0.18],
+            0.007 * s,
+            false,
+        );
+        let crop = build(
+            &crop,
+            [-0.14, 1.48, -0.16],
+            [0.14, 1.84, 0.18],
+            0.006 * s,
+            false,
+        );
+        Figure {
+            body,
+            head,
+            face,
+            hands,
+            shirt,
+            pants,
+            hair,
+            crop,
+        }
     }
 
     /// Every piece in one mesh, to draw a body in one go, each vertex marked with its part (`SHIRT` and so on). Put
@@ -660,7 +1094,10 @@ impl Figure {
             (&self.hands[0], SKIN),
             (&self.hands[1], SKIN),
         ];
-        let mut out = Mesh { verts: Vec::new(), idx: Vec::new() };
+        let mut out = Mesh {
+            verts: Vec::new(),
+            idx: Vec::new(),
+        };
         for (m, part) in pieces {
             let first = (out.verts.len() / WHOLE_STRIDE) as u32;
             for v in m.verts.chunks(STRIDE) {
@@ -680,7 +1117,10 @@ mod tests {
     #[test]
     fn the_field_is_inside_the_body_and_outside_beyond_it() {
         assert!(skin([0.0, 1.2, 0.0]) < 0.0, "the middle of the chest");
-        assert!(skin([0.0, 0.7, 0.0]) > 0.0, "between the legs, the thighs are 10 cm either side");
+        assert!(
+            skin([0.0, 0.7, 0.0]) > 0.0,
+            "between the legs, the thighs are 10 cm either side"
+        );
         assert!(skin([0.1, 0.7, 0.0]) < 0.0, "inside a thigh");
         assert!(skin([1.0, 1.0, 0.0]) > 0.0 && skin([0.0, 2.2, 0.0]) > 0.0);
         let (sn, cs) = ARM_ANGLE.sin_cos();
@@ -691,12 +1131,21 @@ mod tests {
     #[test]
     fn weights_add_to_one_and_follow_the_nearest_bones() {
         let segs = segments();
-        for p in [[0.0, 1.2, 0.0], [0.1, 0.4, 0.0], [-0.3, 1.2, 0.0], [0.0, 1.7, -0.09]] {
+        for p in [
+            [0.0, 1.2, 0.0],
+            [0.1, 0.4, 0.0],
+            [-0.3, 1.2, 0.0],
+            [0.0, 1.7, -0.09],
+        ] {
             let (_, w) = weights(p, &segs);
             assert!((w.iter().sum::<f32>() - 1.0).abs() < 1e-4);
         }
         let (i, w) = weights([0.098, 0.3, 0.0], &segs);
-        assert_eq!(i[0] as usize, KNEE + 1, "a right shin follows the right knee bone, got {i:?} {w:?}");
+        assert_eq!(
+            i[0] as usize,
+            KNEE + 1,
+            "a right shin follows the right knee bone, got {i:?} {w:?}"
+        );
         let (i, _) = weights([-0.098, 0.3, 0.0], &segs);
         assert_eq!(i[0] as usize, KNEE, "and a left one the left");
     }
@@ -711,7 +1160,8 @@ mod tests {
         let bare = std::env::var("BARE").is_ok();
         let face = std::env::var("FACE").is_ok();
         let parts: Vec<(&(dyn Fn(V) -> f32 + Sync), [f32; 3])> = if face {
-            let mut v: Vec<(&(dyn Fn(V) -> f32 + Sync), [f32; 3])> = vec![(&human_skin, [0.78, 0.62, 0.54])];
+            let mut v: Vec<(&(dyn Fn(V) -> f32 + Sync), [f32; 3])> =
+                vec![(&human_skin, [0.78, 0.62, 0.54])];
             if !bare {
                 v.push((&crop, [0.15, 0.10, 0.07]));
             }
@@ -719,13 +1169,26 @@ mod tests {
         } else if bare {
             vec![(&skin, [0.78, 0.62, 0.54])]
         } else {
-            vec![(&skin, [0.78, 0.62, 0.54]), (&shirt, [0.30, 0.42, 0.55]), (&pants, [0.25, 0.25, 0.30]), (&hair, [0.15, 0.10, 0.07])]
+            vec![
+                (&skin, [0.78, 0.62, 0.54]),
+                (&shirt, [0.30, 0.42, 0.55]),
+                (&pants, [0.25, 0.25, 0.30]),
+                (&hair, [0.15, 0.10, 0.07]),
+            ]
         };
         let scene = |p: V| parts.iter().map(|(f, _)| f(p)).fold(f32::MAX, f32::min);
         // the whole figure, or 32 cm round the head
-        let (w, h, px, top) = if face { (400usize, 400usize, 0.32 / 400.0, 1.82) } else { (330usize, 640usize, 1.92 / 640.0, 1.9) };
+        let (w, h, px, top) = if face {
+            (400usize, 400usize, 0.32 / 400.0, 1.82)
+        } else {
+            (330usize, 640usize, 1.92 / 640.0, 1.9)
+        };
         // looking from where, as a turn round the figure: front (it faces -z), side, three quarters, back
-        let turns = if face { [std::f32::consts::PI, 2.6, std::f32::consts::FRAC_PI_2, 0.0] } else { [std::f32::consts::PI, std::f32::consts::FRAC_PI_2, 2.4, 0.0] };
+        let turns = if face {
+            [std::f32::consts::PI, 2.6, std::f32::consts::FRAC_PI_2, 0.0]
+        } else {
+            [std::f32::consts::PI, std::f32::consts::FRAC_PI_2, 2.4, 0.0]
+        };
         let mut img = vec![[0u8; 3]; w * h * turns.len()];
         std::thread::scope(|s| {
             for (v, chunk) in img.chunks_mut(w * h).enumerate() {
@@ -738,9 +1201,12 @@ mod tests {
                     for y in 0..h {
                         for x in 0..w {
                             let (u, t) = ((x as f32 - w as f32 / 2.0) * px, top - y as f32 * px);
-                            let mut p = [right[0] * u + dir[0] * 1.0, t, right[2] * u + dir[2] * 1.0];
+                            let mut p =
+                                [right[0] * u + dir[0] * 1.0, t, right[2] * u + dir[2] * 1.0];
                             let mut col = [0.93, 0.93, 0.9];
-                            if (t * 100.0).rem_euclid(if face { 1.0 } else { 10.0 }) < 0.3 * px / (1.92 / 640.0) {
+                            if (t * 100.0).rem_euclid(if face { 1.0 } else { 10.0 })
+                                < 0.3 * px / (1.92 / 640.0)
+                            {
                                 col = [0.82, 0.82, 0.8];
                             }
                             for _ in 0..200 {
@@ -748,16 +1214,25 @@ mod tests {
                                 if d < 0.0006 {
                                     let e = 0.001;
                                     let g = [
-                                        scene([p[0] + e, p[1], p[2]]) - scene([p[0] - e, p[1], p[2]]),
-                                        scene([p[0], p[1] + e, p[2]]) - scene([p[0], p[1] - e, p[2]]),
-                                        scene([p[0], p[1], p[2] + e]) - scene([p[0], p[1], p[2] - e]),
+                                        scene([p[0] + e, p[1], p[2]])
+                                            - scene([p[0] - e, p[1], p[2]]),
+                                        scene([p[0], p[1] + e, p[2]])
+                                            - scene([p[0], p[1] - e, p[2]]),
+                                        scene([p[0], p[1], p[2] + e])
+                                            - scene([p[0], p[1], p[2] - e]),
                                     ];
                                     let l = len(g).max(1e-9);
                                     let n = [g[0] / l, g[1] / l, g[2] / l];
-                                    let base = parts.iter().min_by(|a, b| a.0(p).partial_cmp(&b.0(p)).unwrap()).unwrap().1;
+                                    let base = parts
+                                        .iter()
+                                        .min_by(|a, b| a.0(p).partial_cmp(&b.0(p)).unwrap())
+                                        .unwrap()
+                                        .1;
                                     let key = [0.5 * sa - 0.5 * ca, 0.6, 0.5 * ca + 0.5 * sa];
                                     let kl = len(key);
-                                    let lit = 0.25 + 0.75 * (dot(n, key) / kl).max(0.0) + 0.15 * dot(n, dir).max(0.0);
+                                    let lit = 0.25
+                                        + 0.75 * (dot(n, key) / kl).max(0.0)
+                                        + 0.15 * dot(n, dir).max(0.0);
                                     col = base.map(|c| c * lit);
                                     break;
                                 }
@@ -766,7 +1241,8 @@ mod tests {
                                     break;
                                 }
                             }
-                            chunk[y * w + x] = col.map(|c| (c.clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0) as u8);
+                            chunk[y * w + x] =
+                                col.map(|c| (c.clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0) as u8);
                         }
                     }
                 });
@@ -788,8 +1264,22 @@ mod tests {
         let t = std::time::Instant::now();
         let f = Figure::new(2.0);
         println!("built in {:?}", t.elapsed());
-        for (name, m) in [("body", &f.body), ("head", &f.head), ("face", &f.face), ("left hand", &f.hands[0]), ("right hand", &f.hands[1]), ("shirt", &f.shirt), ("pants", &f.pants), ("hair", &f.hair), ("crop", &f.crop)] {
-            println!("{name}: {} vertices, {} triangles", m.verts.len() / STRIDE, m.idx.len() / 3);
+        for (name, m) in [
+            ("body", &f.body),
+            ("head", &f.head),
+            ("face", &f.face),
+            ("left hand", &f.hands[0]),
+            ("right hand", &f.hands[1]),
+            ("shirt", &f.shirt),
+            ("pants", &f.pants),
+            ("hair", &f.hair),
+            ("crop", &f.crop),
+        ] {
+            println!(
+                "{name}: {} vertices, {} triangles",
+                m.verts.len() / STRIDE,
+                m.idx.len() / 3
+            );
             assert!(m.idx.len() > 300, "{name} is nearly empty");
             assert!(m.idx.iter().all(|i| (*i as usize) < m.verts.len() / STRIDE));
         }
@@ -800,11 +1290,32 @@ mod tests {
         let f = Figure::new(4.0);
         for living in [false, true] {
             let w = f.whole(living);
-            let (head, hair) = if living { (&f.face, &f.crop) } else { (&f.head, &f.hair) };
-            let pieces = [&f.shirt, hair, &f.pants, &f.body, head, &f.hands[0], &f.hands[1]];
-            assert_eq!(w.verts.len() / WHOLE_STRIDE, pieces.iter().map(|m| m.verts.len() / STRIDE).sum::<usize>());
-            assert_eq!(w.idx.len(), pieces.iter().map(|m| m.idx.len()).sum::<usize>());
-            assert!(w.idx.iter().all(|i| (*i as usize) < w.verts.len() / WHOLE_STRIDE));
+            let (head, hair) = if living {
+                (&f.face, &f.crop)
+            } else {
+                (&f.head, &f.hair)
+            };
+            let pieces = [
+                &f.shirt,
+                hair,
+                &f.pants,
+                &f.body,
+                head,
+                &f.hands[0],
+                &f.hands[1],
+            ];
+            assert_eq!(
+                w.verts.len() / WHOLE_STRIDE,
+                pieces.iter().map(|m| m.verts.len() / STRIDE).sum::<usize>()
+            );
+            assert_eq!(
+                w.idx.len(),
+                pieces.iter().map(|m| m.idx.len()).sum::<usize>()
+            );
+            assert!(w
+                .idx
+                .iter()
+                .all(|i| (*i as usize) < w.verts.len() / WHOLE_STRIDE));
             // the shirt comes first, and the skin last
             assert_eq!(w.verts[WHOLE_STRIDE - 1], SHIRT);
             assert_eq!(*w.verts.last().unwrap(), SKIN);

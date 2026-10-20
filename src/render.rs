@@ -6,8 +6,8 @@ use crate::terrain::{Terrain, STEP as HILL_STEP};
 use js_sys::Float32Array;
 use std::cell::{Cell, RefCell};
 use web_sys::{
-    WebGl2RenderingContext as GL, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlShader, WebGlTexture, WebGlUniformLocation,
-    WebGlVertexArrayObject,
+    WebGl2RenderingContext as GL, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlShader,
+    WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject,
 };
 
 type M4 = [f32; 16];
@@ -764,7 +764,11 @@ struct Finish {
 
 impl Finish {
     fn new(gl: &GL, p: &WebGlProgram) -> Finish {
-        Finish { screen: gl.get_uniform_location(p, "u_screen"), grain: gl.get_uniform_location(p, "u_grain"), plain: gl.get_uniform_location(p, "u_plain") }
+        Finish {
+            screen: gl.get_uniform_location(p, "u_screen"),
+            grain: gl.get_uniform_location(p, "u_grain"),
+            plain: gl.get_uniform_location(p, "u_plain"),
+        }
     }
 
     /// For the program in use: the picture's size, the time that moves the grain, and `plain` for no vignette or grain.
@@ -884,16 +888,29 @@ struct Quality {
 }
 
 const QUALITY: [Quality; 3] = [
-    Quality { sun_shadows: false, soft_shadows: false },
-    Quality { sun_shadows: true, soft_shadows: true },
-    Quality { sun_shadows: true, soft_shadows: true },
+    Quality {
+        sun_shadows: false,
+        soft_shadows: false,
+    },
+    Quality {
+        sun_shadows: true,
+        soft_shadows: true,
+    },
+    Quality {
+        sun_shadows: true,
+        soft_shadows: true,
+    },
 ];
 
 fn compile(gl: &GL, kind: u32, src: &str) -> Result<WebGlShader, String> {
     let s = gl.create_shader(kind).ok_or("create_shader failed")?;
     gl.shader_source(&s, src);
     gl.compile_shader(&s);
-    if gl.get_shader_parameter(&s, GL::COMPILE_STATUS).as_bool().unwrap_or(false) {
+    if gl
+        .get_shader_parameter(&s, GL::COMPILE_STATUS)
+        .as_bool()
+        .unwrap_or(false)
+    {
         Ok(s)
     } else {
         Err(gl.get_shader_info_log(&s).unwrap_or_default())
@@ -905,7 +922,11 @@ fn link(gl: &GL, vs: &WebGlShader, fs: &WebGlShader) -> Result<WebGlProgram, Str
     gl.attach_shader(&prog, vs);
     gl.attach_shader(&prog, fs);
     gl.link_program(&prog);
-    if gl.get_program_parameter(&prog, GL::LINK_STATUS).as_bool().unwrap_or(false) {
+    if gl
+        .get_program_parameter(&prog, GL::LINK_STATUS)
+        .as_bool()
+        .unwrap_or(false)
+    {
         Ok(prog)
     } else {
         Err(gl.get_program_info_log(&prog).unwrap_or_default())
@@ -916,7 +937,10 @@ fn link(gl: &GL, vs: &WebGlShader, fs: &WebGlShader) -> Result<WebGlProgram, Str
 /// heads and lumps of flesh.
 fn sphere_verts(seg: usize, rings: usize) -> Vec<f32> {
     let at = |i: usize, j: usize| {
-        let (th, ph) = (i as f32 / seg as f32 * std::f32::consts::TAU, j as f32 / rings as f32 * std::f32::consts::PI);
+        let (th, ph) = (
+            i as f32 / seg as f32 * std::f32::consts::TAU,
+            j as f32 / rings as f32 * std::f32::consts::PI,
+        );
         [ph.sin() * th.cos(), ph.cos(), ph.sin() * th.sin()]
     };
     let mut v = Vec::new();
@@ -936,7 +960,12 @@ fn sphere_verts(seg: usize, rings: usize) -> Vec<f32> {
 /// going dry higher up, bare rock where it is steep, and snow on the peaks.
 fn hill_point(t: &Terrain, i: usize, j: usize) -> (V3, V3, [f32; 3]) {
     let h = t.at(i, j);
-    let (il, ir, jl, jr) = (i.saturating_sub(1), (i + 1).min(t.n - 1), j.saturating_sub(1), (j + 1).min(t.n - 1));
+    let (il, ir, jl, jr) = (
+        i.saturating_sub(1),
+        (i + 1).min(t.n - 1),
+        j.saturating_sub(1),
+        (j + 1).min(t.n - 1),
+    );
     let dx = (t.at(ir, j) - t.at(il, j)) / ((ir - il) as f32 * HILL_STEP);
     let dz = (t.at(i, jr) - t.at(i, jl)) / ((jr - jl) as f32 * HILL_STEP);
     let l = (dx * dx + 1.0 + dz * dz).sqrt();
@@ -945,22 +974,62 @@ fn hill_point(t: &Terrain, i: usize, j: usize) -> (V3, V3, [f32; 3]) {
         let u = ((x - a) / (b - a)).clamp(0.0, 1.0);
         u * u * (3.0 - 2.0 * u)
     };
-    let mix = |a: [f32; 3], b: [f32; 3], k: f32| [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
-    let c = mix([0.20, 0.27, 0.15], [0.33, 0.31, 0.19], s(4.0, 30.0, h) * 0.7);
+    let mix = |a: [f32; 3], b: [f32; 3], k: f32| {
+        [
+            a[0] + (b[0] - a[0]) * k,
+            a[1] + (b[1] - a[1]) * k,
+            a[2] + (b[2] - a[2]) * k,
+        ]
+    };
+    let c = mix(
+        [0.20, 0.27, 0.15],
+        [0.33, 0.31, 0.19],
+        s(4.0, 30.0, h) * 0.7,
+    );
     let c = mix(c, [0.40, 0.38, 0.35], 1.0 - s(0.62, 0.8, n[1]));
-    let c = mix(c, [0.86, 0.87, 0.90], s(58.0, 68.0, h) * s(0.45, 0.65, n[1]));
-    ([-t.half + i as f32 * HILL_STEP, h, -t.half + j as f32 * HILL_STEP], n, c)
+    let c = mix(
+        c,
+        [0.86, 0.87, 0.90],
+        s(58.0, 68.0, h) * s(0.45, 0.65, n[1]),
+    );
+    (
+        [
+            -t.half + i as f32 * HILL_STEP,
+            h,
+            -t.half + j as f32 * HILL_STEP,
+        ],
+        n,
+        c,
+    )
 }
 
 fn cube_verts() -> Vec<f32> {
     // unit cube spanning 0..1; face normal followed by its four corners
     let faces: [([f32; 3], [[f32; 3]; 4]); 6] = [
-        ([0.0, 0.0, 1.0], [[0., 0., 1.], [1., 0., 1.], [1., 1., 1.], [0., 1., 1.]]),
-        ([0.0, 0.0, -1.0], [[1., 0., 0.], [0., 0., 0.], [0., 1., 0.], [1., 1., 0.]]),
-        ([1.0, 0.0, 0.0], [[1., 0., 1.], [1., 0., 0.], [1., 1., 0.], [1., 1., 1.]]),
-        ([-1.0, 0.0, 0.0], [[0., 0., 0.], [0., 0., 1.], [0., 1., 1.], [0., 1., 0.]]),
-        ([0.0, 1.0, 0.0], [[0., 1., 1.], [1., 1., 1.], [1., 1., 0.], [0., 1., 0.]]),
-        ([0.0, -1.0, 0.0], [[0., 0., 0.], [1., 0., 0.], [1., 0., 1.], [0., 0., 1.]]),
+        (
+            [0.0, 0.0, 1.0],
+            [[0., 0., 1.], [1., 0., 1.], [1., 1., 1.], [0., 1., 1.]],
+        ),
+        (
+            [0.0, 0.0, -1.0],
+            [[1., 0., 0.], [0., 0., 0.], [0., 1., 0.], [1., 1., 0.]],
+        ),
+        (
+            [1.0, 0.0, 0.0],
+            [[1., 0., 1.], [1., 0., 0.], [1., 1., 0.], [1., 1., 1.]],
+        ),
+        (
+            [-1.0, 0.0, 0.0],
+            [[0., 0., 0.], [0., 0., 1.], [0., 1., 1.], [0., 1., 0.]],
+        ),
+        (
+            [0.0, 1.0, 0.0],
+            [[0., 1., 1.], [1., 1., 1.], [1., 1., 0.], [0., 1., 0.]],
+        ),
+        (
+            [0.0, -1.0, 0.0],
+            [[0., 0., 0.], [1., 0., 0.], [1., 0., 1.], [0., 0., 1.]],
+        ),
     ];
     let mut v = Vec::with_capacity(36 * 6);
     for (n, c) in faces {
@@ -1028,7 +1097,11 @@ fn norm(v: V3) -> V3 {
     [v[0] / l, v[1] / l, v[2] / l]
 }
 fn cross(a: V3, b: V3) -> V3 {
-    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 }
 fn dot(a: V3, b: V3) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -1043,7 +1116,11 @@ fn view_axes(f: V3, roll: f32) -> (V3, V3) {
     let s = norm(cross(f, [0.0, 1.0, 0.0]));
     let u = cross(s, f);
     let (sr, cr) = roll.sin_cos();
-    let s = [s[0] * cr + u[0] * sr, s[1] * cr + u[1] * sr, s[2] * cr + u[2] * sr];
+    let s = [
+        s[0] * cr + u[0] * sr,
+        s[1] * cr + u[1] * sr,
+        s[2] * cr + u[2] * sr,
+    ];
     (s, cross(s, f))
 }
 
@@ -1051,7 +1128,21 @@ fn look_rolled(eye: V3, fwd: V3, roll: f32) -> M4 {
     let f = norm(fwd);
     let (s, u) = view_axes(f, roll);
     [
-        s[0], u[0], -f[0], 0.0, s[1], u[1], -f[1], 0.0, s[2], u[2], -f[2], 0.0, -dot(s, eye), -dot(u, eye), dot(f, eye),
+        s[0],
+        u[0],
+        -f[0],
+        0.0,
+        s[1],
+        u[1],
+        -f[1],
+        0.0,
+        s[2],
+        u[2],
+        -f[2],
+        0.0,
+        -dot(s, eye),
+        -dot(u, eye),
+        dot(f, eye),
         1.0,
     ]
 }
@@ -1070,7 +1161,11 @@ impl Camera {
     /// A direction in the camera's space, in the world.
     fn dir(&self, v: V3) -> V3 {
         let (r, u, f) = (self.right, self.up, self.fwd);
-        [r[0] * v[0] + u[0] * v[1] - f[0] * v[2], r[1] * v[0] + u[1] * v[1] - f[1] * v[2], r[2] * v[0] + u[2] * v[1] - f[2] * v[2]]
+        [
+            r[0] * v[0] + u[0] * v[1] - f[0] * v[2],
+            r[1] * v[0] + u[1] * v[1] - f[1] * v[2],
+            r[2] * v[0] + u[2] * v[1] - f[2] * v[2],
+        ]
     }
 
     /// A point in the camera's space, in the world.
@@ -1093,7 +1188,11 @@ const BRASS_WITH_GUN: f32 = 0.4;
 /// planted foot and a lean into it. Sprinting makes it several times bigger, aiming steadies it.
 fn head_bob(p: &crate::sim::Player) -> (f32, f32, f32) {
     let speed = p.body.vel[0].hypot(p.body.vel[2]);
-    let amp = if p.body.on_ground { (speed / 6.0).min(1.5) } else { 0.0 } * (1.0 - 0.85 * p.ads);
+    let amp = if p.body.on_ground {
+        (speed / 6.0).min(1.5)
+    } else {
+        0.0
+    } * (1.0 - 0.85 * p.ads);
     let big = 1.0 + 2.2 * p.sprint_t;
     // one turn per left-right pair, so each footstep sits at the bottom of a dip
     let th = p.gait / crate::sim::STRIDE * std::f32::consts::PI;
@@ -1116,7 +1215,9 @@ fn box_model(min: V3, max: V3) -> M4 {
     m
 }
 
-const IDENTITY: M4 = [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.];
+const IDENTITY: M4 = [
+    1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
+];
 
 fn translate(x: f32, y: f32, z: f32) -> M4 {
     let mut m = IDENTITY;
@@ -1166,7 +1267,10 @@ fn rot_z(a: f32) -> M4 {
 
 /// Applies `r` around `pivot` instead of the origin.
 fn around(pivot: V3, r: &M4) -> M4 {
-    mul(&translate(pivot[0], pivot[1], pivot[2]), &mul(r, &translate(-pivot[0], -pivot[1], -pivot[2])))
+    mul(
+        &translate(pivot[0], pivot[1], pivot[2]),
+        &mul(r, &translate(-pivot[0], -pivot[1], -pivot[2])),
+    )
 }
 
 /// Where `m` puts the point `p`.
@@ -1198,7 +1302,11 @@ fn reach_arm(chest: &M4, side: f32, wrist: V3, pole: V3) -> (M4, M4) {
     let d = dot(to, to).sqrt().clamp(0.05, l1 + l2 - 0.002);
     let dir = norm(to);
     let pd = dot(pole, dir);
-    let bend = norm([pole[0] - dir[0] * pd, pole[1] - dir[1] * pd, pole[2] - dir[2] * pd]);
+    let bend = norm([
+        pole[0] - dir[0] * pd,
+        pole[1] - dir[1] * pd,
+        pole[2] - dir[2] * pd,
+    ]);
     // the elbow on the circle the two bones can meet on, on the pole's side
     let ca = ((l1 * l1 + d * d - l2 * l2) / (2.0 * l1 * d)).clamp(-1.0, 1.0);
     let sa = (1.0 - ca * ca).sqrt();
@@ -1208,12 +1316,22 @@ fn reach_arm(chest: &M4, side: f32, wrist: V3, pole: V3) -> (M4, M4) {
     // the way the forearm folds from it, away from the pole, which a straight arm doesn't show
     let fd = dot(fore, upper);
     let across: V3 = std::array::from_fn(|i| fore[i] - upper[i] * fd);
-    let fold = if dot(across, across) > 1e-8 { norm(across) } else { bend.map(|v| -v) };
+    let fold = if dot(across, across) > 1e-8 {
+        norm(across)
+    } else {
+        bend.map(|v| -v)
+    };
     // the arm hangs down -y and its elbow folds it towards -z about x: turn those onto the upper arm and the fold
     let x = cross(upper, fold);
-    let r = [x[0], x[1], x[2], 0.0, -upper[0], -upper[1], -upper[2], 0.0, -fold[0], -fold[1], -fold[2], 0.0, 0.0, 0.0, 0.0, 1.0];
+    let r = [
+        x[0], x[1], x[2], 0.0, -upper[0], -upper[1], -upper[2], 0.0, -fold[0], -fold[1], -fold[2],
+        0.0, 0.0, 0.0, 0.0, 1.0,
+    ];
     let sh = mul(chest, &around(s, &r));
-    let el = mul(&sh, &around([0.0, 1.13, 0.0], &rot_x(fd.clamp(-1.0, 1.0).acos())));
+    let el = mul(
+        &sh,
+        &around([0.0, 1.13, 0.0], &rot_x(fd.clamp(-1.0, 1.0).acos())),
+    );
     (sh, el)
 }
 
@@ -1225,8 +1343,13 @@ fn hand_at(side: f32, wrist: V3, fingers: V3, palm: V3) -> M4 {
     let pd = dot(palm, y);
     let x = norm(std::array::from_fn(|i| -side * (palm[i] - y[i] * pd)));
     let z = cross(x, y);
-    let r = [x[0], x[1], x[2], 0.0, y[0], y[1], y[2], 0.0, z[0], z[1], z[2], 0.0, 0.0, 0.0, 0.0, 1.0];
-    mul(&translate(wrist[0], wrist[1], wrist[2]), &mul(&r, &translate(-side * crate::body::ARM_X, -0.87, 0.0)))
+    let r = [
+        x[0], x[1], x[2], 0.0, y[0], y[1], y[2], 0.0, z[0], z[1], z[2], 0.0, 0.0, 0.0, 0.0, 1.0,
+    ];
+    mul(
+        &translate(wrist[0], wrist[1], wrist[2]),
+        &mul(&r, &translate(-side * crate::body::ARM_X, -0.87, 0.0)),
+    )
 }
 
 /// The bat's frame: the hands at `at`, the barrel out along `tip` (the bat's -z) and the forearms running back
@@ -1236,7 +1359,10 @@ fn bat_frame(at: V3, tip: V3, arms: V3) -> M4 {
     let ad = dot(arms, z);
     let y = norm(std::array::from_fn(|i| arms[i] - z[i] * ad));
     let x = cross(y, z);
-    [x[0], x[1], x[2], 0.0, y[0], y[1], y[2], 0.0, z[0], z[1], z[2], 0.0, at[0], at[1], at[2], 1.0]
+    [
+        x[0], x[1], x[2], 0.0, y[0], y[1], y[2], 0.0, z[0], z[1], z[2], 0.0, at[0], at[1], at[2],
+        1.0,
+    ]
 }
 
 /// One moment of a swing in the view: when it is, as a fraction of the time between swings, where the hands are and
@@ -1271,14 +1397,22 @@ const BACKHAND: [BatKey; 7] = [
 /// the barrel points.
 fn bat_swing(keys: &[BatKey], u: f32) -> (V3, V3) {
     let n = keys.len() as isize;
-    let i = keys.iter().rposition(|k| k.0 <= u).unwrap_or(0).min(keys.len() - 2) as isize;
-    let t = ((u - keys[i as usize].0) / (keys[i as usize + 1].0 - keys[i as usize].0)).clamp(0.0, 1.0);
+    let i = keys
+        .iter()
+        .rposition(|k| k.0 <= u)
+        .unwrap_or(0)
+        .min(keys.len() - 2) as isize;
+    let t =
+        ((u - keys[i as usize].0) / (keys[i as usize + 1].0 - keys[i as usize].0)).clamp(0.0, 1.0);
     let k = |j: isize| keys[j.clamp(0, n - 1) as usize];
     let (a, b, c, d) = (k(i - 1), k(i), k(i + 1), k(i + 2));
     // Catmull-Rom, so it carries on through each moment rather than stopping at it
     let curve = |a: V3, b: V3, c: V3, d: V3| -> V3 {
         std::array::from_fn(|j| {
-            0.5 * (2.0 * b[j] + (c[j] - a[j]) * t + (2.0 * a[j] - 5.0 * b[j] + 4.0 * c[j] - d[j]) * t * t + (3.0 * b[j] - a[j] - 3.0 * c[j] + d[j]) * t * t * t)
+            0.5 * (2.0 * b[j]
+                + (c[j] - a[j]) * t
+                + (2.0 * a[j] - 5.0 * b[j] + 4.0 * c[j] - d[j]) * t * t
+                + (3.0 * b[j] - a[j] - 3.0 * c[j] + d[j]) * t * t * t)
         })
     };
     (curve(a.1, b.1, c.1, d.1), norm(curve(a.2, b.2, c.2, d.2)))
@@ -1292,8 +1426,15 @@ fn action_pose(s: &crate::gunmodel::Spec, recoil: f32, reload: f32, cycle: f32, 
     match s.action {
         Action::Fixed => IDENTITY,
         Action::Pump => translate(0.0, 0.0, 0.09 * cycle),
-        Action::Bolt => mul(&translate(0.0, 0.0, 0.075 * ((cycle - 0.35) / 0.65).max(0.0)), &rot_z((cycle * 2.5).min(1.0) * 1.1)),
-        Action::Slide => translate(0.0, 0.0, 0.032 * ((recoil - 0.45) / 0.55).clamp(0.0, 1.0).sqrt()),
+        Action::Bolt => mul(
+            &translate(0.0, 0.0, 0.075 * ((cycle - 0.35) / 0.65).max(0.0)),
+            &rot_z((cycle * 2.5).min(1.0) * 1.1),
+        ),
+        Action::Slide => translate(
+            0.0,
+            0.0,
+            0.032 * ((recoil - 0.45) / 0.55).clamp(0.0, 1.0).sqrt(),
+        ),
         Action::Break | Action::Cylinder => mul(&opened(s, reload), &turned(s, turn)),
     }
 }
@@ -1327,7 +1468,10 @@ fn turn_dir(m: &M4, v: V3) -> V3 {
 /// Moves what is at `pivot`, a round or the speedloader with all of them, `u` of the way in (see `Rounds::loading`).
 fn bring(r: &Rounds, u: f32, pivot: V3) -> M4 {
     let (o, tilt) = r.loading(u);
-    mul(&translate(pivot[0] + o[0], pivot[1] + o[1], pivot[2] + o[2]), &mul(&rot_x(tilt), &translate(-pivot[0], -pivot[1], -pivot[2])))
+    mul(
+        &translate(pivot[0] + o[0], pivot[1] + o[1], pivot[2] + o[2]),
+        &mul(&rot_x(tilt), &translate(-pivot[0], -pivot[1], -pivot[2])),
+    )
 }
 
 /// Where round `k` of a gun with `Rounds` is, and whether it is only a spent case; None while its chamber is empty.
@@ -1341,18 +1485,31 @@ fn round_at(r: &Rounds, k: usize, fired: usize, reload: f32) -> Option<(M4, M4, 
         return Some((IDENTITY, translate(c[0], c[1], c[2]), spent));
     }
     if reload < r.eject {
-        return Some((IDENTITY, translate(c[0], c[1], c[2] + r.out * ease(r.pull, r.eject, reload)), spent));
+        return Some((
+            IDENTITY,
+            translate(c[0], c[1], c[2] + r.out * ease(r.pull, r.eject, reload)),
+            spent,
+        ));
     }
     // on a speedloader they all come about its middle, otherwise each about its own base
     let u = r.progress(k, reload)?;
-    Some((bring(r, u, r.loader.unwrap_or(c)), translate(c[0], c[1], c[2]), false))
+    Some((
+        bring(r, u, r.loader.unwrap_or(c)),
+        translate(c[0], c[1], c[2]),
+        false,
+    ))
 }
 
 /// Where the speedloader is in the part that opens, while it is in the hand.
 fn loader_at(r: &Rounds, reload: f32) -> Option<M4> {
     let (l, u) = (r.loader?, r.progress(0, reload)?);
     let a = r.loader_away(reload);
-    r.loader_held(reload).then(|| mul(&translate(a[0], a[1], a[2]), &mul(&bring(r, u, l), &translate(l[0], l[1], l[2]))))
+    r.loader_held(reload).then(|| {
+        mul(
+            &translate(a[0], a[1], a[2]),
+            &mul(&bring(r, u, l), &translate(l[0], l[1], l[2])),
+        )
+    })
 }
 
 /// Where each group of a gun's pieces goes, and with `hands` the hands, handed to `put` in the order they are
@@ -1377,7 +1534,10 @@ fn pose_gun(
     let at = |v: [f32; 3], k: f32| translate(v[0] * k, v[1] * k, v[2] * k);
     put(gun, Group::Body);
     let pull = ((recoil - 0.6) * 5.0).clamp(0.0, 1.0);
-    put(&mul(gun, &around(s.trigger_pivot, &rot_x(-0.35 * pull))), Group::Trigger);
+    put(
+        &mul(gun, &around(s.trigger_pivot, &rot_x(-0.35 * pull))),
+        Group::Trigger,
+    );
     let pose = action_pose(s, recoil, reload, cycle, turn);
     let action = mul(gun, &pose);
     put(&action, Group::Action);
@@ -1388,14 +1548,26 @@ fn pose_gun(
         let (open, turn) = (mul(gun, &opened(s, reload)), turned(s, turn));
         for k in 0..r.chambers.len() {
             if let Some((brought, at, spent)) = round_at(r, k, fired, played) {
-                put(&mul(&open, &mul(&brought, &mul(&turn, &at))), Group::Mag(0, if spent { r.case } else { r.parts }));
+                put(
+                    &mul(&open, &mul(&brought, &mul(&turn, &at))),
+                    Group::Mag(0, if spent { r.case } else { r.parts }),
+                );
             }
         }
         if let Some(at) = loader_at(r, played) {
             put(&mul(&open, &at), Group::Mag(r.parts, usize::MAX));
         }
     } else {
-        put(&mul(gun, &mul(&at(s.mag_out, mag_out), &around(s.mag_pivot, &rot_x(s.mag_tilt * mag_out)))), Group::Mag(0, usize::MAX));
+        put(
+            &mul(
+                gun,
+                &mul(
+                    &at(s.mag_out, mag_out),
+                    &around(s.mag_pivot, &rot_x(s.mag_tilt * mag_out)),
+                ),
+            ),
+            Group::Mag(0, usize::MAX),
+        );
     }
     if !hands {
         return;
@@ -1404,8 +1576,18 @@ fn pose_gun(
     put(&mul(gun, &at(s.right_at, 1.0)), Group::Right);
     // the left hand lets go, takes the magazine and comes back; on a pump it rides the forend
     let go = ease(0.0, 0.2, reload) - ease(0.78, 1.0, reload);
-    let reach = if s.pistol_hold { [0.0, -0.07, 0.02] } else { [0.0, -0.085, 0.23] };
-    let mut hand = mul(gun, &mul(&at(s.left_at, 1.0), &mul(&at(reach, go), &at(s.mag_out, 0.6 * mag_out))));
+    let reach = if s.pistol_hold {
+        [0.0, -0.07, 0.02]
+    } else {
+        [0.0, -0.085, 0.23]
+    };
+    let mut hand = mul(
+        gun,
+        &mul(
+            &at(s.left_at, 1.0),
+            &mul(&at(reach, go), &at(s.mag_out, 0.6 * mag_out)),
+        ),
+    );
     if s.action == Action::Pump {
         hand = mul(&hand, &pose);
     }
@@ -1413,7 +1595,11 @@ fn pose_gun(
         // a break action's hand is on the forend, so it rides the barrels down, and lifts them shut again by it;
         // a revolver's stays upright as it brings the speedloader along the swung out cylinder
         let (hold, along) = r.hand_at(fired, reload);
-        let (base, along) = if s.action == Action::Break { (action, along) } else { (*gun, turn_dir(&opened(s, reload), along)) };
+        let (base, along) = if s.action == Action::Break {
+            (action, along)
+        } else {
+            (*gun, turn_dir(&opened(s, reload), along))
+        };
         let to = std::array::from_fn(|i| hold[i] + along[i]);
         hand = mul(&base, &mul(&at(s.left_at, 1.0), &at(to, 1.0)));
     }
@@ -1430,7 +1616,13 @@ struct Part {
 }
 
 fn part(min: V3, max: V3, color: [f32; 3], shiny: f32) -> Part {
-    Part { min, max, color, shiny, local: IDENTITY }
+    Part {
+        min,
+        max,
+        color,
+        shiny,
+        local: IDENTITY,
+    }
 }
 
 impl Part {
@@ -1440,22 +1632,36 @@ impl Part {
     }
 }
 
-
 impl Renderer {
     pub fn new(gl: GL, width: u32, height: u32) -> Result<Renderer, String> {
         let graded = |src: &str| src.replace("// GRADE\n", GRADE);
         let vs = compile(&gl, GL::VERTEX_SHADER, VERT)?;
         let fs = compile(&gl, GL::FRAGMENT_SHADER, &graded(FRAG))?;
         let prog = link(&gl, &vs, &fs)?;
-        let sky = link(&gl, &compile(&gl, GL::VERTEX_SHADER, SKY_VERT)?, &compile(&gl, GL::FRAGMENT_SHADER, &graded(SKY_FRAG))?)?;
-        let fxaa = link(&gl, &compile(&gl, GL::VERTEX_SHADER, SKY_VERT)?, &compile(&gl, GL::FRAGMENT_SHADER, FXAA_FRAG)?)?;
+        let sky = link(
+            &gl,
+            &compile(&gl, GL::VERTEX_SHADER, SKY_VERT)?,
+            &compile(&gl, GL::FRAGMENT_SHADER, &graded(SKY_FRAG))?,
+        )?;
+        let fxaa = link(
+            &gl,
+            &compile(&gl, GL::VERTEX_SHADER, SKY_VERT)?,
+            &compile(&gl, GL::FRAGMENT_SHADER, FXAA_FRAG)?,
+        )?;
         let (finish, s_finish) = (Finish::new(&gl, &prog), Finish::new(&gl, &sky));
 
         let guns = crate::gunmodel::guns()
             .iter()
             .map(|g| {
                 let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
-                for v in g.body.iter().chain(&g.mag).chain(&g.trigger).chain(&g.action).flat_map(|p| p.mesh.verts.chunks(6)) {
+                for v in g
+                    .body
+                    .iter()
+                    .chain(&g.mag)
+                    .chain(&g.trigger)
+                    .chain(&g.action)
+                    .flat_map(|p| p.mesh.verts.chunks(6))
+                {
                     for a in 0..3 {
                         lo[a] = lo[a].min(v[a]);
                         hi[a] = hi[a].max(v[a]);
@@ -1485,10 +1691,16 @@ impl Renderer {
             pin: Self::upload_pieces(&gl, &n.pin)?,
             hand: Self::upload_pieces(&gl, &n.hand)?,
         };
-        let bat = GpuBat { hands: Self::upload_pieces(&gl, &crate::gunmodel::bat_hands())?, blood: Self::upload_pieces(&gl, &crate::gunmodel::bat_blood())? };
+        let bat = GpuBat {
+            hands: Self::upload_pieces(&gl, &crate::gunmodel::bat_hands())?,
+            blood: Self::upload_pieces(&gl, &crate::gunmodel::bat_blood())?,
+        };
         // the zombie body at two levels of detail, near and far. A finer one for close up (half the grid) looked
         // no different even a metre away, and took most of a second to build at every load
-        let figures = [2.0, 4.0].iter().map(|s| Self::upload_figure(&gl, &crate::body::Figure::new(*s))).collect::<Result<Vec<_>, _>>()?;
+        let figures = [2.0, 4.0]
+            .iter()
+            .map(|s| Self::upload_figure(&gl, &crate::body::Figure::new(*s)))
+            .collect::<Result<Vec<_>, _>>()?;
 
         let cube_vao = gl.create_vertex_array().ok_or("vao")?;
         gl.bind_vertex_array(Some(&cube_vao));
@@ -1496,7 +1708,11 @@ impl Renderer {
         gl.bind_buffer(GL::ARRAY_BUFFER, Some(&cube_buf));
         let verts = cube_verts();
         unsafe {
-            gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(&verts), GL::STATIC_DRAW);
+            gl.buffer_data_with_array_buffer_view(
+                GL::ARRAY_BUFFER,
+                &Float32Array::view(&verts),
+                GL::STATIC_DRAW,
+            );
         }
         Self::layout(&gl);
 
@@ -1506,7 +1722,11 @@ impl Renderer {
         gl.bind_buffer(GL::ARRAY_BUFFER, Some(&sphere_buf));
         let sphere = sphere_verts(14, 9);
         unsafe {
-            gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(&sphere), GL::STATIC_DRAW);
+            gl.buffer_data_with_array_buffer_view(
+                GL::ARRAY_BUFFER,
+                &Float32Array::view(&sphere),
+                GL::STATIC_DRAW,
+            );
         }
         Self::layout(&gl);
         let sphere_count = (sphere.len() / 6) as i32;
@@ -1516,7 +1736,13 @@ impl Renderer {
         // the sun's depth map: a depth texture that compares as it samples, so a lookup returns how lit a point is
         let shadow_tex = gl.create_texture().ok_or("texture")?;
         gl.bind_texture(GL::TEXTURE_2D, Some(&shadow_tex));
-        gl.tex_storage_2d(GL::TEXTURE_2D, 1, GL::DEPTH_COMPONENT24, SHADOW_SIZE, SHADOW_SIZE);
+        gl.tex_storage_2d(
+            GL::TEXTURE_2D,
+            1,
+            GL::DEPTH_COMPONENT24,
+            SHADOW_SIZE,
+            SHADOW_SIZE,
+        );
         for (p, v) in [
             (GL::TEXTURE_MIN_FILTER, GL::LINEAR),
             (GL::TEXTURE_MAG_FILTER, GL::LINEAR),
@@ -1529,7 +1755,13 @@ impl Renderer {
         }
         let shadow_fbo = gl.create_framebuffer().ok_or("framebuffer")?;
         gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&shadow_fbo));
-        gl.framebuffer_texture_2d(GL::FRAMEBUFFER, GL::DEPTH_ATTACHMENT, GL::TEXTURE_2D, Some(&shadow_tex), 0);
+        gl.framebuffer_texture_2d(
+            GL::FRAMEBUFFER,
+            GL::DEPTH_ATTACHMENT,
+            GL::TEXTURE_2D,
+            Some(&shadow_tex),
+            0,
+        );
         gl.bind_framebuffer(GL::FRAMEBUFFER, None);
         Self::noise_tables(&gl, &prog)?;
 
@@ -1634,36 +1866,70 @@ impl Renderer {
     /// just as it does piece by piece.
     fn upload_whole(gl: &GL, g: &crate::gunmodel::Gun) -> Result<GpuWhole, String> {
         let (mut verts, mut idx) = (Vec::new(), Vec::new());
-        pose_gun(&g.spec, &IDENTITY, 0.0, 0.0, 0.0, 0.0, 0.0, 0, false, |m, group| {
-            for p in group.of(&g.body, &g.trigger, &g.action, &g.mag) {
-                let first = (verts.len() / WHOLE_STRIDE) as u32;
-                for v in p.mesh.verts.chunks(6) {
-                    let (at, n) = (apply(m, [v[0], v[1], v[2]]), turn_dir(m, [v[3], v[4], v[5]]));
-                    verts.extend_from_slice(&at);
-                    verts.extend_from_slice(&n);
-                    verts.extend_from_slice(&v[..3]);
-                    verts.extend_from_slice(&[p.color[0], p.color[1], p.color[2], p.mat, p.shiny, p.glow]);
+        pose_gun(
+            &g.spec,
+            &IDENTITY,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0,
+            false,
+            |m, group| {
+                for p in group.of(&g.body, &g.trigger, &g.action, &g.mag) {
+                    let first = (verts.len() / WHOLE_STRIDE) as u32;
+                    for v in p.mesh.verts.chunks(6) {
+                        let (at, n) = (
+                            apply(m, [v[0], v[1], v[2]]),
+                            turn_dir(m, [v[3], v[4], v[5]]),
+                        );
+                        verts.extend_from_slice(&at);
+                        verts.extend_from_slice(&n);
+                        verts.extend_from_slice(&v[..3]);
+                        verts.extend_from_slice(&[
+                            p.color[0], p.color[1], p.color[2], p.mat, p.shiny, p.glow,
+                        ]);
+                    }
+                    idx.extend(p.mesh.idx.iter().map(|i| first + i));
                 }
-                idx.extend(p.mesh.idx.iter().map(|i| first + i));
-            }
-        });
+            },
+        );
         let vao = gl.create_vertex_array().ok_or("vao")?;
         gl.bind_vertex_array(Some(&vao));
         let vb = gl.create_buffer().ok_or("buffer")?;
         gl.bind_buffer(GL::ARRAY_BUFFER, Some(&vb));
         unsafe {
-            gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(&verts), GL::STATIC_DRAW);
+            gl.buffer_data_with_array_buffer_view(
+                GL::ARRAY_BUFFER,
+                &Float32Array::view(&verts),
+                GL::STATIC_DRAW,
+            );
         }
         for (loc, size, off) in [(0, 3, 0), (1, 3, 12), (10, 3, 24), (13, 4, 36), (14, 2, 52)] {
             gl.enable_vertex_attrib_array(loc);
-            gl.vertex_attrib_pointer_with_i32(loc, size, GL::FLOAT, false, (WHOLE_STRIDE * 4) as i32, off);
+            gl.vertex_attrib_pointer_with_i32(
+                loc,
+                size,
+                GL::FLOAT,
+                false,
+                (WHOLE_STRIDE * 4) as i32,
+                off,
+            );
         }
         let ib = gl.create_buffer().ok_or("buffer")?;
         gl.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, Some(&ib));
         unsafe {
-            gl.buffer_data_with_array_buffer_view(GL::ELEMENT_ARRAY_BUFFER, &js_sys::Uint32Array::view(&idx), GL::STATIC_DRAW);
+            gl.buffer_data_with_array_buffer_view(
+                GL::ELEMENT_ARRAY_BUFFER,
+                &js_sys::Uint32Array::view(&idx),
+                GL::STATIC_DRAW,
+            );
         }
-        Ok(GpuWhole { vao, count: idx.len() as i32 })
+        Ok(GpuWhole {
+            vao,
+            count: idx.len() as i32,
+        })
     }
 
     fn upload_pieces(gl: &GL, pieces: &[crate::gunmodel::Piece]) -> Result<Vec<GpuPiece>, String> {
@@ -1675,15 +1941,30 @@ impl Renderer {
                 let vb = gl.create_buffer().ok_or("buffer")?;
                 gl.bind_buffer(GL::ARRAY_BUFFER, Some(&vb));
                 unsafe {
-                    gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(&p.mesh.verts), GL::STATIC_DRAW);
+                    gl.buffer_data_with_array_buffer_view(
+                        GL::ARRAY_BUFFER,
+                        &Float32Array::view(&p.mesh.verts),
+                        GL::STATIC_DRAW,
+                    );
                 }
                 Self::layout(gl);
                 let ib = gl.create_buffer().ok_or("buffer")?;
                 gl.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, Some(&ib));
                 unsafe {
-                    gl.buffer_data_with_array_buffer_view(GL::ELEMENT_ARRAY_BUFFER, &js_sys::Uint32Array::view(&p.mesh.idx), GL::STATIC_DRAW);
+                    gl.buffer_data_with_array_buffer_view(
+                        GL::ELEMENT_ARRAY_BUFFER,
+                        &js_sys::Uint32Array::view(&p.mesh.idx),
+                        GL::STATIC_DRAW,
+                    );
                 }
-                Ok(GpuPiece { vao, count: p.mesh.idx.len() as i32, mat: p.mat, color: p.color, shiny: p.shiny, glow: p.glow })
+                Ok(GpuPiece {
+                    vao,
+                    count: p.mesh.idx.len() as i32,
+                    mat: p.mat,
+                    color: p.color,
+                    shiny: p.shiny,
+                    glow: p.glow,
+                })
             })
             .collect()
     }
@@ -1695,27 +1976,51 @@ impl Renderer {
         let vb = gl.create_buffer().ok_or("buffer")?;
         gl.bind_buffer(GL::ARRAY_BUFFER, Some(&vb));
         unsafe {
-            gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(&m.verts), GL::STATIC_DRAW);
+            gl.buffer_data_with_array_buffer_view(
+                GL::ARRAY_BUFFER,
+                &Float32Array::view(&m.verts),
+                GL::STATIC_DRAW,
+            );
         }
         let stride = (crate::body::WHOLE_STRIDE * 4) as i32;
-        for (loc, size, off) in [(0, 3, 0), (1, 3, 12), (11, 4, 24), (12, 4, 40), (3, 1, 56), (15, 1, 60)] {
+        for (loc, size, off) in [
+            (0, 3, 0),
+            (1, 3, 12),
+            (11, 4, 24),
+            (12, 4, 40),
+            (3, 1, 56),
+            (15, 1, 60),
+        ] {
             gl.enable_vertex_attrib_array(loc);
             gl.vertex_attrib_pointer_with_i32(loc, size, GL::FLOAT, false, stride, off);
         }
         let ib = gl.create_buffer().ok_or("buffer")?;
         gl.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, Some(&ib));
         unsafe {
-            gl.buffer_data_with_array_buffer_view(GL::ELEMENT_ARRAY_BUFFER, &js_sys::Uint32Array::view(&m.idx), GL::STATIC_DRAW);
+            gl.buffer_data_with_array_buffer_view(
+                GL::ELEMENT_ARRAY_BUFFER,
+                &js_sys::Uint32Array::view(&m.idx),
+                GL::STATIC_DRAW,
+            );
         }
-        Ok(GpuMesh { vao, count: m.idx.len() as i32 })
+        Ok(GpuMesh {
+            vao,
+            count: m.idx.len() as i32,
+        })
     }
 
     fn upload_figure(gl: &GL, f: &crate::body::Figure) -> Result<GpuFigure, String> {
-        Ok(GpuFigure { dead: Self::upload_skinned(gl, &f.whole(false))?, living: Self::upload_skinned(gl, &f.whole(true))? })
+        Ok(GpuFigure {
+            dead: Self::upload_skinned(gl, &f.whole(false))?,
+            living: Self::upload_skinned(gl, &f.whole(true))?,
+        })
     }
 
     /// A vertex array over `mesh` that also reads one row of per-instance data (see the vertex shader) per copy.
-    fn instanced(gl: &GL, mesh: &WebGlBuffer) -> Result<(WebGlVertexArrayObject, WebGlBuffer), String> {
+    fn instanced(
+        gl: &GL,
+        mesh: &WebGlBuffer,
+    ) -> Result<(WebGlVertexArrayObject, WebGlBuffer), String> {
         let vao = gl.create_vertex_array().ok_or("vao")?;
         gl.bind_vertex_array(Some(&vao));
         gl.bind_buffer(GL::ARRAY_BUFFER, Some(mesh));
@@ -1724,7 +2029,14 @@ impl Renderer {
         gl.bind_buffer(GL::ARRAY_BUFFER, Some(&buf));
         for (i, loc) in (4..=9u32).enumerate() {
             gl.enable_vertex_attrib_array(loc);
-            gl.vertex_attrib_pointer_with_i32(loc, 4, GL::FLOAT, false, INSTANCE_BYTES, i as i32 * 16);
+            gl.vertex_attrib_pointer_with_i32(
+                loc,
+                4,
+                GL::FLOAT,
+                false,
+                INSTANCE_BYTES,
+                i as i32 * 16,
+            );
             gl.vertex_attrib_divisor(loc, 1);
         }
         Ok((vao, buf))
@@ -1755,7 +2067,16 @@ impl Renderer {
         self.draw_mesh(&self.cube_vao, 36, model, color, unlit, shiny, 0.0);
     }
 
-    fn draw_mesh(&self, vao: &WebGlVertexArrayObject, count: i32, model: &M4, color: [f32; 3], unlit: f32, shiny: f32, mat: f32) {
+    fn draw_mesh(
+        &self,
+        vao: &WebGlVertexArrayObject,
+        count: i32,
+        model: &M4,
+        color: [f32; 3],
+        unlit: f32,
+        shiny: f32,
+        mat: f32,
+    ) {
         let gl = &self.gl;
         gl.bind_vertex_array(Some(vao));
         gl.uniform_matrix4fv_with_f32_array(self.u_model.as_ref(), false, model);
@@ -1770,13 +2091,38 @@ impl Renderer {
     fn queue(&self, m: &M4, col: [f32; 3], mat: f32, shiny: f32, unlit: f32) {
         let mut l = self.list_e.borrow_mut();
         l.extend_from_slice(m);
-        l.extend_from_slice(&[col[0], col[1], col[2], mat, shiny, unlit, self.seed.get(), 0.0]);
+        l.extend_from_slice(&[
+            col[0],
+            col[1],
+            col[2],
+            mat,
+            shiny,
+            unlit,
+            self.seed.get(),
+            0.0,
+        ]);
     }
 
     /// An ellipsoid of half-sizes `h` centred on `c`, in the frame of `parent`, optionally rotated about its centre.
     /// It is queued and drawn with all the others in one go by `flush`.
-    fn ell(&self, parent: &M4, c: V3, h: V3, rot: &M4, col: [f32; 3], mat: f32, shiny: f32, unlit: f32) {
-        let model = mul(parent, &mul(&translate(c[0], c[1], c[2]), &mul(rot, &scale(h[0], h[1], h[2]))));
+    fn ell(
+        &self,
+        parent: &M4,
+        c: V3,
+        h: V3,
+        rot: &M4,
+        col: [f32; 3],
+        mat: f32,
+        shiny: f32,
+        unlit: f32,
+    ) {
+        let model = mul(
+            parent,
+            &mul(
+                &translate(c[0], c[1], c[2]),
+                &mul(rot, &scale(h[0], h[1], h[2])),
+            ),
+        );
         self.queue(&model, col, mat, shiny, unlit);
     }
 
@@ -1798,7 +2144,11 @@ impl Renderer {
         gl.bind_vertex_array(Some(vao));
         gl.bind_buffer(GL::ARRAY_BUFFER, Some(buf));
         unsafe {
-            gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(l), GL::DYNAMIC_DRAW);
+            gl.buffer_data_with_array_buffer_view(
+                GL::ARRAY_BUFFER,
+                &Float32Array::view(l),
+                GL::DYNAMIC_DRAW,
+            );
         }
         gl.draw_arrays_instanced(GL::TRIANGLES, 0, self.sphere_count, (l.len() / 24) as i32);
         self.count(self.sphere_count / 3 * (l.len() / 24) as i32);
@@ -1819,15 +2169,33 @@ impl Renderer {
             let f = &self.figures[if shadow { 1 } else { job.lod }];
             gl.uniform_matrix4fv_with_f32_array(self.u_bones.as_ref(), false, &job.bones);
             gl.uniform1f(self.u_seed_f.as_ref(), job.seed);
-            gl.uniform4f(self.u_cut.as_ref(), job.cut[0], job.cut[1], job.cut[2], job.cut[3]);
+            gl.uniform4f(
+                self.u_cut.as_ref(),
+                job.cut[0],
+                job.cut[1],
+                job.cut[2],
+                job.cut[3],
+            );
             gl.uniform2f(self.u_hairk.as_ref(), job.hair_kind[0], job.hair_kind[1]);
             gl.uniform3f(self.u_shoe.as_ref(), job.shoe[0], job.shoe[1], job.shoe[2]);
             for (loc, w) in self.u_wound.iter().zip(&job.wounds) {
                 gl.uniform4f(loc.as_ref(), w[0], w[1], w[2], w[3]);
             }
             let (s, h, p, k) = (job.shirt, job.hair, job.pants, job.skin);
-            gl.uniform3fv_with_f32_array(self.u_pcol.as_ref(), &[s[0], s[1], s[2], h[0], h[1], h[2], p[0], p[1], p[2], k[0], k[1], k[2]]);
-            gl.uniform1f(self.u_hairon.as_ref(), if job.hair_kind[0] > 0.5 || job.hair_kind[1] > 0.5 { 1.0 } else { 0.0 });
+            gl.uniform3fv_with_f32_array(
+                self.u_pcol.as_ref(),
+                &[
+                    s[0], s[1], s[2], h[0], h[1], h[2], p[0], p[1], p[2], k[0], k[1], k[2],
+                ],
+            );
+            gl.uniform1f(
+                self.u_hairon.as_ref(),
+                if job.hair_kind[0] > 0.5 || job.hair_kind[1] > 0.5 {
+                    1.0
+                } else {
+                    0.0
+                },
+            );
             // the living (a seed below zero: see `draw_mate`) have their hair cut short, and a face of their own
             let m = if job.seed < 0.0 { &f.living } else { &f.dead };
             gl.bind_vertex_array(Some(&m.vao));
@@ -1856,7 +2224,11 @@ impl Renderer {
         gl.bind_vertex_array(Some(&self.line_vao));
         gl.bind_buffer(GL::ARRAY_BUFFER, Some(&self.line_buf));
         unsafe {
-            gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(&verts), GL::DYNAMIC_DRAW);
+            gl.buffer_data_with_array_buffer_view(
+                GL::ARRAY_BUFFER,
+                &Float32Array::view(&verts),
+                GL::DYNAMIC_DRAW,
+            );
         }
         gl.uniform_matrix4fv_with_f32_array(self.u_model.as_ref(), false, &IDENTITY);
         gl.uniform3f(self.u_color.as_ref(), color[0], color[1], color[2]);
@@ -1869,13 +2241,26 @@ impl Renderer {
     pub fn gun_bounds(&self, i: usize) -> Vec<f32> {
         let g = &self.guns[i];
         let (lo, hi) = g.bounds;
-        vec![lo[0], lo[1], lo[2], hi[0], hi[1], hi[2], g.spec.sight_y, g.spec.muzzle_z]
+        vec![
+            lo[0],
+            lo[1],
+            lo[2],
+            hi[0],
+            hi[1],
+            hi[2],
+            g.spec.sight_y,
+            g.spec.muzzle_z,
+        ]
     }
 
     /// Bakes the ground and every wall into one buffer. Call once the game exists; the map never changes.
     pub fn upload_world(&mut self, g: &Game) -> Result<(), String> {
         // with hills round it, the haze starts further off so the mountains stand out across the map
-        (self.fog_start, self.fog_end) = if g.world.ground.is_some() { (110.0, 440.0) } else { (FOG_START, FOG_END) };
+        (self.fog_start, self.fog_end) = if g.world.ground.is_some() {
+            (110.0, 440.0)
+        } else {
+            (FOG_START, FOG_END)
+        };
         let gl = &self.gl;
         let cube = cube_verts();
         let mut verts: Vec<f32> = Vec::new();
@@ -1885,12 +2270,20 @@ impl Renderer {
 
         // the ground and its markings, flat tops only, drawn in order without writing depth
         let half = g.half;
-        let mut flat: Vec<(V3, V3, [f32; 3])> = vec![([-half, 0.0, -half], [half, 0.0, half], crate::map::GROUND)];
+        let mut flat: Vec<(V3, V3, [f32; 3])> =
+            vec![([-half, 0.0, -half], [half, 0.0, half], crate::map::GROUND)];
         flat.extend(g.decals.iter().map(|(d, c)| (d.min, d.max, *c)));
         for (min, max, c) in &flat {
             let m = crate::map::material(*c) as f32;
             let y = max[1];
-            for p in [[min[0], min[2]], [max[0], min[2]], [max[0], max[2]], [min[0], min[2]], [max[0], max[2]], [min[0], max[2]]] {
+            for p in [
+                [min[0], min[2]],
+                [max[0], min[2]],
+                [max[0], max[2]],
+                [min[0], min[2]],
+                [max[0], max[2]],
+                [min[0], max[2]],
+            ] {
                 vertex(&mut verts, [p[0], y, p[1]], [0.0, 1.0, 0.0], *c, m);
             }
         }
@@ -1898,7 +2291,9 @@ impl Renderer {
 
         // walls, grouped by which cell of the map they are in
         let cells = (2.0 * half / CHUNK).ceil() as usize;
-        let cell = |lo: f32, hi: f32| ((((lo + hi) / 2.0 + half) / CHUNK).floor().max(0.0) as usize).min(cells - 1);
+        let cell = |lo: f32, hi: f32| {
+            ((((lo + hi) / 2.0 + half) / CHUNK).floor().max(0.0) as usize).min(cells - 1)
+        };
         let mut buckets: Vec<Vec<usize>> = vec![Vec::new(); cells * cells];
         for (i, w) in g.world.walls.iter().enumerate() {
             buckets[cell(w.min[2], w.max[2]) * cells + cell(w.min[0], w.max[0])].push(i);
@@ -1909,21 +2304,37 @@ impl Renderer {
         if let Some(t) = &g.world.ground {
             for j in 0..t.n - 1 {
                 for i in 0..t.n - 1 {
-                    if [t.at(i, j), t.at(i + 1, j), t.at(i, j + 1), t.at(i + 1, j + 1)].iter().all(|h| h.abs() < 0.001) {
+                    if [
+                        t.at(i, j),
+                        t.at(i + 1, j),
+                        t.at(i, j + 1),
+                        t.at(i + 1, j + 1),
+                    ]
+                    .iter()
+                    .all(|h| h.abs() < 0.001)
+                    {
                         continue;
                     }
-                    let (x, z) = (-t.half + (i as f32 + 0.5) * HILL_STEP, -t.half + (j as f32 + 0.5) * HILL_STEP);
+                    let (x, z) = (
+                        -t.half + (i as f32 + 0.5) * HILL_STEP,
+                        -t.half + (j as f32 + 0.5) * HILL_STEP,
+                    );
                     hills[cell(z, z) * cells + cell(x, x)].push((i, j));
                 }
             }
         }
         let mut chunks = Vec::new();
-        for (bucket, hill) in buckets.iter().zip(&hills).filter(|(b, h)| !b.is_empty() || !h.is_empty()) {
+        for (bucket, hill) in buckets
+            .iter()
+            .zip(&hills)
+            .filter(|(b, h)| !b.is_empty() || !h.is_empty())
+        {
             let first = (verts.len() / 10) as i32;
             let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
             if let Some(t) = &g.world.ground {
                 for &(i, j) in hill {
-                    let c = [(i, j), (i + 1, j), (i, j + 1), (i + 1, j + 1)].map(|(i, j)| hill_point(t, i, j));
+                    let c = [(i, j), (i + 1, j), (i, j + 1), (i + 1, j + 1)]
+                        .map(|(i, j)| hill_point(t, i, j));
                     // split the way `Terrain::height` splits it, so what is drawn is what is stood on
                     for tri in [[0, 3, 1], [0, 2, 3]] {
                         let up = tri.iter().map(|&k| c[k].1[1]).sum::<f32>() / 3.0;
@@ -1946,17 +2357,39 @@ impl Renderer {
                     hi[a] = hi[a].max(w.max[a]);
                 }
                 // the underside of anything standing on the ground, all the way round, can never be seen
-                let ground = [(w.min[0], w.min[2]), (w.max[0], w.min[2]), (w.min[0], w.max[2]), (w.max[0], w.max[2])].map(|(x, z)| g.world.ground_at(x, z));
-                let grounded = w.min[1] <= ground.iter().fold(f32::INFINITY, |a, &b| a.min(b)) + 0.001;
+                let ground = [
+                    (w.min[0], w.min[2]),
+                    (w.max[0], w.min[2]),
+                    (w.min[0], w.max[2]),
+                    (w.max[0], w.max[2]),
+                ]
+                .map(|(x, z)| g.world.ground_at(x, z));
+                let grounded =
+                    w.min[1] <= ground.iter().fold(f32::INFINITY, |a, &b| a.min(b)) + 0.001;
                 for v in cube.chunks(6) {
                     if grounded && v[4] < -0.5 {
                         continue;
                     }
-                    let p = [w.min[0] + v[0] * (w.max[0] - w.min[0]), w.min[1] + v[1] * (w.max[1] - w.min[1]), w.min[2] + v[2] * (w.max[2] - w.min[2])];
-                    vertex(&mut verts, p, [v[3], v[4], v[5]], g.colors[i], g.mats[i] as f32);
+                    let p = [
+                        w.min[0] + v[0] * (w.max[0] - w.min[0]),
+                        w.min[1] + v[1] * (w.max[1] - w.min[1]),
+                        w.min[2] + v[2] * (w.max[2] - w.min[2]),
+                    ];
+                    vertex(
+                        &mut verts,
+                        p,
+                        [v[3], v[4], v[5]],
+                        g.colors[i],
+                        g.mats[i] as f32,
+                    );
                 }
             }
-            chunks.push(Chunk { first, count: (verts.len() / 10) as i32 - first, min: lo, max: hi });
+            chunks.push(Chunk {
+                first,
+                count: (verts.len() / 10) as i32 - first,
+                min: lo,
+                max: hi,
+            });
         }
 
         let vao = gl.create_vertex_array().ok_or("vao")?;
@@ -1964,14 +2397,22 @@ impl Renderer {
         let buf = gl.create_buffer().ok_or("buffer")?;
         gl.bind_buffer(GL::ARRAY_BUFFER, Some(&buf));
         unsafe {
-            gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(&verts), GL::STATIC_DRAW);
+            gl.buffer_data_with_array_buffer_view(
+                GL::ARRAY_BUFFER,
+                &Float32Array::view(&verts),
+                GL::STATIC_DRAW,
+            );
         }
         // position, normal, colour, material
         for (loc, size, off) in [(0, 3, 0), (1, 3, 12), (2, 3, 24), (3, 1, 36)] {
             gl.enable_vertex_attrib_array(loc);
             gl.vertex_attrib_pointer_with_i32(loc, size, GL::FLOAT, false, 40, off);
         }
-        self.world = Some(WorldMesh { vao, ground, chunks });
+        self.world = Some(WorldMesh {
+            vao,
+            ground,
+            chunks,
+        });
         Ok(())
     }
 
@@ -1983,8 +2424,17 @@ impl Renderer {
         let row = |i: usize| [vp[i], vp[4 + i], vp[8 + i], vp[12 + i]];
         let (r0, r1, r3) = (row(0), row(1), row(3));
         let sides = [0, 1, 2, 3].map(|k| {
-            let (r, s) = if k < 2 { (r0, if k == 0 { 1.0 } else { -1.0 }) } else { (r1, if k == 2 { 1.0 } else { -1.0 }) };
-            [r3[0] + s * r[0], r3[1] + s * r[1], r3[2] + s * r[2], r3[3] + s * r[3]]
+            let (r, s) = if k < 2 {
+                (r0, if k == 0 { 1.0 } else { -1.0 })
+            } else {
+                (r1, if k == 2 { 1.0 } else { -1.0 })
+            };
+            [
+                r3[0] + s * r[0],
+                r3[1] + s * r[1],
+                r3[2] + s * r[2],
+                r3[3] + s * r[3],
+            ]
         });
         gl.bind_vertex_array(Some(&w.vao));
         gl.uniform1f(self.u_batch.as_ref(), 1.0);
@@ -2064,12 +2514,20 @@ impl Renderer {
             for (lo, hi, k) in [(0.5, 8.0, 1.0), (8.0, 18.0, 0.55), (18.0, 32.0, 0.25)] {
                 let k = k * pulse;
                 for (w, c) in [(0.07, [0.9, 0.3, 0.15]), (0.3, [0.3, 0.06, 0.03])] {
-                    let m = box_model([at[0] - w, at[1] + lo, at[2] - w], [at[0] + w, at[1] + hi, at[2] + w]);
+                    let m = box_model(
+                        [at[0] - w, at[1] + lo, at[2] - w],
+                        [at[0] + w, at[1] + hi, at[2] + w],
+                    );
                     self.draw_model(&m, [c[0] * k, c[1] * k, c[2] * k], 1.0, 0.0);
                 }
             }
         }
-        gl.uniform3f(self.u_fogc.as_ref(), self.haze[0], self.haze[1], self.haze[2]);
+        gl.uniform3f(
+            self.u_fogc.as_ref(),
+            self.haze[0],
+            self.haze[1],
+            self.haze[2],
+        );
         gl.depth_mask(true);
         gl.disable(GL::BLEND);
     }
@@ -2084,9 +2542,15 @@ impl Renderer {
         gl.uniform3f(self.s_up.as_ref(), up[0], up[1], up[2]);
         gl.uniform3f(self.s_fwd.as_ref(), fwd[0], fwd[1], fwd[2]);
         gl.uniform2f(self.s_tan.as_ref(), ty * aspect, ty);
-        gl.uniform3f(self.s_haze.as_ref(), self.haze[0], self.haze[1], self.haze[2]);
+        gl.uniform3f(
+            self.s_haze.as_ref(),
+            self.haze[0],
+            self.haze[1],
+            self.haze[2],
+        );
         gl.uniform1f(self.s_t.as_ref(), time);
-        self.s_finish.set(gl, self.width.max(1), self.height.max(1), time, false);
+        self.s_finish
+            .set(gl, self.width.max(1), self.height.max(1), time, false);
         gl.uniform1f(self.s_dark.as_ref(), self.dark);
         // it lies on the far plane: where anything has been drawn it fails the depth test
         gl.depth_func(GL::LEQUAL);
@@ -2125,14 +2589,33 @@ impl Renderer {
         gl.active_texture(GL::TEXTURE1);
         gl.bind_texture(GL::TEXTURE_2D, gl.create_texture().as_ref());
         gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
-            GL::TEXTURE_2D, 0, GL::R8 as i32, 256, 256, 0, GL::RED, GL::UNSIGNED_BYTE, Some(&table(256 * 256, 1)),
+            GL::TEXTURE_2D,
+            0,
+            GL::R8 as i32,
+            256,
+            256,
+            0,
+            GL::RED,
+            GL::UNSIGNED_BYTE,
+            Some(&table(256 * 256, 1)),
         )
         .map_err(|_| "noise table")?;
         wrap(GL::TEXTURE_2D);
         gl.active_texture(GL::TEXTURE2);
         gl.bind_texture(GL::TEXTURE_3D, gl.create_texture().as_ref());
-        gl.tex_image_3d_with_opt_u8_array(GL::TEXTURE_3D, 0, GL::R8 as i32, 64, 64, 64, 0, GL::RED, GL::UNSIGNED_BYTE, Some(&table(64 * 64 * 64, 2)))
-            .map_err(|_| "noise table")?;
+        gl.tex_image_3d_with_opt_u8_array(
+            GL::TEXTURE_3D,
+            0,
+            GL::R8 as i32,
+            64,
+            64,
+            64,
+            0,
+            GL::RED,
+            GL::UNSIGNED_BYTE,
+            Some(&table(64 * 64 * 64, 2)),
+        )
+        .map_err(|_| "noise table")?;
         wrap(GL::TEXTURE_3D);
         gl.active_texture(GL::TEXTURE0);
         gl.use_program(Some(prog));
@@ -2160,13 +2643,30 @@ impl Renderer {
         gl.renderbuffer_storage(GL::RENDERBUFFER, GL::DEPTH_COMPONENT24, wi, hi);
         let fbo = gl.create_framebuffer().ok_or("framebuffer")?;
         gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&fbo));
-        gl.framebuffer_texture_2d(GL::FRAMEBUFFER, GL::COLOR_ATTACHMENT0, GL::TEXTURE_2D, Some(&pic), 0);
-        gl.framebuffer_renderbuffer(GL::FRAMEBUFFER, GL::DEPTH_ATTACHMENT, GL::RENDERBUFFER, Some(&depth));
+        gl.framebuffer_texture_2d(
+            GL::FRAMEBUFFER,
+            GL::COLOR_ATTACHMENT0,
+            GL::TEXTURE_2D,
+            Some(&pic),
+            0,
+        );
+        gl.framebuffer_renderbuffer(
+            GL::FRAMEBUFFER,
+            GL::DEPTH_ATTACHMENT,
+            GL::RENDERBUFFER,
+            Some(&depth),
+        );
         if gl.check_framebuffer_status(GL::FRAMEBUFFER) != GL::FRAMEBUFFER_COMPLETE {
             return Err("the picture's framebuffer is incomplete".into());
         }
         gl.bind_framebuffer(GL::FRAMEBUFFER, None);
-        Ok(Targets { w, h, fbo, pic, depth })
+        Ok(Targets {
+            w,
+            h,
+            fbo,
+            pic,
+            depth,
+        })
     }
 
     /// Puts the finished picture on the canvas through the FXAA pass.
@@ -2204,24 +2704,45 @@ impl Renderer {
         gl.uniform1f(self.u_dark.as_ref(), 0.0);
         gl.uniform1f(self.u_flash.as_ref(), 0.0);
         let fov = 0.5f32;
-        gl.uniform_matrix4fv_with_f32_array(self.u_vp.as_ref(), false, &perspective(fov, aspect, 0.05, 50.0));
+        gl.uniform_matrix4fv_with_f32_array(
+            self.u_vp.as_ref(),
+            false,
+            &perspective(fov, aspect, 0.05, 50.0),
+        );
         gl.uniform3f(self.u_eye.as_ref(), 0.0, 0.0, 0.0);
         // a camera facing away from the sun, so it lights the side being looked at
         let fwd = norm([-SUN[0], -0.45, -SUN[2]]);
         let (s, u) = view_axes(fwd, 0.0);
         gl.uniform1f(self.u_view.as_ref(), 1.0);
-        gl.uniform_matrix3fv_with_f32_array(self.u_envrot.as_ref(), false, &[s[0], s[1], s[2], u[0], u[1], u[2], -fwd[0], -fwd[1], -fwd[2]]);
+        gl.uniform_matrix3fv_with_f32_array(
+            self.u_envrot.as_ref(),
+            false,
+            &[
+                s[0], s[1], s[2], u[0], u[1], u[2], -fwd[0], -fwd[1], -fwd[2],
+            ],
+        );
         gl.uniform3f(self.u_eyew.as_ref(), 0.0, 1.6, 0.0);
 
         let gun = &self.guns[idx];
         let (lo, hi) = gun.bounds;
-        let centre = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0];
+        let centre = [
+            (lo[0] + hi[0]) / 2.0,
+            (lo[1] + hi[1]) / 2.0,
+            (lo[2] + hi[2]) / 2.0,
+        ];
         // far enough back for the gun's length to fit across, or its height to fit up the picture
         let half = (fov / 2.0).tan();
-        let dist = ((hi[2] - lo[2]) / 2.0 / (half * aspect)).max((hi[1] - lo[1]) / 2.0 / half) * 1.12;
+        let dist =
+            ((hi[2] - lo[2]) / 2.0 / (half * aspect)).max((hi[1] - lo[1]) / 2.0 / half) * 1.12;
         let model = mul(
             &translate(0.0, 0.0, -dist),
-            &mul(&rot_x(0.10), &mul(&rot_y(-std::f32::consts::FRAC_PI_2 + 0.18), &translate(-centre[0], -centre[1], -centre[2]))),
+            &mul(
+                &rot_x(0.10),
+                &mul(
+                    &rot_y(-std::f32::consts::FRAC_PI_2 + 0.18),
+                    &translate(-centre[0], -centre[1], -centre[2]),
+                ),
+            ),
         );
         self.draw_gun(idx, &model, 0.0, 0.0, 0.0, 0.0, 0.0, 0, false);
         gl.uniform1f(self.u_view.as_ref(), 0.0);
@@ -2251,16 +2772,39 @@ impl Renderer {
         let (w, h) = (t.w as f32, t.h as f32);
         let side_h = (h * BENCH_SIDE).round();
         // the right side, muzzle to the right: x across is -z, depth is x; then the top, the left side up
-        let side = mul(&rot_y(-std::f32::consts::FRAC_PI_2), &translate(0.0, -b.y, -b.z));
+        let side = mul(
+            &rot_y(-std::f32::consts::FRAC_PI_2),
+            &translate(0.0, -b.y, -b.z),
+        );
         let top = mul(&rot_x(std::f32::consts::FRAC_PI_2), &side);
         for (view, y0, vh) in [(side, h - side_h, side_h), (top, 0.0, h - side_h)] {
             gl.viewport(0, y0 as i32, w as i32, vh as i32);
             let half_y = b.half * vh / w;
             let fwd = norm([-SUN[0], -0.45, -SUN[2]]);
             let (s, u) = view_axes(fwd, 0.0);
-            gl.uniform_matrix3fv_with_f32_array(self.u_envrot.as_ref(), false, &[s[0], s[1], s[2], u[0], u[1], u[2], -fwd[0], -fwd[1], -fwd[2]]);
-            gl.uniform_matrix4fv_with_f32_array(self.u_vp.as_ref(), false, &ortho_box(b.half, half_y, 2.0));
-            self.draw_gun(b.gun, &mul(&translate(0.0, 0.0, -1.0), &view), 0.0, 0.0, 0.0, 0.0, 0.0, 0, b.hands);
+            gl.uniform_matrix3fv_with_f32_array(
+                self.u_envrot.as_ref(),
+                false,
+                &[
+                    s[0], s[1], s[2], u[0], u[1], u[2], -fwd[0], -fwd[1], -fwd[2],
+                ],
+            );
+            gl.uniform_matrix4fv_with_f32_array(
+                self.u_vp.as_ref(),
+                false,
+                &ortho_box(b.half, half_y, 2.0),
+            );
+            self.draw_gun(
+                b.gun,
+                &mul(&translate(0.0, 0.0, -1.0), &view),
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0,
+                b.hands,
+            );
         }
         gl.viewport(0, 0, t.w as i32, t.h as i32);
         gl.uniform1f(self.u_view.as_ref(), 0.0);
@@ -2275,9 +2819,20 @@ impl Renderer {
         let u = cross(s, f);
         let texel = 2.0 * SHADOW_HALF / SHADOW_SIZE as f32;
         let (a, b) = (dot(centre, s), dot(centre, u));
-        let (da, db) = ((a / texel).round() * texel - a, (b / texel).round() * texel - b);
-        let c = [centre[0] + s[0] * da + u[0] * db, centre[1] + s[1] * da + u[1] * db, centre[2] + s[2] * da + u[2] * db];
-        let eye = [c[0] + l[0] * 110.0, c[1] + l[1] * 110.0, c[2] + l[2] * 110.0];
+        let (da, db) = (
+            (a / texel).round() * texel - a,
+            (b / texel).round() * texel - b,
+        );
+        let c = [
+            centre[0] + s[0] * da + u[0] * db,
+            centre[1] + s[1] * da + u[1] * db,
+            centre[2] + s[2] * da + u[2] * db,
+        ];
+        let eye = [
+            c[0] + l[0] * 110.0,
+            c[1] + l[1] * 110.0,
+            c[2] + l[2] * 110.0,
+        ];
         mul(&ortho(SHADOW_HALF, 220.0), &look_dir(eye, f))
     }
 
@@ -2323,7 +2878,11 @@ impl Renderer {
         let p = g.me();
         let fov = p.fov();
         // down online, from over the shoulder of someone still standing
-        let watched = self.watch.get().and_then(|i| g.players.get(i)).filter(|m| m.alive());
+        let watched = self
+            .watch
+            .get()
+            .and_then(|i| g.players.get(i))
+            .filter(|m| m.alive());
         let (eye, fwd, foot) = match watched {
             Some(m) => {
                 let (eye, fwd) = self.chase(g, m);
@@ -2347,9 +2906,14 @@ impl Renderer {
             .collect();
         near.sort_by(|a, b| a.0.total_cmp(&b.0));
         for (i, b) in near.into_iter().map(|(_, i)| (i, &g.bots[i])) {
-            let to = [b.body.pos[0] - eye[0], b.body.pos[1] - eye[1], b.body.pos[2] - eye[2]];
+            let to = [
+                b.body.pos[0] - eye[0],
+                b.body.pos[1] - eye[1],
+                b.body.pos[2] - eye[2],
+            ];
             // one behind the view is only wanted for its shadow
-            let near_light = q.sun_shadows && (b.body.pos[0] - centre[0]).hypot(b.body.pos[2] - centre[2]) < SHADOW_HALF * 1.4;
+            let near_light = q.sun_shadows
+                && (b.body.pos[0] - centre[0]).hypot(b.body.pos[2] - centre[2]) < SHADOW_HALF * 1.4;
             if dot(to, fwd) >= -3.0 || near_light {
                 self.draw_zombie(g, i, b);
             }
@@ -2366,13 +2930,19 @@ impl Renderer {
         }
 
         let (w, h) = (self.width.max(1), self.height.max(1));
-        if self.targets.borrow().as_ref().is_none_or(|t| t.w != w || t.h != h) {
+        if self
+            .targets
+            .borrow()
+            .as_ref()
+            .is_none_or(|t| t.w != w || t.h != h)
+        {
             if let Some(old) = self.targets.borrow_mut().take() {
                 gl.delete_framebuffer(Some(&old.fbo));
                 gl.delete_texture(Some(&old.pic));
                 gl.delete_renderbuffer(Some(&old.depth));
             }
-            *self.targets.borrow_mut() = Some(Self::make_targets(gl, w, h).expect("render targets"));
+            *self.targets.borrow_mut() =
+                Some(Self::make_targets(gl, w, h).expect("render targets"));
         }
         let targets = self.targets.borrow();
         let t = targets.as_ref().expect("render targets");
@@ -2391,7 +2961,12 @@ impl Renderer {
 
         gl.use_program(Some(&self.prog));
         self.finish.set(gl, w, h, g.time, false);
-        gl.uniform3f(self.u_fogc.as_ref(), self.haze[0], self.haze[1], self.haze[2]);
+        gl.uniform3f(
+            self.u_fogc.as_ref(),
+            self.haze[0],
+            self.haze[1],
+            self.haze[2],
+        );
         gl.uniform2f(self.u_fogr.as_ref(), self.fog_start, self.fog_end);
         gl.uniform1f(self.u_batch.as_ref(), 0.0);
         gl.active_texture(GL::TEXTURE0);
@@ -2400,28 +2975,53 @@ impl Renderer {
         gl.uniform1f(self.u_shon.as_ref(), if q.sun_shadows { 1.0 } else { 0.0 });
         gl.uniform1f(self.u_soft.as_ref(), if q.soft_shadows { 1.0 } else { 0.0 });
         gl.uniform1f(self.u_dark.as_ref(), self.dark);
-        gl.uniform1f(self.u_flash.as_ref(), if self.dark > 0.0 { 1.0 } else { 0.0 });
+        gl.uniform1f(
+            self.u_flash.as_ref(),
+            if self.dark > 0.0 { 1.0 } else { 0.0 },
+        );
         gl.uniform3f(self.u_fdir.as_ref(), fwd[0], fwd[1], fwd[2]);
         // the head bobs with the stride; shots still go from the true eye, and rolling around the line of sight
         // leaves the crosshair on it
-        let (side, up, roll) = if watched.is_some() { (0.0, 0.0, 0.0) } else { head_bob(p) };
-        // a swing leans the view into it and back
-        let roll = roll + if watched.is_none() && p.gun().melee && p.cooldown > 0.0 {
-            let u = 1.0 - p.cooldown / p.gun().delay;
-            let way = if p.swings % 2 == 1 { 1.0 } else { -1.0 };
-            way * 0.04 * (ease(0.08, 0.26, u) - ease(0.3, 0.75, u))
+        let (side, up, roll) = if watched.is_some() {
+            (0.0, 0.0, 0.0)
         } else {
-            0.0
+            head_bob(p)
         };
+        // a swing leans the view into it and back
+        let roll = roll
+            + if watched.is_none() && p.gun().melee && p.cooldown > 0.0 {
+                let u = 1.0 - p.cooldown / p.gun().delay;
+                let way = if p.swings % 2 == 1 { 1.0 } else { -1.0 };
+                way * 0.04 * (ease(0.08, 0.26, u) - ease(0.3, 0.75, u))
+            } else {
+                0.0
+            };
         // a blast close by shakes the view
         let k = p.shake * p.shake * 0.06;
-        let (side, up, roll) = (side + (g.time * 53.0).sin() * k, up + (g.time * 61.0).cos() * k, roll + (g.time * 47.0).sin() * k * 0.5);
+        let (side, up, roll) = (
+            side + (g.time * 53.0).sin() * k,
+            up + (g.time * 61.0).cos() * k,
+            roll + (g.time * 47.0).sin() * k * 0.5,
+        );
         let (s, u) = view_axes(norm(fwd), roll);
-        let eye = [eye[0] + s[0] * side + u[0] * up, eye[1] + s[1] * side + u[1] * up, eye[2] + s[2] * side + u[2] * up];
-        let vp = mul(&perspective(fov, aspect, NEAR, FAR), &look_rolled(eye, fwd, roll));
+        let eye = [
+            eye[0] + s[0] * side + u[0] * up,
+            eye[1] + s[1] * side + u[1] * up,
+            eye[2] + s[2] * side + u[2] * up,
+        ];
+        let vp = mul(
+            &perspective(fov, aspect, NEAR, FAR),
+            &look_rolled(eye, fwd, roll),
+        );
         gl.uniform_matrix4fv_with_f32_array(self.u_vp.as_ref(), false, &vp);
         gl.uniform3f(self.u_eye.as_ref(), eye[0], eye[1], eye[2]);
-        let cam = Camera { eye, right: s, up: u, fwd: norm(fwd), roll };
+        let cam = Camera {
+            eye,
+            right: s,
+            up: u,
+            fwd: norm(fwd),
+            roll,
+        };
         self.tick_brass(g);
 
         self.draw_world(eye, &vp);
@@ -2435,9 +3035,14 @@ impl Renderer {
                 let k = (d.life / 0.6).min(1.0);
                 let h = [d.half[0] * k, d.half[1] * k, d.half[2] * k];
                 let spin = mul(&rot_y(d.rot[1]), &mul(&rot_x(d.rot[0]), &rot_z(d.rot[2])));
-                let model = mul(&translate(d.pos[0], d.pos[1], d.pos[2]), &mul(&spin, &scale(h[0], h[1], h[2])));
+                let model = mul(
+                    &translate(d.pos[0], d.pos[1], d.pos[2]),
+                    &mul(&spin, &scale(h[0], h[1], h[2])),
+                );
                 l.extend_from_slice(&model);
-                l.extend_from_slice(&[d.color[0], d.color[1], d.color[2], 0.0, 0.3, d.glow, 0.0, 0.0]);
+                l.extend_from_slice(&[
+                    d.color[0], d.color[1], d.color[2], 0.0, 0.3, d.glow, 0.0, 0.0,
+                ]);
             }
         }
         self.draw_ellipsoids(&self.list_d.borrow());
@@ -2449,34 +3054,70 @@ impl Renderer {
         // boxes and crates behind the view or lost in the haze aren't drawn, and a crate's gun only near enough to make
         // out: each of its pieces is a draw of its own
         let off = |at: V3| [at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]];
-        let shown = |at: V3, far: f32| dot(off(at), fwd) > -1.0 && dot(off(at), off(at)) < far * far;
+        let shown =
+            |at: V3, far: f32| dot(off(at), fwd) > -1.0 && dot(off(at), off(at)) < far * far;
         // the ammo crates: a drab box with a yellow band
         for &at in g.boxes.iter().filter(|&&at| shown(at, self.fog_end)) {
-            let m = box_model([at[0] - 0.35, at[1], at[2] - 0.35], [at[0] + 0.35, at[1] + 0.7, at[2] + 0.35]);
+            let m = box_model(
+                [at[0] - 0.35, at[1], at[2] - 0.35],
+                [at[0] + 0.35, at[1] + 0.7, at[2] + 0.35],
+            );
             self.draw_model(&m, [0.38, 0.36, 0.22], 0.0, 0.1);
-            let m = box_model([at[0] - 0.40, at[1] + 0.28, at[2] - 0.40], [at[0] + 0.40, at[1] + 0.42, at[2] + 0.40]);
+            let m = box_model(
+                [at[0] - 0.40, at[1] + 0.28, at[2] - 0.40],
+                [at[0] + 0.40, at[1] + 0.42, at[2] + 0.40],
+            );
             self.draw_model(&m, [0.98, 0.75, 0.2], 0.0, 0.2);
         }
         // the weapon crates: a dark case with a red band, and its gun turning over it to show what is inside
         for &(at, gun) in g.crates.iter().filter(|&&(at, _)| shown(at, self.fog_end)) {
-            let m = box_model([at[0] - 0.45, at[1], at[2] - 0.45], [at[0] + 0.45, at[1] + 0.5, at[2] + 0.45]);
+            let m = box_model(
+                [at[0] - 0.45, at[1], at[2] - 0.45],
+                [at[0] + 0.45, at[1] + 0.5, at[2] + 0.45],
+            );
             self.draw_model(&m, [0.16, 0.18, 0.2], 0.0, 0.25);
-            let m = box_model([at[0] - 0.5, at[1] + 0.18, at[2] - 0.5], [at[0] + 0.5, at[1] + 0.3, at[2] + 0.5]);
+            let m = box_model(
+                [at[0] - 0.5, at[1] + 0.18, at[2] - 0.5],
+                [at[0] + 0.5, at[1] + 0.3, at[2] + 0.5],
+            );
             self.draw_model(&m, [0.85, 0.12, 0.1], 0.3, 0.2);
             if !shown(at, CRATE_GUN_FAR) {
                 continue;
             }
             let (lo, hi) = self.guns[gun].bounds;
-            let mid = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0];
+            let mid = [
+                (lo[0] + hi[0]) / 2.0,
+                (lo[1] + hi[1]) / 2.0,
+                (lo[2] + hi[2]) / 2.0,
+            ];
             let bob = 1.1 + 0.08 * (g.time * 2.0 + at[0]).sin();
-            let model = mul(&translate(at[0], at[1] + bob, at[2]), &mul(&rot_y(g.time * 1.2 + at[2]), &translate(-mid[0], -mid[1], -mid[2])));
+            let model = mul(
+                &translate(at[0], at[1] + bob, at[2]),
+                &mul(
+                    &rot_y(g.time * 1.2 + at[2]),
+                    &translate(-mid[0], -mid[1], -mid[2]),
+                ),
+            );
             self.draw_gun(gun, &model, 0.0, 0.0, 0.0, 0.0, 0.0, 0, false);
         }
         for t in &g.tracers {
             // another player's shot comes out of the muzzle of the gun they are seen holding
-            let mate = g.players.iter().enumerate().find(|(i, p)| *i != g.local && p.id == t.by);
-            let a = mate.map_or(t.a, |(_, p)| apply(&self.mate_gun(p), [0.0, 0.0, self.guns[p.weapon].spec.muzzle_z]));
-            self.draw_lines(&[a[0], a[1], a[2], t.b[0], t.b[1], t.b[2]], [1.0, 0.95, 0.6], 1.0);
+            let mate = g
+                .players
+                .iter()
+                .enumerate()
+                .find(|(i, p)| *i != g.local && p.id == t.by);
+            let a = mate.map_or(t.a, |(_, p)| {
+                apply(
+                    &self.mate_gun(p),
+                    [0.0, 0.0, self.guns[p.weapon].spec.muzzle_z],
+                )
+            });
+            self.draw_lines(
+                &[a[0], a[1], a[2], t.b[0], t.b[1], t.b[2]],
+                [1.0, 0.95, 0.6],
+                1.0,
+            );
         }
         // the sky goes in last, behind everything, so only the part that shows is worked out
         self.ground_depth();
@@ -2487,12 +3128,22 @@ impl Renderer {
         // viewmodel: drawn in view space on a cleared depth buffer so it never clips into walls
         gl.clear(GL::DEPTH_BUFFER_BIT);
         // the gun keeps its own field of view so zooming the world doesn't magnify it
-        gl.uniform_matrix4fv_with_f32_array(self.u_vp.as_ref(), false, &perspective(1.2, aspect, 0.05, 200.0));
+        gl.uniform_matrix4fv_with_f32_array(
+            self.u_vp.as_ref(),
+            false,
+            &perspective(1.2, aspect, 0.05, 200.0),
+        );
         gl.uniform3f(self.u_eye.as_ref(), 0.0, 0.0, 0.0);
         gl.uniform1f(self.u_flash.as_ref(), 0.0);
         // the gun is lit and shadowed as if it were out in the world, so it needs the camera's orientation
         gl.uniform1f(self.u_view.as_ref(), 1.0);
-        gl.uniform_matrix3fv_with_f32_array(self.u_envrot.as_ref(), false, &[s[0], s[1], s[2], u[0], u[1], u[2], -fwd[0], -fwd[1], -fwd[2]]);
+        gl.uniform_matrix3fv_with_f32_array(
+            self.u_envrot.as_ref(),
+            false,
+            &[
+                s[0], s[1], s[2], u[0], u[1], u[2], -fwd[0], -fwd[1], -fwd[2],
+            ],
+        );
         gl.uniform3f(self.u_eyew.as_ref(), eye[0], eye[1], eye[2]);
         // the grenade in hand instead of the gun; just after a throw the gun is still down out of sight while the
         // hand follows through
@@ -2518,10 +3169,21 @@ impl Renderer {
         let right = [cy, 0.0, sy];
         let head = m.eye();
         let side = (g.world.raycast(head, right, CHASE_SIDE + 0.2) - 0.2).clamp(0.0, CHASE_SIDE);
-        let pivot = [head[0] + right[0] * side, head[1] + CHASE_UP, head[2] + right[2] * side];
+        let pivot = [
+            head[0] + right[0] * side,
+            head[1] + CHASE_UP,
+            head[2] + right[2] * side,
+        ];
         let back = [-fwd[0], -fwd[1], -fwd[2]];
         let reach = (g.world.raycast(pivot, back, CHASE_BACK + 0.3) - 0.3).clamp(0.3, CHASE_BACK);
-        ([pivot[0] + back[0] * reach, pivot[1] + back[1] * reach, pivot[2] + back[2] * reach], fwd)
+        (
+            [
+                pivot[0] + back[0] * reach,
+                pivot[1] + back[1] * reach,
+                pivot[2] + back[2] * reach,
+            ],
+            fwd,
+        )
     }
 
     /// Grenades out in the world: flying ones, the ones going off, and where the one in hand would fly.
@@ -2529,7 +3191,10 @@ impl Renderer {
         for n in &g.grenades {
             let spin = mul(&rot_y(n.rot[1]), &mul(&rot_x(n.rot[0]), &rot_z(n.rot[2])));
             // the pin and the spoon are gone once it's thrown; drawn half again its size so it reads at a distance
-            let model = mul(&translate(n.pos[0], n.pos[1], n.pos[2]), &mul(&spin, &scale(1.5, 1.5, 1.5)));
+            let model = mul(
+                &translate(n.pos[0], n.pos[1], n.pos[2]),
+                &mul(&spin, &scale(1.5, 1.5, 1.5)),
+            );
             self.draw_pieces(&model, &self.grenade.body);
         }
         for b in &g.blasts {
@@ -2590,12 +3255,32 @@ impl Renderer {
         // puffs around the middle, the same every time so the cloud doesn't flicker
         for i in 0..7 {
             let a = i as f32 * 2.4;
-            let (off, up) = if i == 0 { (0.0, 0.0) } else { (0.75, (i % 3) as f32 * 0.35 - 0.2) };
-            let r = (if i == 0 { 1.5 } else { 1.0 + 0.15 * (i % 2) as f32 }) * size;
+            let (off, up) = if i == 0 {
+                (0.0, 0.0)
+            } else {
+                (0.75, (i % 3) as f32 * 0.35 - 0.2)
+            };
+            let r = (if i == 0 {
+                1.5
+            } else {
+                1.0 + 0.15 * (i % 2) as f32
+            }) * size;
             let rise = 0.6 + 1.6 * s;
-            let c = [b.pos[0] + a.cos() * off * swell, b.pos[1] + rise + up * swell, b.pos[2] + a.sin() * off * swell];
+            let c = [
+                b.pos[0] + a.cos() * off * swell,
+                b.pos[1] + rise + up * swell,
+                b.pos[2] + a.sin() * off * swell,
+            ];
             let model = mul(&translate(c[0], c[1], c[2]), &scale(r, r * 0.9, r));
-            self.draw_mesh(&self.sphere_vao, self.sphere_count, &model, color, glow, 0.0, 0.0);
+            self.draw_mesh(
+                &self.sphere_vao,
+                self.sphere_count,
+                &model,
+                color,
+                glow,
+                0.0,
+                0.0,
+            );
         }
     }
 
@@ -2603,7 +3288,7 @@ impl Renderer {
     /// Walkers shamble with a dragging leg and a lolling head, runners sprint with pumping arms, brutes are broad
     /// and heavy, and the arms rise to strike. This works out the pose and queues the body; `flush` draws it.
     fn draw_zombie(&self, g: &Game, i: usize, b: &Bot) {
-        use crate::body as body;
+        use crate::body;
         use std::f32::consts::PI;
         let (p, pp) = (b.body.pos, g.me().body.pos);
         let d2 = (pp[0] - p[0]).powi(2) + (pp[2] - p[2]).powi(2);
@@ -2614,15 +3299,42 @@ impl Renderer {
         let (runner, brute) = (b.kind == 1, b.kind == 2);
         let id = (b.phase * 1000.0) as usize + i;
         // every zombie has its own height and build
-        let (sx, sy) = if brute { (1.3, 1.18) } else if runner { (0.93, 0.98) } else { (1.0, 1.0) };
-        let (sx, sy) = (sx * (0.92 + 0.14 * ((id * 17) % 7) as f32 / 6.0), sy * (0.95 + 0.1 * ((id * 37) % 11) as f32 / 10.0));
+        let (sx, sy) = if brute {
+            (1.3, 1.18)
+        } else if runner {
+            (0.93, 0.98)
+        } else {
+            (1.0, 1.0)
+        };
+        let (sx, sy) = (
+            sx * (0.92 + 0.14 * ((id * 17) % 7) as f32 / 6.0),
+            sy * (0.95 + 0.1 * ((id * 37) % 11) as f32 / 10.0),
+        );
         // a shot zombie crumples backwards, lies there, then shrinks away
-        let dying = if dead { (b.dead_t / 0.7).min(1.0).powi(2) } else { 0.0 };
-        let fade = if dead { ((crate::sim::CORPSE_T - b.dead_t) / 0.8).clamp(0.0, 1.0) } else { 1.0 };
+        let dying = if dead {
+            (b.dead_t / 0.7).min(1.0).powi(2)
+        } else {
+            0.0
+        };
+        let fade = if dead {
+            ((crate::sim::CORPSE_T - b.dead_t) / 0.8).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
         let (sx, sy) = (sx * fade, sy * fade);
         let flinch = b.hit_t;
-        let base = mul(&mul(&mul(&translate(p[0], p[1] + 0.1 * dying, p[2]), &rot_y(-yaw)), &rot_x(1.5 * dying)), &scale(sx, sy, sx));
-        let amp = if b.body.on_ground { (speed / 3.0).min(1.0) } else { 0.0 };
+        let base = mul(
+            &mul(
+                &mul(&translate(p[0], p[1] + 0.1 * dying, p[2]), &rot_y(-yaw)),
+                &rot_x(1.5 * dying),
+            ),
+            &scale(sx, sy, sx),
+        );
+        let amp = if b.body.on_ground {
+            (speed / 3.0).min(1.0)
+        } else {
+            0.0
+        };
         let ph = g.time * b.speed * 3.0 + b.phase;
         let seed = b.phase * 3.7;
         self.seed.set(seed);
@@ -2632,37 +3344,110 @@ impl Renderer {
         // ---- skeleton: every bone is the rest pose moved by joint angles
         let bob = (ph * 2.0).cos().abs() * 0.025 * amp;
         // walkers surge forward in lurches instead of walking evenly
-        let lurch = if runner { 0.0 } else { (ph * 0.5 + seed).sin().max(0.0).powi(2) * 0.16 * amp };
+        let lurch = if runner {
+            0.0
+        } else {
+            (ph * 0.5 + seed).sin().max(0.0).powi(2) * 0.16 * amp
+        };
         let lean = if runner { 0.35 } else { 0.2 } + lurch;
         // climbing (see `sim::Climb`): how far through, and the edge's height above the feet and distance ahead, in
         // the body's own measure. It hangs upright against the wall, then folds over the edge as it gets a knee onto it
-        let climb = b.climbing().map(|(s, up, ahead, _)| (s, up / sy, ahead / sx));
-        let over = climb.map_or(0.0, |(s, ..)| ((s - crate::sim::CLIMB_OVER) / (1.0 - crate::sim::CLIMB_OVER)).clamp(0.0, 1.0));
+        let climb = b
+            .climbing()
+            .map(|(s, up, ahead, _)| (s, up / sy, ahead / sx));
+        let over = climb.map_or(0.0, |(s, ..)| {
+            ((s - crate::sim::CLIMB_OVER) / (1.0 - crate::sim::CLIMB_OVER)).clamp(0.0, 1.0)
+        });
         // through a window it crawls over the sill on its knees, bent double under the head of it
         let duck = b.climbing().map_or(0.0, |p| p.3);
-        let lean = if climb.is_some() { ((0.3 + 0.7 * (PI * over).sin().powf(0.7)) / 1.4).max(0.95 * duck) } else { lean };
+        let lean = if climb.is_some() {
+            ((0.3 + 0.7 * (PI * over).sin().powf(0.7)) / 1.4).max(0.95 * duck)
+        } else {
+            lean
+        };
         // and it rolls from side to side with each heave, the arms taking turns
         let sway = climb.map_or(0.0, |(s, ..)| 0.12 * (s * 4.0 * PI).sin() * (1.0 - over));
-        let pelvis = mul(&mul(&base, &translate(ph.sin() * 0.04 * amp, -bob - 0.35 * duck, 0.0)), &around([0.0, 0.94, 0.0], &mul(&rot_y(ph.sin() * 0.14 * amp), &mul(&rot_z(ph.sin() * 0.05 * amp + sway), &rot_x(-0.08)))));
+        let pelvis = mul(
+            &mul(
+                &base,
+                &translate(ph.sin() * 0.04 * amp, -bob - 0.35 * duck, 0.0),
+            ),
+            &around(
+                [0.0, 0.94, 0.0],
+                &mul(
+                    &rot_y(ph.sin() * 0.14 * amp),
+                    &mul(&rot_z(ph.sin() * 0.05 * amp + sway), &rot_x(-0.08)),
+                ),
+            ),
+        );
         // never quite the same twice: a few sines at odd rates, for the arms and spine to wander by
         let wander = |rate: f32, k: f32| {
             let t = g.time * rate + seed * k;
-            (t.sin() * 0.5 + (t * 1.73 + 1.3).sin() * 0.3 + (t * 2.71 + 4.1).sin() * 0.2) * (1.0 - dying)
+            (t.sin() * 0.5 + (t * 1.73 + 1.3).sin() * 0.3 + (t * 2.71 + 4.1).sin() * 0.2)
+                * (1.0 - dying)
         };
         // the head's jerks (see `Bot::head`, which its hit box follows): the back bends most of the way there and
         // the neck the rest, half a metre and a hand's width below the head respectively
         let [jr, ju, jf] = b.head.map(|v| v * (1.0 - dying));
-        let spine = mul(&pelvis, &around([0.0, 0.98, 0.0], &rot_x(-(lean * 0.6 + 0.12 * strike) + 0.55 * flinch)));
-        let chest = mul(&spine, &around([0.0, 1.16, 0.0], &mul(&rot_y(-ph.sin() * 0.3 * amp + 0.12 * wander(0.9, 1.0)), &mul(&rot_z((ph * 0.5).sin() * 0.04 * amp + 0.05 * wander(1.1, 2.0) - 0.6 * jr / 0.5), &rot_x(-(lean * 0.8 + 0.2 * strike) - 0.7 * jf / 0.5)))));
+        let spine = mul(
+            &pelvis,
+            &around(
+                [0.0, 0.98, 0.0],
+                &rot_x(-(lean * 0.6 + 0.12 * strike) + 0.55 * flinch),
+            ),
+        );
+        let chest = mul(
+            &spine,
+            &around(
+                [0.0, 1.16, 0.0],
+                &mul(
+                    &rot_y(-ph.sin() * 0.3 * amp + 0.12 * wander(0.9, 1.0)),
+                    &mul(
+                        &rot_z(
+                            (ph * 0.5).sin() * 0.04 * amp + 0.05 * wander(1.1, 2.0)
+                                - 0.6 * jr / 0.5,
+                        ),
+                        &rot_x(-(lean * 0.8 + 0.2 * strike) - 0.7 * jf / 0.5),
+                    ),
+                ),
+            ),
+        );
         let roll = (ph * 0.35 + seed).sin() * 0.28 - 0.4 * jr / 0.15;
         // on the wall it looks up at where it is going
-        let look_up = if climb.is_some() { 0.25 * (1.0 - over) } else { 0.0 };
-        let head = mul(&chest, &around([0.0, 1.54, 0.0], &mul(&rot_y((ph * 0.3 + seed).sin() * 0.3 * (1.0 - strike) + (g.time * 6.0 + seed).sin().powi(15) * 0.18), &mul(&rot_z(roll), &rot_x((if runner { 0.3 } else { 0.15 }) + 0.7 * flinch + 4.0 * ju + look_up)))));
+        let look_up = if climb.is_some() {
+            0.25 * (1.0 - over)
+        } else {
+            0.0
+        };
+        let head = mul(
+            &chest,
+            &around(
+                [0.0, 1.54, 0.0],
+                &mul(
+                    &rot_y(
+                        (ph * 0.3 + seed).sin() * 0.3 * (1.0 - strike)
+                            + (g.time * 6.0 + seed).sin().powi(15) * 0.18,
+                    ),
+                    &mul(
+                        &rot_z(roll),
+                        &rot_x(
+                            (if runner { 0.3 } else { 0.15 }) + 0.7 * flinch + 4.0 * ju + look_up,
+                        ),
+                    ),
+                ),
+            ),
+        );
         let mouth = 0.2 + 0.5 * strike + 0.1 * (ph * 0.8).sin().abs();
-        let jaw = mul(&head, &around(body::head_to_rest([0.0, 1.60, 0.03]), &rot_x(-mouth)));
+        let jaw = mul(
+            &head,
+            &around(body::head_to_rest([0.0, 1.60, 0.03]), &rot_x(-mouth)),
+        );
         // the eyes and teeth are placed on the face as modelled, which the body shrinks onto its neck
         let (hk, hp) = (body::HEAD_K, body::HEAD_PIVOT);
-        let modelled = mul(&translate(0.0, hp + body::HEAD_LIFT, 0.0), &mul(&scale(hk, hk, hk), &translate(0.0, -hp, 0.0)));
+        let modelled = mul(
+            &translate(0.0, hp + body::HEAD_LIFT, 0.0),
+            &mul(&scale(hk, hk, hk), &translate(0.0, -hp, 0.0)),
+        );
 
         let mut bones = [IDENTITY; body::BONES];
         bones[body::PELVIS] = pelvis;
@@ -2675,27 +3460,45 @@ impl Renderer {
             let side = *side;
             let phi = ph + if side > 0.0 { PI } else { 0.0 };
             let kk = if side > 0.0 && !runner { 0.6 } else { 1.0 };
-            let a = (if runner { 0.95 } else if brute { 0.45 } else { 0.55 }) * amp * kk;
-            let (hip_a, knee_a) = (a * phi.sin(), 0.06 + (if runner { 1.0 } else { 0.55 }) * amp * kk * phi.cos().max(0.0));
+            let a = (if runner {
+                0.95
+            } else if brute {
+                0.45
+            } else {
+                0.55
+            }) * amp
+                * kk;
+            let (hip_a, knee_a) = (
+                a * phi.sin(),
+                0.06 + (if runner { 1.0 } else { 0.55 }) * amp * kk * phi.cos().max(0.0),
+            );
             let (hip_a, knee_a) = match climb {
                 Some((s, ..)) => {
                     // the feet scrabble at the wall in front, out of step, while it hauls; then one knee comes up onto
                     // the top, the other leg after it, and both straighten as it stands
                     let t = g.time * 9.0 + side * PI + seed;
                     let tuck = (0.9 + 0.3 * t.sin(), 1.0 + 0.4 * (t + 0.8).sin());
-                    let tuck = if s < crate::sim::CLIMB_GRAB { (0.3, 0.6) } else { tuck };
+                    let tuck = if s < crate::sim::CLIMB_GRAB {
+                        (0.3, 0.6)
+                    } else {
+                        tuck
+                    };
                     let lag = if side < 0.0 { 0.0 } else { 0.25 };
                     let k = (PI * ((over - lag) / (0.8 - lag * 0.6)).clamp(0.0, 1.0)).sin();
                     let up = (1.7 * k, 2.1 * k);
                     let w = ((over - lag) / 0.15).clamp(0.0, 1.0);
-                    let (hip_a, knee_a) = (tuck.0 + (up.0 - tuck.0) * w, tuck.1 + (up.1 - tuck.1) * w);
+                    let (hip_a, knee_a) =
+                        (tuck.0 + (up.0 - tuck.0) * w, tuck.1 + (up.1 - tuck.1) * w);
                     (hip_a.max(1.5 * duck), knee_a.max(2.0 * duck))
                 }
                 None => (hip_a, knee_a),
             };
             let hip = mul(&pelvis, &around([0.0, 0.92, 0.0], &rot_x(hip_a)));
             let knee = mul(&hip, &around([0.0, 0.50, 0.0], &rot_x(-knee_a)));
-            let ankle = mul(&knee, &around([0.0, 0.09, 0.0], &rot_x(-(hip_a - knee_a) * 0.7)));
+            let ankle = mul(
+                &knee,
+                &around([0.0, 0.09, 0.0], &rot_x(-(hip_a - knee_a) * 0.7)),
+            );
             bones[body::HIP + k] = hip;
             bones[body::KNEE + k] = knee;
             bones[body::ANKLE + k] = ankle;
@@ -2703,14 +3506,23 @@ impl Renderer {
             // arms: walkers reach out, runners pump, brutes hang heavy. The body is modelled with its arms held out,
             // so each arm bone first brings its arm back down to the sides, then poses it
             let (sh_a, el_a) = if runner {
-                (0.5 + (ph + if side > 0.0 { 0.0 } else { PI }).sin() * 0.9 * amp.max(0.4), 1.2)
+                (
+                    0.5 + (ph + if side > 0.0 { 0.0 } else { PI }).sin() * 0.9 * amp.max(0.4),
+                    1.2,
+                )
             } else if brute {
                 (0.9 + (ph * 0.5 + side).sin() * 0.1 + 0.9 * strike, 0.3)
             } else {
-                (1.15 + 0.35 * side * seed.sin() + 0.14 * (ph * 0.7 + side * 1.3).sin() + 1.0 * strike, 0.45 + 0.2 * (ph * 0.9 + side).sin() - 0.5 * strike)
+                (
+                    1.15 + 0.35 * side * seed.sin()
+                        + 0.14 * (ph * 0.7 + side * 1.3).sin()
+                        + 1.0 * strike,
+                    0.45 + 0.2 * (ph * 0.9 + side).sin() - 0.5 * strike,
+                )
             };
             // the arms wander up and down and out from the body on their own, never in step
-            let sh_a = (sh_a + 0.22 * wander(1.3, 5.0 + side)) * (1.0 - 0.75 * dying) + 0.9 * flinch;
+            let sh_a =
+                (sh_a + 0.22 * wander(1.3, 5.0 + side)) * (1.0 - 0.75 * dying) + 0.9 * flinch;
             let el_a = el_a + 0.25 * wander(1.7, 9.0 + side);
             let splay = 0.12 + 0.1 * wander(0.8, 13.0 + side);
             // climbing, the hands hold the edge while the body moves under them, elbows out: the arm is bent to
@@ -2722,39 +3534,90 @@ impl Renderer {
                     let (f, h) = (ahead + 0.15 - sf, up - sy0);
                     let (l1, l2) = (0.28, 0.38);
                     let d = f.hypot(h).clamp(0.12, l1 + l2 - 0.001);
-                    let bend = PI - ((l1 * l1 + l2 * l2 - d * d) / (2.0 * l1 * l2)).clamp(-1.0, 1.0).acos();
-                    let open = ((l1 * l1 + d * d - l2 * l2) / (2.0 * l1 * d)).clamp(-1.0, 1.0).acos();
+                    let bend = PI
+                        - ((l1 * l1 + l2 * l2 - d * d) / (2.0 * l1 * l2))
+                            .clamp(-1.0, 1.0)
+                            .acos();
+                    let open = ((l1 * l1 + d * d - l2 * l2) / (2.0 * l1 * d))
+                        .clamp(-1.0, 1.0)
+                        .acos();
                     let hold = (f.atan2(-h) - open + tilt, bend, 0.9 - bend * 0.5);
                     // it reaches up as it hops for the edge, and lets go once a knee is up on it
                     let first = if side < 0.0 { 0.0 } else { 0.4 };
-                    let on = ((s / crate::sim::CLIMB_GRAB - first) * 2.0).clamp(0.0, 1.0) * (1.0 - ((over - 0.45) / 0.35).clamp(0.0, 1.0));
+                    let on = ((s / crate::sim::CLIMB_GRAB - first) * 2.0).clamp(0.0, 1.0)
+                        * (1.0 - ((over - 0.45) / 0.35).clamp(0.0, 1.0));
                     let mix = |a: f32, b: f32| a + (b - a) * on;
-                    (mix(sh_a, hold.0), mix(el_a, hold.1), mix(0.35, hold.2), mix(splay, 0.35 + 0.08 * wander(2.0, side)))
+                    (
+                        mix(sh_a, hold.0),
+                        mix(el_a, hold.1),
+                        mix(0.35, hold.2),
+                        mix(splay, 0.35 + 0.08 * wander(2.0, side)),
+                    )
                 }
                 None => (sh_a, el_a, 0.35, splay),
             };
-            let sh = mul(&chest, &around([side * body::ARM_X, 1.41, 0.0], &mul(&rot_z(side * splay), &rot_x(sh_a))));
+            let sh = mul(
+                &chest,
+                &around(
+                    [side * body::ARM_X, 1.41, 0.0],
+                    &mul(&rot_z(side * splay), &rot_x(sh_a)),
+                ),
+            );
             let el = mul(&sh, &around([0.0, 1.13, 0.0], &rot_x(el_a)));
             let wr = mul(&el, &around([0.0, 0.87, 0.0], &rot_x(wr_a)));
-            let down = around([side * body::ARM_X, body::SHOULDER_Y, 0.0], &rot_z(-side * body::ARM_ANGLE));
+            let down = around(
+                [side * body::ARM_X, body::SHOULDER_Y, 0.0],
+                &rot_z(-side * body::ARM_ANGLE),
+            );
             bones[body::SHOULDER + k] = mul(&sh, &down);
             bones[body::ELBOW + k] = mul(&el, &down);
             bones[body::WRIST + k] = mul(&wr, &down);
         }
 
         // ---- looks
-        let skin = [[0.70, 0.57, 0.50], [0.58, 0.44, 0.37], [0.78, 0.66, 0.58], [0.40, 0.30, 0.25]][(id / 3) % 4];
-        let skin = if brute { [skin[0] * 0.92, skin[1] * 0.85, skin[2] * 0.82] } else { [skin[0] * 0.9, skin[1] * 0.86, skin[2] * 0.86] };
-        let shirt = [[0.36, 0.17, 0.14], [0.20, 0.28, 0.36], [0.40, 0.40, 0.34], [0.18, 0.30, 0.21], [0.52, 0.47, 0.33], [0.62, 0.60, 0.56], [0.78, 0.40, 0.08], [0.09, 0.09, 0.10]][id % 8];
+        let skin = [
+            [0.70, 0.57, 0.50],
+            [0.58, 0.44, 0.37],
+            [0.78, 0.66, 0.58],
+            [0.40, 0.30, 0.25],
+        ][(id / 3) % 4];
+        let skin = if brute {
+            [skin[0] * 0.92, skin[1] * 0.85, skin[2] * 0.82]
+        } else {
+            [skin[0] * 0.9, skin[1] * 0.86, skin[2] * 0.86]
+        };
+        let shirt = [
+            [0.36, 0.17, 0.14],
+            [0.20, 0.28, 0.36],
+            [0.40, 0.40, 0.34],
+            [0.18, 0.30, 0.21],
+            [0.52, 0.47, 0.33],
+            [0.62, 0.60, 0.56],
+            [0.78, 0.40, 0.08],
+            [0.09, 0.09, 0.10],
+        ][id % 8];
         let pants = [[0.18, 0.22, 0.30], [0.34, 0.31, 0.24], [0.10, 0.10, 0.11]][(id / 5) % 3];
         let shoe = [[0.10, 0.09, 0.08], [0.22, 0.14, 0.09], [0.16, 0.16, 0.18]][(id / 2) % 3];
-        let hair = [[0.10, 0.07, 0.05], [0.04, 0.035, 0.03], [0.45, 0.34, 0.17], [0.40, 0.38, 0.36], [0.30, 0.13, 0.07], [0.17, 0.12, 0.08]][(id / 7) % 6];
+        let hair = [
+            [0.10, 0.07, 0.05],
+            [0.04, 0.035, 0.03],
+            [0.45, 0.34, 0.17],
+            [0.40, 0.38, 0.36],
+            [0.30, 0.13, 0.07],
+            [0.17, 0.12, 0.08],
+        ][(id / 7) % 6];
         let (bone, dark) = ([0.80, 0.76, 0.62], [0.04, 0.02, 0.02]);
         let _ = dark;
         // some sleeves are long, some short, some gone; some shirts stop short of the belly; one arm is often bare
         let sleeve = [0.0, 1.2, 1.2, 0.0][id % 4];
         let hem = if id % 2 == 0 { 0.9 } else { 1.08 };
-        let bare = if id % 3 == 0 { 0.0 } else if id % 2 == 0 { -1.0 } else { 1.0 };
+        let bare = if id % 3 == 0 {
+            0.0
+        } else if id % 2 == 0 {
+            -1.0
+        } else {
+            1.0
+        };
         let torn = if id % 2 == 1 { 1.0 } else { 0.0 };
         let mut wounds = [[0.0f32; 4]; 3];
         let mut sites: Vec<[f32; 4]> = Vec::new();
@@ -2794,7 +3657,10 @@ impl Renderer {
             shoe,
             hair,
             cut: [hem, sleeve, bare, torn],
-            hair_kind: [if id % 7 != 0 { 1.0 } else { 0.0 }, if id % 3 == 1 { 1.0 } else { 0.0 }],
+            hair_kind: [
+                if id % 7 != 0 { 1.0 } else { 0.0 },
+                if id % 3 == 1 { 1.0 } else { 0.0 },
+            ],
             wounds,
             seed,
         });
@@ -2803,17 +3669,58 @@ impl Renderer {
         if d < 28.0 {
             let r0 = IDENTITY;
             let (head, jaw) = (mul(&head, &modelled), mul(&jaw, &modelled));
-            let iris = [[0.35, 0.20, 0.10], [0.20, 0.30, 0.35], [0.30, 0.35, 0.15], [0.10, 0.07, 0.05]][(id / 4) % 4];
+            let iris = [
+                [0.35, 0.20, 0.10],
+                [0.20, 0.30, 0.35],
+                [0.30, 0.35, 0.15],
+                [0.10, 0.07, 0.05],
+            ][(id / 4) % 4];
             for sx in [-1.0f32, 1.0] {
-                self.ell(&head, [sx * 0.04, 1.668, -0.082], [0.0108, 0.0102, 0.0102], &r0, iris, 14.0, 0.0, 0.0);
+                self.ell(
+                    &head,
+                    [sx * 0.04, 1.668, -0.082],
+                    [0.0108, 0.0102, 0.0102],
+                    &r0,
+                    iris,
+                    14.0,
+                    0.0,
+                    0.0,
+                );
             }
             for k in -2..=2 {
                 let x = k as f32 * 0.0095;
                 let z = -0.0985 + x.abs() * 1.3;
-                self.ell(&head, [x, 1.5835, z], [0.0046, 0.0075, 0.0035], &r0, bone, 0.0, 0.3, 0.0);
-                self.ell(&jaw, [x, 1.566, z], [0.0046, 0.0068, 0.0035], &r0, bone, 0.0, 0.3, 0.0);
+                self.ell(
+                    &head,
+                    [x, 1.5835, z],
+                    [0.0046, 0.0075, 0.0035],
+                    &r0,
+                    bone,
+                    0.0,
+                    0.3,
+                    0.0,
+                );
+                self.ell(
+                    &jaw,
+                    [x, 1.566, z],
+                    [0.0046, 0.0068, 0.0035],
+                    &r0,
+                    bone,
+                    0.0,
+                    0.3,
+                    0.0,
+                );
             }
-            self.ell(&jaw, [0.0, 1.5625, -0.075], [0.013, 0.005, 0.018], &r0, [0.55, 0.16, 0.18], 11.0, 0.0, 0.0);
+            self.ell(
+                &jaw,
+                [0.0, 1.5625, -0.075],
+                [0.013, 0.005, 0.018],
+                &r0,
+                [0.55, 0.16, 0.18],
+                11.0,
+                0.0,
+                0.0,
+            );
         }
     }
 
@@ -2821,29 +3728,67 @@ impl Renderer {
     /// each, holding their gun up where they aim, legs going as they move, and lying flat while they are down.
     /// Queues the body, as `draw_zombie` does; `draw_mate_gun` draws the gun.
     fn draw_mate(&self, g: &Game, p: &crate::sim::Player) {
-        use crate::body as body;
+        use crate::body;
         use std::f32::consts::PI;
         let at = p.body.pos;
         let id = p.id as usize;
         let speed = p.body.vel[0].hypot(p.body.vel[2]);
-        let amp = if p.body.on_ground { (speed / 5.0).min(1.0) } else { 0.3 };
+        let amp = if p.body.on_ground {
+            (speed / 5.0).min(1.0)
+        } else {
+            0.3
+        };
         let down = if p.alive() { 0.0 } else { 1.0 };
         // sprinting: leaning into it, longer strides with the knees up and the heels kicked back, the arms carrying
         // the gun low across the body (see `mate_gun`)
         let run = self.mate_run(p);
-        let base = mul(&mul(&translate(at[0], at[1] + 0.1 * down, at[2]), &rot_y(-p.yaw)), &rot_x(1.5 * down));
+        let base = mul(
+            &mul(&translate(at[0], at[1] + 0.1 * down, at[2]), &rot_y(-p.yaw)),
+            &rot_x(1.5 * down),
+        );
         // the legs go by the ground covered, a step every `STRIDE` metres, so the feet keep to it
         let ph = p.gait / crate::sim::STRIDE * PI + id as f32;
         let bob = (ph * 2.0).cos().abs() * (0.03 + 0.03 * run) * amp;
-        let pelvis = mul(&mul(&base, &translate(0.0, -bob, 0.0)), &around([0.0, 0.94, 0.0], &rot_y(ph.sin() * (0.1 + 0.08 * run) * amp)));
-        let spine = mul(&pelvis, &around([0.0, 0.98, 0.0], &rot_x(-0.08 - 0.1 * amp - 0.3 * run)));
+        let pelvis = mul(
+            &mul(&base, &translate(0.0, -bob, 0.0)),
+            &around(
+                [0.0, 0.94, 0.0],
+                &rot_y(ph.sin() * (0.1 + 0.08 * run) * amp),
+            ),
+        );
+        let spine = mul(
+            &pelvis,
+            &around([0.0, 0.98, 0.0], &rot_x(-0.08 - 0.1 * amp - 0.3 * run)),
+        );
         // a long gun in the shoulder turns the chest to the right, the left shoulder forward to reach the
         // handguard; the head turns back to look along the gun. Running, the chest squares up and twists against
         // the hips, and the head comes up to look ahead
-        let blade = if p.alive() && !p.aiming && !self.guns[p.weapon].spec.pistol_hold { 0.55 * (1.0 - run) } else { 0.0 };
+        let blade = if p.alive() && !p.aiming && !self.guns[p.weapon].spec.pistol_hold {
+            0.55 * (1.0 - run)
+        } else {
+            0.0
+        };
         let twist = -ph.sin() * 0.12 * run * amp;
-        let chest = mul(&spine, &around([0.0, 1.16, 0.0], &mul(&rot_y(-blade + twist), &rot_x(-0.25 * p.pitch * (1.0 - down)))));
-        let head = mul(&chest, &around([0.0, 1.54, 0.0], &mul(&rot_y(blade - twist), &rot_x(-0.6 * p.pitch * (1.0 - down) + 0.3 * run))));
+        let chest = mul(
+            &spine,
+            &around(
+                [0.0, 1.16, 0.0],
+                &mul(
+                    &rot_y(-blade + twist),
+                    &rot_x(-0.25 * p.pitch * (1.0 - down)),
+                ),
+            ),
+        );
+        let head = mul(
+            &chest,
+            &around(
+                [0.0, 1.54, 0.0],
+                &mul(
+                    &rot_y(blade - twist),
+                    &rot_x(-0.6 * p.pitch * (1.0 - down) + 0.3 * run),
+                ),
+            ),
+        );
         let jaw = head;
         let mut bones = [IDENTITY; body::BONES];
         bones[body::PELVIS] = pelvis;
@@ -2862,7 +3807,10 @@ impl Renderer {
             let knee_a = 0.06 + amp * (walk_knee + (run_knee - walk_knee) * run);
             let hip = mul(&pelvis, &around([0.0, 0.92, 0.0], &rot_x(hip_a)));
             let knee = mul(&hip, &around([0.0, 0.50, 0.0], &rot_x(-knee_a)));
-            let ankle = mul(&knee, &around([0.0, 0.09, 0.0], &rot_x(-(hip_a - knee_a) * 0.7)));
+            let ankle = mul(
+                &knee,
+                &around([0.0, 0.09, 0.0], &rot_x(-(hip_a - knee_a) * 0.7)),
+            );
             bones[body::HIP + k] = hip;
             bones[body::KNEE + k] = knee;
             bones[body::ANKLE + k] = ankle;
@@ -2875,33 +3823,93 @@ impl Renderer {
                 let s = &self.guns[p.weapon].spec;
                 let (at, k, fingers, palm) = if p.gun().melee {
                     // both round the bat's handle, the right above the left, palms facing each other's way
-                    let z = if side > 0.0 { crate::gunmodel::BAT_RIGHT_Z } else { crate::gunmodel::BAT_LEFT_Z };
-                    ([0.0; 3], [side * 0.028, 0.09, z], [0.0, -1.0, 0.0], [-side, 0.0, 0.0])
+                    let z = if side > 0.0 {
+                        crate::gunmodel::BAT_RIGHT_Z
+                    } else {
+                        crate::gunmodel::BAT_LEFT_Z
+                    };
+                    (
+                        [0.0; 3],
+                        [side * 0.028, 0.09, z],
+                        [0.0, -1.0, 0.0],
+                        [-side, 0.0, 0.0],
+                    )
                 } else if side > 0.0 {
-                    (s.right_at, [0.04, -0.125, 0.15], [0.0, -0.3, -1.0], [-1.0, 0.0, 0.0])
+                    (
+                        s.right_at,
+                        [0.04, -0.125, 0.15],
+                        [0.0, -0.3, -1.0],
+                        [-1.0, 0.0, 0.0],
+                    )
                 } else if s.pistol_hold {
-                    (s.left_at, [-0.045, -0.11, 0.128], [0.3, -0.4, -0.85], [1.0, 0.0, 0.2])
+                    (
+                        s.left_at,
+                        [-0.045, -0.11, 0.128],
+                        [0.3, -0.4, -0.85],
+                        [1.0, 0.0, 0.2],
+                    )
                 } else {
-                    (s.left_at, [-0.05, -0.04, -0.19], [0.75, 0.35, -0.55], [-0.2, 1.0, 0.0])
+                    (
+                        s.left_at,
+                        [-0.05, -0.04, -0.19],
+                        [0.75, 0.35, -0.55],
+                        [-0.2, 1.0, 0.0],
+                    )
                 };
                 let gun = self.mate_gun(p);
                 let wrist = apply(&gun, [at[0] + k[0], at[1] + k[1], at[2] + k[2]]);
                 let (sh, el) = reach_arm(&chest, side, wrist, [side * 0.5, -1.0, 0.3]);
-                (sh, el, hand_at(side, wrist, turn_dir(&gun, fingers), turn_dir(&gun, palm)))
+                (
+                    sh,
+                    el,
+                    hand_at(side, wrist, turn_dir(&gun, fingers), turn_dir(&gun, palm)),
+                )
             } else {
-                let (sh_a, el_a, splay) = if throw { (2.6, 1.4, 0.25) } else { (0.1, 0.0, 0.1) };
-                let sh = mul(&chest, &around([side * body::ARM_X, 1.41, 0.0], &mul(&rot_z(side * splay), &rot_x(sh_a))));
+                let (sh_a, el_a, splay) = if throw {
+                    (2.6, 1.4, 0.25)
+                } else {
+                    (0.1, 0.0, 0.1)
+                };
+                let sh = mul(
+                    &chest,
+                    &around(
+                        [side * body::ARM_X, 1.41, 0.0],
+                        &mul(&rot_z(side * splay), &rot_x(sh_a)),
+                    ),
+                );
                 let el = mul(&sh, &around([0.0, 1.13, 0.0], &rot_x(el_a)));
                 (sh, el, mul(&el, &around([0.0, 0.87, 0.0], &rot_x(0.2))))
             };
-            let rest = around([side * body::ARM_X, body::SHOULDER_Y, 0.0], &rot_z(-side * body::ARM_ANGLE));
+            let rest = around(
+                [side * body::ARM_X, body::SHOULDER_Y, 0.0],
+                &rot_z(-side * body::ARM_ANGLE),
+            );
             bones[body::SHOULDER + k] = mul(&sh, &rest);
             bones[body::ELBOW + k] = mul(&el, &rest);
             bones[body::WRIST + k] = mul(&wr, &rest);
         }
-        let shirt = [[0.16, 0.30, 0.62], [0.75, 0.38, 0.10], [0.22, 0.45, 0.20], [0.50, 0.20, 0.55], [0.70, 0.62, 0.15], [0.12, 0.50, 0.55], [0.62, 0.16, 0.18], [0.85, 0.85, 0.85]][id % 8];
-        let skin = [[0.80, 0.62, 0.50], [0.55, 0.40, 0.30], [0.90, 0.74, 0.62], [0.42, 0.30, 0.22]][(id / 2) % 4];
-        let hair = [[0.10, 0.07, 0.05], [0.45, 0.34, 0.17], [0.04, 0.035, 0.03], [0.30, 0.13, 0.07]][(id / 3) % 4];
+        let shirt = [
+            [0.16, 0.30, 0.62],
+            [0.75, 0.38, 0.10],
+            [0.22, 0.45, 0.20],
+            [0.50, 0.20, 0.55],
+            [0.70, 0.62, 0.15],
+            [0.12, 0.50, 0.55],
+            [0.62, 0.16, 0.18],
+            [0.85, 0.85, 0.85],
+        ][id % 8];
+        let skin = [
+            [0.80, 0.62, 0.50],
+            [0.55, 0.40, 0.30],
+            [0.90, 0.74, 0.62],
+            [0.42, 0.30, 0.22],
+        ][(id / 2) % 4];
+        let hair = [
+            [0.10, 0.07, 0.05],
+            [0.45, 0.34, 0.17],
+            [0.04, 0.035, 0.03],
+            [0.30, 0.13, 0.07],
+        ][(id / 3) % 4];
         let d = (at[0] - g.me().body.pos[0]).hypot(at[2] - g.me().body.pos[2]);
         self.jobs.borrow_mut().push(SkinJob {
             bones: bones.iter().flatten().copied().collect(),
@@ -2920,12 +3928,29 @@ impl Renderer {
         // clear eyes, placed on the face as modelled (see `draw_zombie`)
         if d < 28.0 {
             let (hk, hp) = (body::HEAD_K, body::HEAD_PIVOT);
-            let modelled = mul(&translate(0.0, hp + body::HEAD_LIFT, 0.0), &mul(&scale(hk, hk, hk), &translate(0.0, -hp, 0.0)));
+            let modelled = mul(
+                &translate(0.0, hp + body::HEAD_LIFT, 0.0),
+                &mul(&scale(hk, hk, hk), &translate(0.0, -hp, 0.0)),
+            );
             let head = mul(&head, &modelled);
-            let iris = [[0.30, 0.18, 0.08], [0.22, 0.34, 0.42], [0.25, 0.30, 0.14], [0.12, 0.08, 0.05]][(id / 2) % 4];
+            let iris = [
+                [0.30, 0.18, 0.08],
+                [0.22, 0.34, 0.42],
+                [0.25, 0.30, 0.14],
+                [0.12, 0.08, 0.05],
+            ][(id / 2) % 4];
             self.seed.set(-1.0);
             for sx in [-1.0f32, 1.0] {
-                self.ell(&head, [sx * 0.04, 1.668, -0.082], [0.0108, 0.0102, 0.0102], &IDENTITY, iris, 14.0, 0.0, 0.0);
+                self.ell(
+                    &head,
+                    [sx * 0.04, 1.668, -0.082],
+                    [0.0108, 0.0102, 0.0102],
+                    &IDENTITY,
+                    iris,
+                    14.0,
+                    0.0,
+                    0.0,
+                );
             }
         }
     }
@@ -2948,12 +3973,31 @@ impl Renderer {
         }
         let pitch = p.pitch * (1.0 - run) - 0.65 * run;
         if s.pistol_hold {
-            let held = mul(&translate(0.1 - 0.06 * run, 1.42 + 0.2 * pitch.sin() - 0.08 * run, -0.2 + 0.08 * run), &mul(&rot_y(0.4 * run), &rot_x(pitch)));
-            return mul(&body, &mul(&held, &translate(s.hold[0], s.hold[1], s.hold[2])));
+            let held = mul(
+                &translate(
+                    0.1 - 0.06 * run,
+                    1.42 + 0.2 * pitch.sin() - 0.08 * run,
+                    -0.2 + 0.08 * run,
+                ),
+                &mul(&rot_y(0.4 * run), &rot_x(pitch)),
+            );
+            return mul(
+                &body,
+                &mul(&held, &translate(s.hold[0], s.hold[1], s.hold[2])),
+            );
         }
         let along = g.bounds.1[2].max(0.33);
         let shoulder = translate(0.15 - 0.05 * run, 1.4 - 0.06 * run, -0.03 - 0.1 * run);
-        mul(&body, &mul(&shoulder, &mul(&mul(&rot_y(0.55 * run), &rot_x(pitch)), &mul(&rot_z(0.5 * run), &translate(0.0, 0.0, -along)))))
+        mul(
+            &body,
+            &mul(
+                &shoulder,
+                &mul(
+                    &mul(&rot_y(0.55 * run), &rot_x(pitch)),
+                    &mul(&rot_z(0.5 * run), &translate(0.0, 0.0, -along)),
+                ),
+            ),
+        )
     }
 
     /// How far into a sprint another player is: 0 walking, 1 sprinting flat out.
@@ -2970,7 +4014,17 @@ impl Renderer {
             return;
         }
         let reload = if p.reload_t > 0.0 { 0.5 } else { 0.0 };
-        self.draw_gun(p.weapon, &self.mate_gun(p), 0.0, reload, 0.0, 0.0, 0.0, 0, false);
+        self.draw_gun(
+            p.weapon,
+            &self.mate_gun(p),
+            0.0,
+            reload,
+            0.0,
+            0.0,
+            0.0,
+            0,
+            false,
+        );
     }
 
     fn draw_piece(&self, model: &M4, p: &GpuPiece) {
@@ -2994,9 +4048,27 @@ impl Renderer {
     /// A gun, posed as `pose_gun` says. One no one is holding, at rest, as everyone else's is but in a reload and
     /// the crates' always are, is drawn whole in one go rather than piece by piece.
     #[allow(clippy::too_many_arguments)]
-    fn draw_gun(&self, idx: usize, gun: &M4, recoil: f32, reload: f32, mag_out: f32, cycle: f32, turn: f32, fired: usize, hands: bool) {
+    fn draw_gun(
+        &self,
+        idx: usize,
+        gun: &M4,
+        recoil: f32,
+        reload: f32,
+        mag_out: f32,
+        cycle: f32,
+        turn: f32,
+        fired: usize,
+        hands: bool,
+    ) {
         let g = &self.guns[idx];
-        if !hands && recoil == 0.0 && reload == 0.0 && mag_out == 0.0 && cycle == 0.0 && turn == 0.0 && fired == 0 {
+        if !hands
+            && recoil == 0.0
+            && reload == 0.0
+            && mag_out == 0.0
+            && cycle == 0.0
+            && turn == 0.0
+            && fired == 0
+        {
             let gl = &self.gl;
             gl.bind_vertex_array(Some(&g.whole.vao));
             gl.uniform_matrix4fv_with_f32_array(self.u_model.as_ref(), false, gun);
@@ -3006,11 +4078,29 @@ impl Renderer {
             gl.uniform1f(self.u_whole.as_ref(), 0.0);
             return;
         }
-        pose_gun(&g.spec, gun, recoil, reload, mag_out, cycle, turn, fired, hands, |m, group| match group {
-            Group::Right => self.draw_pieces(m, &self.hands.right),
-            Group::Left => self.draw_pieces(m, if g.spec.pistol_hold { &self.hands.pistol_left } else { &self.hands.left }),
-            _ => self.draw_pieces(m, group.of(&g.body, &g.trigger, &g.action, &g.mag)),
-        });
+        pose_gun(
+            &g.spec,
+            gun,
+            recoil,
+            reload,
+            mag_out,
+            cycle,
+            turn,
+            fired,
+            hands,
+            |m, group| match group {
+                Group::Right => self.draw_pieces(m, &self.hands.right),
+                Group::Left => self.draw_pieces(
+                    m,
+                    if g.spec.pistol_hold {
+                        &self.hands.pistol_left
+                    } else {
+                        &self.hands.left
+                    },
+                ),
+                _ => self.draw_pieces(m, group.of(&g.body, &g.trigger, &g.action, &g.mag)),
+            },
+        );
     }
 
     /// Throws out into the world the rounds a reload empties from the chambers: `action` is where the part that
@@ -3025,16 +4115,45 @@ impl Renderer {
                 continue;
             }
             let m = mul(action, &translate(c[0], c[1], c[2] + r.out));
-            let rot = [cam.dir([m[0], m[1], m[2]]), cam.dir([m[4], m[5], m[6]]), cam.dir([m[8], m[9], m[10]])];
-            let h = |n: f32| ((g.time * 12.9898 + k as f32 * 78.233 + n * 37.719).sin() * 43758.547).rem_euclid(1.0);
+            let rot = [
+                cam.dir([m[0], m[1], m[2]]),
+                cam.dir([m[4], m[5], m[6]]),
+                cam.dir([m[8], m[9], m[10]]),
+            ];
+            let h = |n: f32| {
+                ((g.time * 12.9898 + k as f32 * 78.233 + n * 37.719).sin() * 43758.547)
+                    .rem_euclid(1.0)
+            };
             let side = if c[0] < 0.0 { -1.0 } else { 1.0 };
-            let t = [r.throw[0] * side + (h(1.0) - 0.5) * 0.4, r.throw[1] * (0.8 + 0.4 * h(2.0)) + (h(4.0) - 0.5) * 0.3, r.throw[2] * (0.8 + 0.4 * h(3.0))];
+            let t = [
+                r.throw[0] * side + (h(1.0) - 0.5) * 0.4,
+                r.throw[1] * (0.8 + 0.4 * h(2.0)) + (h(4.0) - 0.5) * 0.3,
+                r.throw[2] * (0.8 + 0.4 * h(3.0)),
+            ];
             let along = |i: usize| rot[0][i] * t[0] + rot[1][i] * t[1] + rot[2][i] * t[2];
-            let vel = [along(0) + p.body.vel[0], along(1) + p.body.vel[1], along(2) + p.body.vel[2]];
+            let vel = [
+                along(0) + p.body.vel[0],
+                along(1) + p.body.vel[1],
+                along(2) + p.body.vel[2],
+            ];
             // end over end, mostly, with a little twist
             let (flip, twist) = (side * (5.0 + 7.0 * h(5.0)), (h(6.0) - 0.5) * 6.0);
-            let spin = [rot[0][0] * flip + rot[1][0] * twist, rot[0][1] * flip + rot[1][1] * twist, rot[0][2] * flip + rot[1][2] * twist];
-            brass.push(crate::brass::Brass { gun: p.weapon, spent, pos: cam.point([m[12], m[13], m[14]]), vel, rot, spin, radius: r.radius, age: 0.0, resting: false });
+            let spin = [
+                rot[0][0] * flip + rot[1][0] * twist,
+                rot[0][1] * flip + rot[1][1] * twist,
+                rot[0][2] * flip + rot[1][2] * twist,
+            ];
+            brass.push(crate::brass::Brass {
+                gun: p.weapon,
+                spent,
+                pos: cam.point([m[12], m[13], m[14]]),
+                vel,
+                rot,
+                spin,
+                radius: r.radius,
+                age: 0.0,
+                resting: false,
+            });
         }
         let extra = brass.len().saturating_sub(crate::brass::MAX);
         brass.drain(..extra);
@@ -3057,13 +4176,42 @@ impl Renderer {
     /// The brass just thrown, with the gun in the camera's space, or (with no camera) the rest, out in the world.
     fn draw_brass(&self, cam: Option<&Camera>) {
         let view = cam.map(Camera::view);
-        for b in self.brass.borrow().iter().filter(|b| (b.age < BRASS_WITH_GUN) == view.is_some()) {
+        for b in self
+            .brass
+            .borrow()
+            .iter()
+            .filter(|b| (b.age < BRASS_WITH_GUN) == view.is_some())
+        {
             let g = &self.guns[b.gun];
             let Some(r) = &g.spec.rounds else { continue };
             let (x, y, z, k) = (b.rot[0], b.rot[1], b.rot[2], b.size());
-            let model = [x[0] * k, x[1] * k, x[2] * k, 0.0, y[0] * k, y[1] * k, y[2] * k, 0.0, z[0] * k, z[1] * k, z[2] * k, 0.0, b.pos[0], b.pos[1], b.pos[2], 1.0];
+            let model = [
+                x[0] * k,
+                x[1] * k,
+                x[2] * k,
+                0.0,
+                y[0] * k,
+                y[1] * k,
+                y[2] * k,
+                0.0,
+                z[0] * k,
+                z[1] * k,
+                z[2] * k,
+                0.0,
+                b.pos[0],
+                b.pos[1],
+                b.pos[2],
+                1.0,
+            ];
             let model = view.map_or(model, |v| mul(&v, &model));
-            self.draw_pieces(&model, if b.spent { &g.mag[..r.case] } else { &g.mag[..] });
+            self.draw_pieces(
+                &model,
+                if b.spent {
+                    &g.mag[..r.case]
+                } else {
+                    &g.mag[..]
+                },
+            );
         }
     }
 
@@ -3076,16 +4224,35 @@ impl Renderer {
             return;
         }
         let speed = (p.body.vel[0].powi(2) + p.body.vel[2].powi(2)).sqrt();
-        let walk = if p.body.on_ground { (speed / 6.0).min(1.5) } else { 0.0 };
+        let walk = if p.body.on_ground {
+            (speed / 6.0).min(1.5)
+        } else {
+            0.0
+        };
         let th = p.gait / crate::sim::STRIDE * std::f32::consts::PI - 0.4;
         let bob_x = th.sin() * 0.012 * walk;
         let bob_y = -(2.0 * th).cos() * 0.007 * walk + (g.time * 1.5).sin() * 0.002;
         // out from below, overshooting a touch as it settles
-        let up = if p.aiming { 1.0 - (1.0 - (p.aim_t / 0.2).min(1.0)).powi(3) } else { 1.0 };
+        let up = if p.aiming {
+            1.0 - (1.0 - (p.aim_t / 0.2).min(1.0)).powi(3)
+        } else {
+            1.0
+        };
         let s = if p.aiming { 0.0 } else { follow / 0.4 };
         let held = mul(
-            &translate(0.15 + bob_x - 0.10 * s, -0.095 + bob_y - 0.22 * (1.0 - up) + 0.05 * (s * std::f32::consts::PI).sin() - 0.2 * s * s, -0.31 - 0.30 * s),
-            &mul(&rot_y(0.45 - 0.6 * s), &mul(&rot_x(0.3 - 0.7 * (1.0 - up) - 1.3 * s), &rot_z(0.3 + 0.4 * (1.0 - up)))),
+            &translate(
+                0.15 + bob_x - 0.10 * s,
+                -0.095 + bob_y - 0.22 * (1.0 - up) + 0.05 * (s * std::f32::consts::PI).sin()
+                    - 0.2 * s * s,
+                -0.31 - 0.30 * s,
+            ),
+            &mul(
+                &rot_y(0.45 - 0.6 * s),
+                &mul(
+                    &rot_x(0.3 - 0.7 * (1.0 - up) - 1.3 * s),
+                    &rot_z(0.3 + 0.4 * (1.0 - up)),
+                ),
+            ),
         );
         self.draw_pieces(&held, &self.grenade.hand);
         if p.aiming {
@@ -3100,16 +4267,35 @@ impl Renderer {
     /// back on the shoulder at a run.
     fn draw_bat_view(&self, g: &Game) {
         let p = g.me();
-        let u = if p.cooldown > 0.0 { 1.0 - p.cooldown / p.gun().delay } else { 1.0 };
-        let (at, tip) = bat_swing(if p.swings % 2 == 1 { &FOREHAND } else { &BACKHAND }, u);
+        let u = if p.cooldown > 0.0 {
+            1.0 - p.cooldown / p.gun().delay
+        } else {
+            1.0
+        };
+        let (at, tip) = bat_swing(
+            if p.swings % 2 == 1 {
+                &FOREHAND
+            } else {
+                &BACKHAND
+            },
+            u,
+        );
         let speed = (p.body.vel[0].powi(2) + p.body.vel[2].powi(2)).sqrt();
-        let walk = if p.body.on_ground { (speed / 6.0).min(1.5) } else { 0.0 };
+        let walk = if p.body.on_ground {
+            (speed / 6.0).min(1.5)
+        } else {
+            0.0
+        };
         let th = p.gait / crate::sim::STRIDE * std::f32::consts::PI - 0.4;
         let big = 1.0 + 1.6 * p.sprint_t;
         let bob_x = th.sin() * 0.012 * walk * big;
         let bob_y = -(2.0 * th).cos() * 0.007 * walk * big + (g.time * 1.5).sin() * 0.002;
         // running, it goes back on the shoulder, unless it is being swung; coming out, it comes up from below
-        let swinging = if p.cooldown > 0.0 { 1.0 - ease(0.7, 1.0, u) } else { 0.0 };
+        let swinging = if p.cooldown > 0.0 {
+            1.0 - ease(0.7, 1.0, u)
+        } else {
+            0.0
+        };
         let carry = p.sprint_t * (1.0 - swinging);
         let raise = (p.equip_t / crate::sim::EQUIP_TIME).powi(2);
         // a blow that lands shudders back through it
@@ -3120,11 +4306,14 @@ impl Renderer {
             at[2] + 0.05 * carry,
         ];
         let back = [0.25, 0.55, 0.80];
-        let tip = norm(std::array::from_fn(|i| tip[i] + (back[i] - tip[i]) * (0.8 * carry + raise).min(1.0)));
+        let tip = norm(std::array::from_fn(|i| {
+            tip[i] + (back[i] - tip[i]) * (0.8 * carry + raise).min(1.0)
+        }));
         let m = bat_frame(at, tip, std::array::from_fn(|i| BAT_ELBOWS[i] - at[i]));
         self.draw_pieces(&m, &self.guns[p.weapon].body);
         self.draw_pieces(&m, &self.bat.hands);
-        let coats = ((p.gore * self.bat.blood.len() as f32).ceil() as usize).min(self.bat.blood.len());
+        let coats =
+            ((p.gore * self.bat.blood.len() as f32).ceil() as usize).min(self.bat.blood.len());
         self.draw_pieces(&m, &self.bat.blood[..coats]);
     }
 
@@ -3137,9 +4326,17 @@ impl Renderer {
         }
         let t = g.time;
         let speed = (p.body.vel[0].powi(2) + p.body.vel[2].powi(2)).sqrt();
-        let walk = if p.body.on_ground { (speed / 6.0).min(1.5) } else { 0.0 } * (1.0 - 0.8 * p.ads);
+        let walk = if p.body.on_ground {
+            (speed / 6.0).min(1.5)
+        } else {
+            0.0
+        } * (1.0 - 0.8 * p.ads);
         let recoil = p.cooldown / w.delay; // 1 right after a shot, fading to 0
-        let reload = if p.reload_t > 0.0 { 1.0 - p.reload_t / w.reload } else { 0.0 };
+        let reload = if p.reload_t > 0.0 {
+            1.0 - p.reload_t / w.reload
+        } else {
+            0.0
+        };
         let dip = (reload * std::f32::consts::PI).sin(); // gun lowers and tilts while reloading
         let spec = self.guns[p.weapon].spec;
         // a magazine comes out and goes back in; rounds a gun shows one by one go in their own way (see `round_at`)
@@ -3159,7 +4356,12 @@ impl Renderer {
         // swinging up from below when the gun was just selected
         let raise = (p.equip_t / crate::sim::EQUIP_TIME).powi(2);
         // a long gun needs more kick to read as one, and a gun that flips hard shoves back hard too
-        let kick = if w.pellets > 1 || w.scope { 0.09f32 } else { 0.05 }.max(spec.flip * 0.2);
+        let kick = if w.pellets > 1 || w.scope {
+            0.09f32
+        } else {
+            0.05
+        }
+        .max(spec.flip * 0.2);
         let (flash_z, hold) = (spec.muzzle_z, spec.hold);
         // where the eye sits when aiming, above the gun's origin
         let sight_y = spec.sight_y + hold[1];
@@ -3183,14 +4385,35 @@ impl Renderer {
         };
         let gun = mul(
             &translate(
-                lerp(self.gun_offset.get().map_or(0.15, |o| o[0]) + bob_x - 0.04 * carry - across * dip, 0.0),
-                lerp(self.gun_offset.get().map_or(-0.17, |o| o[1]) + bob_y - lower * dip - 0.35 * raise - 0.05 * carry + 0.03 * tip, -sight_y),
-                lerp(self.gun_offset.get().map_or(-0.38, |o| o[2]), -0.30) + kick * recoil + 0.03 * carry,
+                lerp(
+                    self.gun_offset.get().map_or(0.15, |o| o[0]) + bob_x
+                        - 0.04 * carry
+                        - across * dip,
+                    0.0,
+                ),
+                lerp(
+                    self.gun_offset.get().map_or(-0.17, |o| o[1]) + bob_y
+                        - lower * dip
+                        - 0.35 * raise
+                        - 0.05 * carry
+                        + 0.03 * tip,
+                    -sight_y,
+                ),
+                lerp(self.gun_offset.get().map_or(-0.38, |o| o[2]), -0.30)
+                    + kick * recoil
+                    + 0.03 * carry,
             ),
             &mul(
-                &rot_y(self.gun_yaw.get() * (1.0 - ads) + 0.55 * carry + th.sin() * 0.03 * walk * p.sprint_t),
+                &rot_y(
+                    self.gun_yaw.get() * (1.0 - ads)
+                        + 0.55 * carry
+                        + th.sin() * 0.03 * walk * p.sprint_t,
+                ),
                 &mul(
-                    &rot_x((spec.flip * recoil + pitch * dip + tip) * (1.0 - 0.5 * ads) + 0.8 * raise - 0.22 * carry),
+                    &rot_x(
+                        (spec.flip * recoil + pitch * dip + tip) * (1.0 - 0.5 * ads) + 0.8 * raise
+                            - 0.22 * carry,
+                    ),
                     &rot_z(roll * dip + 0.45 * carry + th.sin() * 0.05 * walk * p.sprint_t),
                 ),
             ),
@@ -3199,13 +4422,25 @@ impl Renderer {
         // a cylinder turns on to the next chamber as the shot settles; six-fold, so a full one looks like an empty one
         let fired = (w.mag - p.ammo[p.weapon]) as f32;
         let settle = (((1.0 - recoil) / 0.4).clamp(0.0, 1.0)).powi(2);
-        let turn = if recoil > 0.0 { fired - 1.0 + settle } else { fired };
+        let turn = if recoil > 0.0 {
+            fired - 1.0 + settle
+        } else {
+            fired
+        };
         let spent = fired as usize;
-        self.draw_gun(p.weapon, &gun, recoil, reload, mag_out, cycle, turn, spent, true);
+        self.draw_gun(
+            p.weapon, &gun, recoil, reload, mag_out, cycle, turn, spent, true,
+        );
         let (weapon, before) = self.last_reload.replace((p.weapon, reload));
         if let Some(r) = &spec.rounds {
             if weapon == p.weapon && before < r.eject && reload >= r.eject {
-                self.eject(g, &mul(&gun, &action_pose(&spec, recoil, reload, cycle, turn)), r, spent, view);
+                self.eject(
+                    g,
+                    &mul(&gun, &action_pose(&spec, recoil, reload, cycle, turn)),
+                    r,
+                    spent,
+                    view,
+                );
             }
         }
 
@@ -3214,9 +4449,24 @@ impl Renderer {
             let spin = around([0.0, 0.012, flash_z], &rot_z(p.ammo[p.weapon] as f32 * 1.7));
             let big = if w.pellets > 1 { 1.5 } else { 1.0 };
             let flash = [
-                part([-0.02 * big, -0.01, flash_z - 0.06], [0.02 * big, 0.034, flash_z + 0.01], [1.0, 0.95, 0.6], 0.0),
-                part([-0.07 * big, 0.008, flash_z - 0.04], [0.07 * big, 0.016, flash_z], [1.0, 0.7, 0.2], 0.0),
-                part([-0.004, -0.04 * big, flash_z - 0.04], [0.004, 0.064 * big, flash_z], [1.0, 0.7, 0.2], 0.0),
+                part(
+                    [-0.02 * big, -0.01, flash_z - 0.06],
+                    [0.02 * big, 0.034, flash_z + 0.01],
+                    [1.0, 0.95, 0.6],
+                    0.0,
+                ),
+                part(
+                    [-0.07 * big, 0.008, flash_z - 0.04],
+                    [0.07 * big, 0.016, flash_z],
+                    [1.0, 0.7, 0.2],
+                    0.0,
+                ),
+                part(
+                    [-0.004, -0.04 * big, flash_z - 0.04],
+                    [0.004, 0.064 * big, flash_z],
+                    [1.0, 0.7, 0.2],
+                    0.0,
+                ),
             ];
             for f in flash {
                 self.draw_part(&gun, &f.rot(spin), 1.0);

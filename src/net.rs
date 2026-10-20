@@ -49,13 +49,17 @@ impl W {
     /// A position to the nearest 1/64 m, anywhere within 512 m of the middle of the map.
     pub fn pos(&mut self, v: V3) -> &mut Self {
         for x in v {
-            self.0.extend_from_slice(&((x * 64.0).round().clamp(-32768.0, 32767.0) as i16).to_le_bytes());
+            self.0.extend_from_slice(
+                &((x * 64.0).round().clamp(-32768.0, 32767.0) as i16).to_le_bytes(),
+            );
         }
         self
     }
     /// An angle, to a 65536th of a turn.
     pub fn angle(&mut self, a: f32) -> &mut Self {
-        self.u16((a.rem_euclid(std::f32::consts::TAU) / std::f32::consts::TAU * 65536.0) as u32 as u16)
+        self.u16(
+            (a.rem_euclid(std::f32::consts::TAU) / std::f32::consts::TAU * 65536.0) as u32 as u16,
+        )
     }
     /// `v` from 0 to `max`, to a 255th of it.
     pub fn unit(&mut self, v: f32, max: f32) -> &mut Self {
@@ -135,16 +139,31 @@ impl<'a> R<'a> {
 pub enum Msg {
     /// client: to make a room on map `map` (`room` empty), to join room `room`, or (`room` is `QUICK`) to be put in
     /// any quick-match room that hasn't started, or a new one on any map
-    Hello { version: u8, room: String, map: u8, name: String },
+    Hello {
+        version: u8,
+        room: String,
+        map: u8,
+        name: String,
+    },
     /// client, the room's host: let the waves come
     Start,
     /// client: call me `name` from now on
     Name { name: String },
     /// server: you are in, as player `id`, in a game on map `map` made from `seed`
-    Welcome { id: u8, room: String, map: u8, seed: u32 },
+    Welcome {
+        id: u8,
+        room: String,
+        map: u8,
+        seed: u32,
+    },
     /// server: who is in the room, the host first; whether it was found by quick match, and the seconds until it
     /// starts by itself (0 when it isn't counting down)
-    Roster { started: bool, players: Vec<(u8, String)>, matched: bool, starts_in: u8 },
+    Roster {
+        started: bool,
+        players: Vec<(u8, String)>,
+        matched: bool,
+        starts_in: u8,
+    },
     /// server: no way in, and why
     Refused { why: String },
     /// server: every room is taken; you are `place` in line for the next (1 is next)
@@ -156,11 +175,26 @@ impl Msg {
     pub fn frame(&self) -> Vec<u8> {
         let mut w = W::default();
         match self {
-            Msg::Hello { version, room, map, name } => w.u8(1).u8(*version).str(room).u8(*map).str(name),
+            Msg::Hello {
+                version,
+                room,
+                map,
+                name,
+            } => w.u8(1).u8(*version).str(room).u8(*map).str(name),
             Msg::Start => w.u8(2),
             Msg::Name { name } => w.u8(3).str(name),
-            Msg::Welcome { id, room, map, seed } => w.u8(10).u8(*id).str(room).u8(*map).u32(*seed),
-            Msg::Roster { started, players, matched, starts_in } => {
+            Msg::Welcome {
+                id,
+                room,
+                map,
+                seed,
+            } => w.u8(10).u8(*id).str(room).u8(*map).u32(*seed),
+            Msg::Roster {
+                started,
+                players,
+                matched,
+                starts_in,
+            } => {
                 w.u8(11).u8(*started as u8).u8(players.len() as u8);
                 for (id, name) in players {
                     w.u8(*id).str(name);
@@ -178,15 +212,32 @@ impl Msg {
     fn read(b: &[u8]) -> Option<Msg> {
         let mut r = R::new(b);
         Some(match r.u8()? {
-            1 => Msg::Hello { version: r.u8()?, room: r.str()?, map: r.u8()?, name: r.str()? },
+            1 => Msg::Hello {
+                version: r.u8()?,
+                room: r.str()?,
+                map: r.u8()?,
+                name: r.str()?,
+            },
             2 => Msg::Start,
             3 => Msg::Name { name: r.str()? },
-            10 => Msg::Welcome { id: r.u8()?, room: r.str()?, map: r.u8()?, seed: r.u32()? },
+            10 => Msg::Welcome {
+                id: r.u8()?,
+                room: r.str()?,
+                map: r.u8()?,
+                seed: r.u32()?,
+            },
             11 => {
                 let started = r.u8()? != 0;
                 let n = r.u8()?;
-                let players = (0..n).map(|_| Some((r.u8()?, r.str()?))).collect::<Option<_>>()?;
-                Msg::Roster { started, players, matched: r.u8()? != 0, starts_in: r.u8()? }
+                let players = (0..n)
+                    .map(|_| Some((r.u8()?, r.str()?)))
+                    .collect::<Option<_>>()?;
+                Msg::Roster {
+                    started,
+                    players,
+                    matched: r.u8()? != 0,
+                    starts_in: r.u8()?,
+                }
             }
             12 => Msg::Refused { why: r.str()? },
             13 => Msg::Queued { place: r.u16()? },
@@ -226,10 +277,21 @@ pub fn encode_inputs(first: u32, inputs: &[Input]) -> Vec<u8> {
     let mut w = W::default();
     w.u8(INPUTS).u32(first).u8(inputs.len() as u8);
     for i in inputs {
-        let keys = [i.w, i.a, i.s, i.d, i.jump, i.sprint, i.fire, i.ads, i.reload, i.throw, i.take];
-        w.u16(keys.iter().enumerate().map(|(k, &on)| (on as u16) << k).sum());
+        let keys = [
+            i.w, i.a, i.s, i.d, i.jump, i.sprint, i.fire, i.ads, i.reload, i.throw, i.take,
+        ];
+        w.u16(
+            keys.iter()
+                .enumerate()
+                .map(|(k, &on)| (on as u16) << k)
+                .sum(),
+        );
         let [yaw, pitch] = i.view.unwrap_or([0.0; 2]);
-        w.f32(yaw).f32(pitch).u8(i.select.unwrap_or(255)).u8(i.pick.unwrap_or(255)).f32(i.seen);
+        w.f32(yaw)
+            .f32(pitch)
+            .u8(i.select.unwrap_or(255))
+            .u8(i.pick.unwrap_or(255))
+            .f32(i.seen);
     }
     w.0
 }
@@ -438,40 +500,90 @@ pub fn encode_records(s: &Snapshot) -> Vec<Vec<u8>> {
                 r.f32(x);
             }
         }
-        r.f32(o.stamina).f32(o.since_sprint).f32(o.yaw).f32(o.hp).u16(o.kills as u16).u16(o.deaths as u16).f32(o.respawn_t);
+        r.f32(o.stamina)
+            .f32(o.since_sprint)
+            .f32(o.yaw)
+            .f32(o.hp)
+            .u16(o.kills as u16)
+            .u16(o.deaths as u16)
+            .f32(o.respawn_t);
         let k = &o.kit;
-        r.u8(k.loadout[0]).u8(k.loadout[1]).u8(k.weapon).u8(k.grenades);
+        r.u8(k.loadout[0])
+            .u8(k.loadout[1])
+            .u8(k.weapon)
+            .u8(k.grenades);
         r.0.extend_from_slice(&k.ammo);
         r.0.extend_from_slice(&k.reserve);
         out.push(r.0);
     }
     if let Some(g) = &s.world {
         let mut r = W::default();
-        r.u8(WORLD).u16(g.wave as u16).u16(g.left as u16).u8(g.started as u8);
+        r.u8(WORLD)
+            .u16(g.wave as u16)
+            .u16(g.left as u16)
+            .u8(g.started as u8);
         out.push(r.0);
     }
     for m in &s.mates {
         let mut r = W::default();
-        let flags = [m.alive, m.on_ground, m.aiming, m.reloading, m.ads, m.climbing];
-        r.u8(MATE).u8(m.id).pos(m.pos).angle(m.yaw).signed(m.pitch, 1.6).u8(m.weapon);
-        r.u8(flags.iter().enumerate().map(|(k, &on)| (on as u8) << k).sum()).unit(m.hp, 100.0).unit(m.sprint, 1.0).u16(m.kills.min(u16::MAX as u32) as u16);
+        let flags = [
+            m.alive,
+            m.on_ground,
+            m.aiming,
+            m.reloading,
+            m.ads,
+            m.climbing,
+        ];
+        r.u8(MATE)
+            .u8(m.id)
+            .pos(m.pos)
+            .angle(m.yaw)
+            .signed(m.pitch, 1.6)
+            .u8(m.weapon);
+        r.u8(flags
+            .iter()
+            .enumerate()
+            .map(|(k, &on)| (on as u8) << k)
+            .sum())
+            .unit(m.hp, 100.0)
+            .unit(m.sprint, 1.0)
+            .u16(m.kills.min(u16::MAX as u32) as u16);
         out.push(r.0);
     }
     for z in &s.zombies {
         let mut r = W::default();
-        let flags = z.kind | (z.alive as u8) << 2 | (z.corpse as u8) << 3 | (z.on_ground as u8) << 4 | (z.pose.is_some() as u8) << 5;
+        let flags = z.kind
+            | (z.alive as u8) << 2
+            | (z.corpse as u8) << 3
+            | (z.on_ground as u8) << 4
+            | (z.pose.is_some() as u8) << 5;
         r.u8(ZOMBIE).u32(z.id).pos(z.pos).angle(z.face).u8(flags);
-        r.signed(z.vel[0], 12.0).signed(z.vel[1], 12.0).unit(z.speed, 8.0).unit(z.phase, 6.3);
-        r.unit(z.hit_t, 1.0).unit(z.swing_t, 1.0).unit(z.dead_t, 12.0);
-        r.signed(z.head[0], 0.25).signed(z.head[1], 0.25).signed(z.head[2], 0.25);
+        r.signed(z.vel[0], 12.0)
+            .signed(z.vel[1], 12.0)
+            .unit(z.speed, 8.0)
+            .unit(z.phase, 6.3);
+        r.unit(z.hit_t, 1.0)
+            .unit(z.swing_t, 1.0)
+            .unit(z.dead_t, 12.0);
+        r.signed(z.head[0], 0.25)
+            .signed(z.head[1], 0.25)
+            .signed(z.head[2], 0.25);
         if let Some((s, up, ahead, duck)) = z.pose {
-            r.unit(s, 1.0).signed(up, 4.0).signed(ahead, 3.0).unit(duck, 1.0);
+            r.unit(s, 1.0)
+                .signed(up, 4.0)
+                .signed(ahead, 3.0)
+                .unit(duck, 1.0);
         }
         out.push(r.0);
     }
     for n in &s.nades {
         let mut r = W::default();
-        r.u8(NADE).u32(n.id).pos(n.pos).angle(n.rot[0]).angle(n.rot[1]).angle(n.rot[2]);
+        r.u8(NADE)
+            .u32(n.id)
+            .pos(n.pos)
+            .angle(n.rot[0])
+            .angle(n.rot[1])
+            .angle(n.rot[2]);
         out.push(r.0);
     }
     for b in &s.booms {
@@ -498,7 +610,10 @@ pub fn decode_snapshot(b: &[u8]) -> Option<Snapshot> {
     if r.u8()? != SNAPSHOT {
         return None;
     }
-    let mut s = Snapshot { tick: r.u32()?, ..Default::default() };
+    let mut s = Snapshot {
+        tick: r.u32()?,
+        ..Default::default()
+    };
     while !r.done() {
         match r.u8()? {
             OWN => {
@@ -514,31 +629,122 @@ pub fn decode_snapshot(b: &[u8]) -> Option<Snapshot> {
                 };
                 let (stamina, since_sprint, yaw, hp) = (r.f32()?, r.f32()?, r.f32()?, r.f32()?);
                 let (kills, deaths, respawn_t) = (r.u16()? as u32, r.u16()? as u32, r.f32()?);
-                let mut kit = Kit { loadout: [r.u8()?, r.u8()?], weapon: r.u8()?, grenades: r.u8()?, ..Default::default() };
+                let mut kit = Kit {
+                    loadout: [r.u8()?, r.u8()?],
+                    weapon: r.u8()?,
+                    grenades: r.u8()?,
+                    ..Default::default()
+                };
                 for x in kit.ammo.iter_mut().chain(kit.reserve.iter_mut()) {
                     *x = r.u8()?;
                 }
-                s.own = Some(Own { ack, life, pos, vel, on_ground: flags & 1 != 0, winded: flags & 2 != 0, climb, stamina, since_sprint, yaw, hp, kills, deaths, respawn_t, kit });
+                s.own = Some(Own {
+                    ack,
+                    life,
+                    pos,
+                    vel,
+                    on_ground: flags & 1 != 0,
+                    winded: flags & 2 != 0,
+                    climb,
+                    stamina,
+                    since_sprint,
+                    yaw,
+                    hp,
+                    kills,
+                    deaths,
+                    respawn_t,
+                    kit,
+                });
             }
-            WORLD => s.world = Some(World { wave: r.u16()? as u32, left: r.u16()? as u32, started: r.u8()? != 0 }),
+            WORLD => {
+                s.world = Some(World {
+                    wave: r.u16()? as u32,
+                    left: r.u16()? as u32,
+                    started: r.u8()? != 0,
+                })
+            }
             MATE => {
-                let (id, pos, yaw, pitch, weapon, flags, hp) = (r.u8()?, r.pos()?, r.angle()?, r.signed(1.6)?, r.u8()?, r.u8()?, r.unit(100.0)?);
-                let (on, sprint, kills) = (|k: u8| flags & (1 << k) != 0, r.unit(1.0)?, r.u16()? as u32);
-                s.mates.push(Mate { id, pos, yaw, pitch, weapon, alive: on(0), on_ground: on(1), aiming: on(2), reloading: on(3), ads: on(4), climbing: on(5), hp, sprint, kills });
+                let (id, pos, yaw, pitch, weapon, flags, hp) = (
+                    r.u8()?,
+                    r.pos()?,
+                    r.angle()?,
+                    r.signed(1.6)?,
+                    r.u8()?,
+                    r.u8()?,
+                    r.unit(100.0)?,
+                );
+                let (on, sprint, kills) =
+                    (|k: u8| flags & (1 << k) != 0, r.unit(1.0)?, r.u16()? as u32);
+                s.mates.push(Mate {
+                    id,
+                    pos,
+                    yaw,
+                    pitch,
+                    weapon,
+                    alive: on(0),
+                    on_ground: on(1),
+                    aiming: on(2),
+                    reloading: on(3),
+                    ads: on(4),
+                    climbing: on(5),
+                    hp,
+                    sprint,
+                    kills,
+                });
             }
             ZOMBIE => {
                 let (id, pos, face, flags) = (r.u32()?, r.pos()?, r.angle()?, r.u8()?);
-                let (vel, speed, phase) = ([r.signed(12.0)?, r.signed(12.0)?], r.unit(8.0)?, r.unit(6.3)?);
+                let (vel, speed, phase) = (
+                    [r.signed(12.0)?, r.signed(12.0)?],
+                    r.unit(8.0)?,
+                    r.unit(6.3)?,
+                );
                 let (hit_t, swing_t, dead_t) = (r.unit(1.0)?, r.unit(1.0)?, r.unit(12.0)?);
                 let head = [r.signed(0.25)?, r.signed(0.25)?, r.signed(0.25)?];
-                let pose = if flags & 32 != 0 { Some((r.unit(1.0)?, r.signed(4.0)?, r.signed(3.0)?, r.unit(1.0)?)) } else { None };
-                let (kind, alive, corpse, on_ground) = (flags & 3, flags & 4 != 0, flags & 8 != 0, flags & 16 != 0);
-                s.zombies.push(Zombie { id, pos, face, kind, alive, corpse, on_ground, vel, speed, phase, hit_t, swing_t, dead_t, head, pose });
+                let pose = if flags & 32 != 0 {
+                    Some((r.unit(1.0)?, r.signed(4.0)?, r.signed(3.0)?, r.unit(1.0)?))
+                } else {
+                    None
+                };
+                let (kind, alive, corpse, on_ground) =
+                    (flags & 3, flags & 4 != 0, flags & 8 != 0, flags & 16 != 0);
+                s.zombies.push(Zombie {
+                    id,
+                    pos,
+                    face,
+                    kind,
+                    alive,
+                    corpse,
+                    on_ground,
+                    vel,
+                    speed,
+                    phase,
+                    hit_t,
+                    swing_t,
+                    dead_t,
+                    head,
+                    pose,
+                });
             }
-            NADE => s.nades.push(Nade { id: r.u32()?, pos: r.pos()?, rot: [r.angle()?, r.angle()?, r.angle()?] }),
-            BOOM => s.booms.push(Boom { id: r.u32()?, pos: r.pos()?, t: r.unit(2.0)? }),
-            SHOT => s.shots.push(crate::sim::Shot { by: r.u8()?, a: r.pos()?, b: r.pos()? }),
-            LOOT => s.loot.push(Loot { pos: r.pos()?, gun: r.u8()? }),
+            NADE => s.nades.push(Nade {
+                id: r.u32()?,
+                pos: r.pos()?,
+                rot: [r.angle()?, r.angle()?, r.angle()?],
+            }),
+            BOOM => s.booms.push(Boom {
+                id: r.u32()?,
+                pos: r.pos()?,
+                t: r.unit(2.0)?,
+            }),
+            SHOT => s.shots.push(crate::sim::Shot {
+                by: r.u8()?,
+                a: r.pos()?,
+                b: r.pos()?,
+            }),
+            LOOT => s.loot.push(Loot {
+                pos: r.pos()?,
+                gun: r.u8()?,
+            }),
             _ => return None,
         }
     }
@@ -552,13 +758,37 @@ mod tests {
     #[test]
     fn stream_messages_come_back_the_same_however_the_bytes_are_split() {
         let msgs = vec![
-            Msg::Hello { version: VERSION, room: "ABCD".into(), map: 1, name: "Val".into() },
+            Msg::Hello {
+                version: VERSION,
+                room: "ABCD".into(),
+                map: 1,
+                name: "Val".into(),
+            },
             Msg::Start,
-            Msg::Name { name: "Friend".into() },
-            Msg::Welcome { id: 3, room: "ABCD".into(), map: 1, seed: 1234567 },
-            Msg::Hello { version: VERSION, room: QUICK.into(), map: 0, name: "".into() },
-            Msg::Roster { started: true, players: vec![(0, "Val".into()), (3, "Friend".into())], matched: true, starts_in: 27 },
-            Msg::Refused { why: "No such room".into() },
+            Msg::Name {
+                name: "Friend".into(),
+            },
+            Msg::Welcome {
+                id: 3,
+                room: "ABCD".into(),
+                map: 1,
+                seed: 1234567,
+            },
+            Msg::Hello {
+                version: VERSION,
+                room: QUICK.into(),
+                map: 0,
+                name: "".into(),
+            },
+            Msg::Roster {
+                started: true,
+                players: vec![(0, "Val".into()), (3, "Friend".into())],
+                matched: true,
+                starts_in: 27,
+            },
+            Msg::Refused {
+                why: "No such room".into(),
+            },
             Msg::Queued { place: 300 },
         ];
         let bytes: Vec<u8> = msgs.iter().flat_map(|m| m.frame()).collect();
@@ -572,42 +802,136 @@ mod tests {
 
     #[test]
     fn inputs_come_back_the_same() {
-        let a = Input { w: true, fire: true, throw: true, view: Some([1.25, -0.3]), select: Some(1), seen: 812.5, ..Default::default() };
-        let b = Input { s: true, d: true, ads: true, view: Some([-3.0, 0.7]), pick: Some(9), ..Default::default() };
+        let a = Input {
+            w: true,
+            fire: true,
+            throw: true,
+            view: Some([1.25, -0.3]),
+            select: Some(1),
+            seen: 812.5,
+            ..Default::default()
+        };
+        let b = Input {
+            s: true,
+            d: true,
+            ads: true,
+            view: Some([-3.0, 0.7]),
+            pick: Some(9),
+            ..Default::default()
+        };
         let (first, back) = decode_inputs(&encode_inputs(41, &[a, b])).unwrap();
         assert_eq!((first, back), (41, vec![a, b]));
     }
 
     #[test]
     fn a_big_snapshot_is_split_into_datagrams_that_each_read_on_their_own() {
-        let kit = Kit { loadout: [4, 9], weapon: 9, grenades: 3, ammo: [7; WEAPON_COUNT], reserve: [70; WEAPON_COUNT] };
-        let own = Own { ack: 99, life: 2, pos: [1.5, 0.25, -30.125], vel: [0.5, -3.0, 1.0], climb: Some([0.5; 14]), stamina: 0.4, hp: 64.0, kills: 12, kit, ..Default::default() };
-        let zombie = |i: u32| Zombie { id: i, pos: [i as f32, 0.0, -2.0 * i as f32], face: 1.0, kind: (i % 3) as u8, alive: i % 2 == 0, speed: 3.0, pose: (i % 5 == 0).then_some((0.5, 1.0, 0.5, 0.25)), ..Default::default() };
+        let kit = Kit {
+            loadout: [4, 9],
+            weapon: 9,
+            grenades: 3,
+            ammo: [7; WEAPON_COUNT],
+            reserve: [70; WEAPON_COUNT],
+        };
+        let own = Own {
+            ack: 99,
+            life: 2,
+            pos: [1.5, 0.25, -30.125],
+            vel: [0.5, -3.0, 1.0],
+            climb: Some([0.5; 14]),
+            stamina: 0.4,
+            hp: 64.0,
+            kills: 12,
+            kit,
+            ..Default::default()
+        };
+        let zombie = |i: u32| Zombie {
+            id: i,
+            pos: [i as f32, 0.0, -2.0 * i as f32],
+            face: 1.0,
+            kind: (i % 3) as u8,
+            alive: i % 2 == 0,
+            speed: 3.0,
+            pose: (i % 5 == 0).then_some((0.5, 1.0, 0.5, 0.25)),
+            ..Default::default()
+        };
         let s = Snapshot {
             tick: 5000,
             own: Some(own.clone()),
-            world: Some(World { wave: 3, left: 14, started: true }),
-            mates: vec![Mate { id: 2, pos: [10.0, 3.0, 4.0], yaw: 2.0, pitch: -0.2, weapon: 4, alive: true, ads: true, hp: 80.0, kills: 12, ..Default::default() }],
+            world: Some(World {
+                wave: 3,
+                left: 14,
+                started: true,
+            }),
+            mates: vec![Mate {
+                id: 2,
+                pos: [10.0, 3.0, 4.0],
+                yaw: 2.0,
+                pitch: -0.2,
+                weapon: 4,
+                alive: true,
+                ads: true,
+                hp: 80.0,
+                kills: 12,
+                ..Default::default()
+            }],
             zombies: (1..=60).map(zombie).collect(),
-            nades: vec![Nade { id: 77, pos: [1.0, 1.0, 1.0], rot: [0.1, 0.2, 0.3] }],
-            booms: vec![Boom { id: 78, pos: [2.0, 0.1, 2.0], t: 0.5 }],
-            shots: vec![crate::sim::Shot { by: 2, a: [0.0, 1.5, 0.0], b: [5.0, 1.0, -20.0] }],
-            loot: vec![Loot { pos: [12.5, 0.0, -3.25], gun: 255 }, Loot { pos: [-40.0, 2.5, 8.0], gun: 4 }],
+            nades: vec![Nade {
+                id: 77,
+                pos: [1.0, 1.0, 1.0],
+                rot: [0.1, 0.2, 0.3],
+            }],
+            booms: vec![Boom {
+                id: 78,
+                pos: [2.0, 0.1, 2.0],
+                t: 0.5,
+            }],
+            shots: vec![crate::sim::Shot {
+                by: 2,
+                a: [0.0, 1.5, 0.0],
+                b: [5.0, 1.0, -20.0],
+            }],
+            loot: vec![
+                Loot {
+                    pos: [12.5, 0.0, -3.25],
+                    gun: 255,
+                },
+                Loot {
+                    pos: [-40.0, 2.5, 8.0],
+                    gun: 4,
+                },
+            ],
         };
         let parts = encode_snapshot(&s);
-        assert!(parts.len() > 1 && parts.iter().all(|p| p.len() <= DATAGRAM), "{:?}", parts.iter().map(Vec::len).collect::<Vec<_>>());
+        assert!(
+            parts.len() > 1 && parts.iter().all(|p| p.len() <= DATAGRAM),
+            "{:?}",
+            parts.iter().map(Vec::len).collect::<Vec<_>>()
+        );
         let back: Vec<Snapshot> = parts.iter().map(|p| decode_snapshot(p).unwrap()).collect();
         assert!(back.iter().all(|b| b.tick == 5000));
-        assert_eq!(back[0].own.as_ref(), Some(&own), "the player's own record is exact");
+        assert_eq!(
+            back[0].own.as_ref(),
+            Some(&own),
+            "the player's own record is exact"
+        );
         let zs: Vec<Zombie> = back.iter().flat_map(|b| b.zombies.clone()).collect();
         assert_eq!(zs.len(), 60);
         for (z, was) in zs.iter().zip(&s.zombies) {
-            assert_eq!((z.id, z.kind, z.alive, z.pose.is_some()), (was.id, was.kind, was.alive, was.pose.is_some()));
+            assert_eq!(
+                (z.id, z.kind, z.alive, z.pose.is_some()),
+                (was.id, was.kind, was.alive, was.pose.is_some())
+            );
             assert!((0..3).all(|k| (z.pos[k] - was.pos[k]).abs() < 0.01));
         }
         let last = back.last().unwrap();
-        assert_eq!((last.nades.len(), last.booms.len(), last.shots.len()), (1, 1, 1));
-        assert_eq!(last.loot, s.loot, "boxes and crates come back where they lie");
+        assert_eq!(
+            (last.nades.len(), last.booms.len(), last.shots.len()),
+            (1, 1, 1)
+        );
+        assert_eq!(
+            last.loot, s.loot,
+            "boxes and crates come back where they lie"
+        );
         assert!((back[0].mates[0].yaw - 2.0).abs() < 0.001 && back[0].mates[0].ads);
     }
 }

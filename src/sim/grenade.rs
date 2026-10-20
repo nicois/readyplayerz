@@ -43,7 +43,15 @@ pub struct Grenade {
 impl Grenade {
     /// One seen over the network, only to be drawn.
     pub(crate) fn seen(id: u32, pos: V3, rot: V3) -> Grenade {
-        Grenade { id, by: 0, pos, vel: [0.0; 3], rot, spin: [0.0; 3], fuse: FUSE }
+        Grenade {
+            id,
+            by: 0,
+            pos,
+            vel: [0.0; 3],
+            rot,
+            spin: [0.0; 3],
+            fuse: FUSE,
+        }
     }
 }
 
@@ -67,8 +75,14 @@ fn fly(n: &mut Grenade, dt: f32, world: &Grid, bots: &[Bot]) -> (f32, Option<usi
         n.pos[axis] += n.vel[axis] * dt;
         let ground = world.ground_at(n.pos[0], n.pos[2]);
         let floor = axis == 1 && n.pos[1] < ground + R;
-        let probe = Aabb { min: [n.pos[0] - R, n.pos[1] - R, n.pos[2] - R], max: [n.pos[0] + R, n.pos[1] + R, n.pos[2] + R] };
-        let body = axis != 1 && bots.iter().any(|b| b.alive && overlaps(&probe, &b.body_box()));
+        let probe = Aabb {
+            min: [n.pos[0] - R, n.pos[1] - R, n.pos[2] - R],
+            max: [n.pos[0] + R, n.pos[1] + R, n.pos[2] + R],
+        };
+        let body = axis != 1
+            && bots
+                .iter()
+                .any(|b| b.alive && overlaps(&probe, &b.body_box()));
         if floor || body || world.find(&probe, |w| overlaps(&probe, w)) {
             if floor {
                 n.pos[1] = (ground + R).max(old);
@@ -145,7 +159,11 @@ impl Game {
             p.aim_t = 0.0;
         }
         // only the one throwing sees the arc, so the server needn't work it out
-        let (arc, axis) = if p.aiming && self.role != Role::Server { self.grenade_arc(pi) } else { (Vec::new(), 1) };
+        let (arc, axis) = if p.aiming && self.role != Role::Server {
+            self.grenade_arc(pi)
+        } else {
+            (Vec::new(), 1)
+        };
         let p = &mut self.players[pi];
         (p.arc, p.arc_axis) = (arc, axis);
         if throw {
@@ -166,11 +184,27 @@ impl Game {
         let f = p.forward();
         let dir = unit([f[0], f[1] + 0.15, f[2]]);
         let (sy, cy) = p.yaw.sin_cos();
-        let hand = [eye[0] + cy * SIDE + f[0] * 0.3, eye[1] - 0.15, eye[2] + sy * SIDE + f[2] * 0.3];
+        let hand = [
+            eye[0] + cy * SIDE + f[0] * 0.3,
+            eye[1] - 0.15,
+            eye[2] + sy * SIDE + f[2] * 0.3,
+        ];
         let off = [hand[0] - eye[0], hand[1] - eye[1], hand[2] - eye[2]];
         let free = self.world.raycast(eye, unit(off), len(off) + 0.1) > len(off) + 0.05;
-        let vel = [dir[0] * THROW_SPEED, dir[1] * THROW_SPEED, dir[2] * THROW_SPEED];
-        let mut n = Grenade { id: 0, by: p.id, pos: if free { hand } else { eye }, vel, rot: [0.0; 3], spin: [0.0; 3], fuse: FUSE };
+        let vel = [
+            dir[0] * THROW_SPEED,
+            dir[1] * THROW_SPEED,
+            dir[2] * THROW_SPEED,
+        ];
+        let mut n = Grenade {
+            id: 0,
+            by: p.id,
+            pos: if free { hand } else { eye },
+            vel,
+            rot: [0.0; 3],
+            spin: [0.0; 3],
+            fuse: FUSE,
+        };
         if free {
             let (_, _, t) = self.flight(&n);
             let k = SIDE / t.max(0.1);
@@ -224,7 +258,11 @@ impl Game {
         if self.role != Role::Mirror {
             let mut n = self.grenade_in_hand(pi);
             n.id = self.new_id();
-            n.spin = [self.rng.range(-12.0, 12.0), self.rng.range(-6.0, 6.0), self.rng.range(-12.0, 12.0)];
+            n.spin = [
+                self.rng.range(-12.0, 12.0),
+                self.rng.range(-6.0, 6.0),
+                self.rng.range(-12.0, 12.0),
+            ];
             self.grenades.push(n);
         }
         let p = &mut self.players[pi];
@@ -245,7 +283,10 @@ impl Game {
         if self.role == Role::Mirror {
             return;
         }
-        let me = self.players.get(self.local).map_or([0.0; 3], |p| p.body.pos);
+        let me = self
+            .players
+            .get(self.local)
+            .map_or([0.0; 3], |p| p.body.pos);
         let mut gone = Vec::new();
         for n in &mut self.grenades {
             n.fuse -= dt;
@@ -268,7 +309,11 @@ impl Game {
     /// How a blast at `at` looks, sounds and feels to the player this machine looks through: a fireball, sparks
     /// and a shake. A client sees it this way when the server says one went off.
     pub(crate) fn blast_fx(&mut self, id: u32, at: V3) {
-        self.blasts.push(Blast { id, pos: at, t: 0.0 });
+        self.blasts.push(Blast {
+            id,
+            pos: at,
+            t: 0.0,
+        });
         if self.role == Role::Server {
             return;
         }
@@ -279,7 +324,8 @@ impl Game {
         let (sy, cy) = p.yaw.sin_cos();
         let pan = (dx * cy + dz * sy) / d;
         p.shake = p.shake.max(((25.0 - d) / 20.0).clamp(0.0, 1.0));
-        self.events.push([ev::BLAST, len([dx, at[1] - me[1], dz]), pan]);
+        self.events
+            .push([ev::BLAST, len([dx, at[1] - me[1], dz]), pan]);
         // sparks flying out of it
         for _ in 0..36 {
             let r = &mut self.rng;
@@ -288,9 +334,22 @@ impl Game {
             let flat = (1.0 - up * up).sqrt();
             let vel = [a.cos() * flat * speed, up * speed, a.sin() * flat * speed];
             let s = r.range(0.02, 0.05);
-            let color = if r.f() < 0.5 { [1.0, 0.75, 0.3] } else { [1.0, 0.5, 0.15] };
+            let color = if r.f() < 0.5 {
+                [1.0, 0.75, 0.3]
+            } else {
+                [1.0, 0.5, 0.15]
+            };
             let life = r.range(0.3, 0.8);
-            self.debris.push(Debris { pos: [at[0], at[1] + 0.2, at[2]], vel, rot: [0.0; 3], spin: [0.0; 3], half: [s; 3], color, life, glow: 1.0 });
+            self.debris.push(Debris {
+                pos: [at[0], at[1] + 0.2, at[2]],
+                vel,
+                rot: [0.0; 3],
+                spin: [0.0; 3],
+                half: [s; 3],
+                color,
+                life,
+                glow: 1.0,
+            });
         }
         self.trim_debris();
     }
@@ -306,7 +365,9 @@ impl Game {
             if !b.alive && !b.corpse {
                 continue;
             }
-            let Some((share, away, d)) = blast_on(at, b.body.pos, 1.7 * b.scale, world) else { continue };
+            let Some((share, away, d)) = blast_on(at, b.body.pos, 1.7 * b.scale, world) else {
+                continue;
+            };
             let push = share * if b.kind == 2 { 0.6 } else { 1.0 };
             let b = &mut self.bots[i];
             b.climb = None;
@@ -334,10 +395,19 @@ impl Game {
             if gib {
                 self.gibs([pos[0], pos[1] + 1.0 * scale, pos[2]], away, scale);
             } else {
-                self.blood([pos[0], pos[1] + 1.2 * scale, pos[2]], [away[0], 0.0, away[1]], 16);
+                self.blood(
+                    [pos[0], pos[1] + 1.2 * scale, pos[2]],
+                    [away[0], 0.0, away[1]],
+                    16,
+                );
             }
         }
-        if let Some(p) = self.players.iter_mut().find(|p| p.id == by).filter(|_| killed > 0) {
+        if let Some(p) = self
+            .players
+            .iter_mut()
+            .find(|p| p.id == by)
+            .filter(|_| killed > 0)
+        {
             p.kills += killed;
             p.kill_t = 1.0;
             p.hit_marker = 1.0;
@@ -366,16 +436,46 @@ impl Game {
         if self.role == Role::Server {
             return;
         }
-        const FLESH: [[f32; 3]; 4] = [[0.42, 0.47, 0.36], [0.33, 0.30, 0.27], [0.25, 0.27, 0.32], [0.45, 0.05, 0.05]];
+        const FLESH: [[f32; 3]; 4] = [
+            [0.42, 0.47, 0.36],
+            [0.33, 0.30, 0.27],
+            [0.25, 0.27, 0.32],
+            [0.45, 0.05, 0.05],
+        ];
         for k in 0..18 {
             let r = &mut self.rng;
             let speed = r.range(3.0, 10.0);
-            let vel = [away[0] * speed + r.range(-4.0, 4.0), r.range(3.0, 9.0), away[1] * speed + r.range(-4.0, 4.0)];
-            let half = [r.range(0.05, 0.13) * scale, r.range(0.05, 0.11) * scale, r.range(0.05, 0.13) * scale];
-            let spin = [r.range(-14.0, 14.0), r.range(-14.0, 14.0), r.range(-14.0, 14.0)];
-            let pos = [at[0] + r.range(-0.3, 0.3), at[1] + r.range(-0.6, 0.5), at[2] + r.range(-0.3, 0.3)];
+            let vel = [
+                away[0] * speed + r.range(-4.0, 4.0),
+                r.range(3.0, 9.0),
+                away[1] * speed + r.range(-4.0, 4.0),
+            ];
+            let half = [
+                r.range(0.05, 0.13) * scale,
+                r.range(0.05, 0.11) * scale,
+                r.range(0.05, 0.13) * scale,
+            ];
+            let spin = [
+                r.range(-14.0, 14.0),
+                r.range(-14.0, 14.0),
+                r.range(-14.0, 14.0),
+            ];
+            let pos = [
+                at[0] + r.range(-0.3, 0.3),
+                at[1] + r.range(-0.6, 0.5),
+                at[2] + r.range(-0.3, 0.3),
+            ];
             let life = r.range(3.0, 5.0);
-            self.debris.push(Debris { pos, vel, rot: [0.0; 3], spin, half, color: FLESH[k % FLESH.len()], life, glow: 0.0 });
+            self.debris.push(Debris {
+                pos,
+                vel,
+                rot: [0.0; 3],
+                spin,
+                half,
+                color: FLESH[k % FLESH.len()],
+                life,
+                glow: 0.0,
+            });
         }
         self.blood(at, [away[0], 0.0, away[1]], 40);
     }
@@ -412,7 +512,10 @@ mod tests {
         press_throw(&mut g, STEP);
         assert_eq!(g.players[0].grenades, 0, "none left to throw");
         g.respawn_player(0);
-        assert_eq!(g.players[0].grenades, GRENADES, "a new run starts with two again");
+        assert_eq!(
+            g.players[0].grenades, GRENADES,
+            "a new run starts with two again"
+        );
     }
 
     #[test]
@@ -424,18 +527,28 @@ mod tests {
         press_throw(&mut g, STEP);
         idle(&mut g, FUSE - 0.2);
         let n = &g.grenades[0];
-        assert!(n.pos[2] < -10.0 && n.pos[1] < 0.2, "it flies off ahead and comes down: {:?}", n.pos);
+        assert!(
+            n.pos[2] < -10.0 && n.pos[1] < 0.2,
+            "it flies off ahead and comes down: {:?}",
+            n.pos
+        );
         assert!(g.blasts.is_empty());
         idle(&mut g, 0.3);
         assert!(g.grenades.is_empty() && g.blasts.len() == 1);
-        assert!(g.events.iter().any(|e| e[0] == ev::BLAST) && g.events.iter().any(|e| e[0] == ev::BOUNCE));
+        assert!(
+            g.events.iter().any(|e| e[0] == ev::BLAST)
+                && g.events.iter().any(|e| e[0] == ev::BOUNCE)
+        );
         assert_eq!(g.players[0].hp, 100.0, "too far off to be hurt");
     }
 
     #[test]
     fn the_aiming_arc_ends_where_the_grenade_first_hits_something() {
         let mut walls = map::perimeter();
-        walls.push(Aabb { min: [-3.0, 0.0, -9.0], max: [3.0, 6.0, -8.5] });
+        walls.push(Aabb {
+            min: [-3.0, 0.0, -9.0],
+            max: [3.0, 6.0, -8.5],
+        });
         let mut g = Game::with_walls(1, walls);
         g.players[0].body.pos = [0.0, 0.0, 0.0];
         g.players[0].yaw = 0.0;
@@ -445,8 +558,14 @@ mod tests {
         let (arc, axis) = (g.players[0].arc.clone(), g.players[0].arc_axis);
         let end = *arc.last().unwrap();
         assert_eq!(axis, 2, "it hits the wall face on");
-        assert!((end[2] + 8.5).abs() < 0.02 && end[1] > 0.5, "it ends on the wall: {end:?}");
-        assert!(end[0].abs() < 0.03, "thrown from the right hand, it still comes down in line with the view: {end:?}");
+        assert!(
+            (end[2] + 8.5).abs() < 0.02 && end[1] > 0.5,
+            "it ends on the wall: {end:?}"
+        );
+        assert!(
+            end[0].abs() < 0.03,
+            "thrown from the right hand, it still comes down in line with the view: {end:?}"
+        );
         assert!(arc[3][0] > 0.1, "it starts out off to the right");
         // the grenade really gets there, within a step and its size, on its way to bouncing off
         g.players[0].input.throw = false;
@@ -454,10 +573,17 @@ mod tests {
         for _ in 0..60 {
             g.tick(STEP);
             if let Some(n) = g.grenades.first() {
-                nearest = nearest.min(len([n.pos[0] - end[0], n.pos[1] - end[1], n.pos[2] - end[2]]));
+                nearest = nearest.min(len([
+                    n.pos[0] - end[0],
+                    n.pos[1] - end[1],
+                    n.pos[2] - end[2],
+                ]));
             }
         }
-        assert!(nearest < 0.35, "it came within {nearest} of where the arc ends");
+        assert!(
+            nearest < 0.35,
+            "it came within {nearest} of where the arc ends"
+        );
         // thrown down at the ground, it ends there, lying flat
         let mut g = arena();
         g.players[0].body.pos = [0.0, 0.0, 0.0];
@@ -471,21 +597,38 @@ mod tests {
     #[test]
     fn a_blast_kills_near_it_blows_apart_up_close_and_a_wall_shelters() {
         let mut walls = map::perimeter();
-        walls.push(Aabb { min: [3.0, 0.0, -5.0], max: [3.4, 3.0, 5.0] });
+        walls.push(Aabb {
+            min: [3.0, 0.0, -5.0],
+            max: [3.4, 3.0, 5.0],
+        });
         let mut g = Game::with_walls(1, walls);
         g.players[0].body.pos = [-40.0, 0.0, 40.0];
         let walker = |at: V3| Bot::zombie(at, 0.0);
         let mut brute = walker([0.0, 0.0, -4.0]);
         (brute.kind, brute.hp, brute.scale) = (2, 320.0, 1.25);
-        g.bots = vec![walker([0.0, 0.0, 1.5]), walker([-4.5, 0.0, 0.0]), walker([5.0, 0.0, 0.0]), brute];
+        g.bots = vec![
+            walker([0.0, 0.0, 1.5]),
+            walker([-4.5, 0.0, 0.0]),
+            walker([5.0, 0.0, 0.0]),
+            brute,
+        ];
         let world = g.world.clone();
         g.explode([0.0, 0.07, 0.0], 0, &world);
         let b = &g.bots;
         assert!(!b[0].alive && !b[0].corpse, "blown apart up close");
-        assert!(!b[1].alive && b[1].corpse, "killed further off, and left lying");
+        assert!(
+            !b[1].alive && b[1].corpse,
+            "killed further off, and left lying"
+        );
         assert!(b[2].alive && b[2].hp == 100.0, "behind the wall, untouched");
-        assert!(b[3].alive && b[3].hp < 320.0 && b[3].body.vel[2] < -3.0, "a brute takes it, and is thrown back");
-        assert!(b[1].body.vel[0] < -3.0 && b[1].body.vel[1] > 0.0, "the body is thrown away from it");
+        assert!(
+            b[3].alive && b[3].hp < 320.0 && b[3].body.vel[2] < -3.0,
+            "a brute takes it, and is thrown back"
+        );
+        assert!(
+            b[1].body.vel[0] < -3.0 && b[1].body.vel[1] > 0.0,
+            "the body is thrown away from it"
+        );
         assert_eq!(g.players[0].kills, 2);
         assert!(g.debris.len() > 50);
         idle(&mut g, 2.0);
@@ -499,7 +642,11 @@ mod tests {
         g.players[0].body.pos = [0.0, 0.0, 0.0];
         let world = g.world.clone();
         g.explode([6.3, 0.07, 0.0], 0, &world);
-        assert!(g.players[0].alive() && g.players[0].hp > 75.0 && g.players[0].hp < 100.0, "hp {}", g.players[0].hp);
+        assert!(
+            g.players[0].alive() && g.players[0].hp > 75.0 && g.players[0].hp < 100.0,
+            "hp {}",
+            g.players[0].hp
+        );
         assert!(g.players[0].shake > 0.5);
         g.explode([0.3, 0.07, 0.0], 0, &world);
         assert!(!g.players[0].alive());

@@ -39,7 +39,13 @@ impl Terrain {
                 }
             }
         }
-        Terrain { half, n, h, blocks, top }
+        Terrain {
+            half,
+            n,
+            h,
+            blocks,
+            top,
+        }
     }
 
     /// The height at grid point (i, j).
@@ -50,7 +56,10 @@ impl Terrain {
     /// Where on the grid (x, z) is, in squares, kept inside it.
     fn cell(&self, x: f32, z: f32) -> (usize, usize, f32, f32) {
         let last = (self.n - 1) as f32 - 1e-3;
-        let (fx, fz) = (((x + self.half) / STEP).clamp(0.0, last), ((z + self.half) / STEP).clamp(0.0, last));
+        let (fx, fz) = (
+            ((x + self.half) / STEP).clamp(0.0, last),
+            ((z + self.half) / STEP).clamp(0.0, last),
+        );
         let (i, j) = (fx as usize, fz as usize);
         (i, j, fx - i as f32, fz - j as f32)
     }
@@ -58,7 +67,12 @@ impl Terrain {
     /// The height of the ground at (x, z); past the edge of the grid, that of its edge.
     pub fn height(&self, x: f32, z: f32) -> f32 {
         let (i, j, tx, tz) = self.cell(x, z);
-        let (h00, h10, h01, h11) = (self.at(i, j), self.at(i + 1, j), self.at(i, j + 1), self.at(i + 1, j + 1));
+        let (h00, h10, h01, h11) = (
+            self.at(i, j),
+            self.at(i + 1, j),
+            self.at(i, j + 1),
+            self.at(i + 1, j + 1),
+        );
         // each square is two triangles, split from (i, j) to (i + 1, j + 1)
         if tx > tz {
             h00 + (h10 - h00) * tx + (h11 - h10) * tz
@@ -108,7 +122,9 @@ impl Terrain {
 /// Smooth noise from about -1 to 1 that changes over a distance of about 1, the same for the same `seed`.
 pub fn noise(x: f32, z: f32, seed: u32) -> f32 {
     let hash = |i: i32, j: i32| {
-        let mut h = (i as u32).wrapping_mul(0x8da6_b343) ^ (j as u32).wrapping_mul(0xd816_3841) ^ seed.wrapping_mul(0xcb1a_b31f);
+        let mut h = (i as u32).wrapping_mul(0x8da6_b343)
+            ^ (j as u32).wrapping_mul(0xd816_3841)
+            ^ seed.wrapping_mul(0xcb1a_b31f);
         h ^= h >> 13;
         h = h.wrapping_mul(0x5bd1_e995);
         h ^= h >> 15;
@@ -147,7 +163,11 @@ mod tests {
         let t = hills();
         for (x, z) in [(-20.0, -20.0), (0.0, 0.0), (8.0, -12.0), (16.0, 20.0)] {
             let want = 3.0 + 2.0 * (x * 0.3f32).sin() + z * 0.1;
-            assert!((t.height(x, z) - want).abs() < 1e-3, "at {x}, {z}: {} not {want}", t.height(x, z));
+            assert!(
+                (t.height(x, z) - want).abs() < 1e-3,
+                "at {x}, {z}: {} not {want}",
+                t.height(x, z)
+            );
         }
     }
 
@@ -156,9 +176,21 @@ mod tests {
         let t = hills();
         let g = t.height(1.3, 2.7);
         let d = t.raycast([1.3, 30.0, 2.7], [0.0, -1.0, 0.0], 100.0);
-        assert!((30.0 - d - g).abs() < 0.01, "landed at {} not {g}", 30.0 - d);
-        assert_eq!(t.raycast([0.0, 40.0, 0.0], [1.0, 0.0, 0.0], 15.0), 15.0, "a ray over the top hit something");
-        assert_eq!(t.raycast([0.0, -5.0, 0.0], [1.0, 0.0, 0.0], 15.0), 0.0, "a ray from underground missed");
+        assert!(
+            (30.0 - d - g).abs() < 0.01,
+            "landed at {} not {g}",
+            30.0 - d
+        );
+        assert_eq!(
+            t.raycast([0.0, 40.0, 0.0], [1.0, 0.0, 0.0], 15.0),
+            15.0,
+            "a ray over the top hit something"
+        );
+        assert_eq!(
+            t.raycast([0.0, -5.0, 0.0], [1.0, 0.0, 0.0], 15.0),
+            0.0,
+            "a ray from underground missed"
+        );
         let flat = Terrain::new(20.0, |x, _| if x > 5.0 { 10.0 } else { 0.0 });
         let d = flat.raycast([0.0, 1.0, 0.0], [1.0, 0.0, 0.0], 30.0);
         assert!((4.0..6.0).contains(&d), "hit the rise at {d}");

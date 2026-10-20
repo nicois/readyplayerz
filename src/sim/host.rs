@@ -33,8 +33,16 @@ struct Seat {
 /// The name player `id` is shown by: letters, digits, spaces and a few marks only, so it is safe to show anywhere,
 /// and "Player n" when that leaves nothing.
 fn clean_name(name: &str, id: u8) -> String {
-    let name: String = name.chars().filter(|c| c.is_alphanumeric() || " -_.".contains(*c)).take(16).collect();
-    if name.trim().is_empty() { format!("Player {}", id + 1) } else { name.trim().to_string() }
+    let name: String = name
+        .chars()
+        .filter(|c| c.is_alphanumeric() || " -_.".contains(*c))
+        .take(16)
+        .collect();
+    if name.trim().is_empty() {
+        format!("Player {}", id + 1)
+    } else {
+        name.trim().to_string()
+    }
 }
 
 pub struct Room {
@@ -62,7 +70,15 @@ impl Room {
         game.loot = true;
         game.players.clear();
         game.hold_waves();
-        Room { game, map, seed, matched: false, seats: Vec::new(), shots: Vec::new(), countdown: None }
+        Room {
+            game,
+            map,
+            seed,
+            matched: false,
+            seats: Vec::new(),
+            shots: Vec::new(),
+            countdown: None,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -90,7 +106,9 @@ impl Room {
 
     /// Whole seconds until a quick-match room starts by itself, 0 when it isn't counting down.
     pub fn starts_in(&self) -> u8 {
-        self.countdown.map_or(0, |t| t.div_ceil((1.0 / STEP).round() as u32).clamp(1, 255) as u8)
+        self.countdown.map_or(0, |t| {
+            t.div_ceil((1.0 / STEP).round() as u32).clamp(1, 255) as u8
+        })
     }
 
     /// Someone coming in, called `name`: their player's id, or None if the room is full.
@@ -99,7 +117,14 @@ impl Room {
             return None;
         }
         let id = (0..=u8::MAX).find(|id| self.seats.iter().all(|s| s.id != *id))?;
-        self.seats.push(Seat { id, name: clean_name(name, id), queue: BTreeMap::new(), next: 0, waited: 0, ack: 0 });
+        self.seats.push(Seat {
+            id,
+            name: clean_name(name, id),
+            queue: BTreeMap::new(),
+            next: 0,
+            waited: 0,
+            ack: 0,
+        });
         self.game.add_player(id);
         self.recount();
         Some(id)
@@ -134,13 +159,20 @@ impl Room {
     /// Who is in, for everyone's lobby.
     pub fn roster(&self) -> Msg {
         let players = self.seats.iter().map(|s| (s.id, s.name.clone())).collect();
-        Msg::Roster { started: self.game.waves_on(), players, matched: self.matched, starts_in: self.starts_in() }
+        Msg::Roster {
+            started: self.game.waves_on(),
+            players,
+            matched: self.matched,
+            starts_in: self.starts_in(),
+        }
     }
 
     /// Inputs from player `id`, the first of them number `first`. Ones already played or already here are
     /// dropped: each comes several times over (see `net::RESEND`).
     pub fn inputs(&mut self, id: u8, first: u32, inputs: &[Input]) {
-        let Some(s) = self.seats.iter_mut().find(|s| s.id == id) else { return };
+        let Some(s) = self.seats.iter_mut().find(|s| s.id == id) else {
+            return;
+        };
         for (k, inp) in inputs.iter().enumerate() {
             let n = first + k as u32;
             if n >= s.next {
@@ -149,7 +181,9 @@ impl Room {
         }
         // a client that starts over (a reload of the page keeps the seat) or jumps far ahead is caught up with
         if s.queue.len() > 120 {
-            let keep = s.queue.split_off(&(first + inputs.len() as u32).saturating_sub(QUEUE as u32));
+            let keep = s
+                .queue
+                .split_off(&(first + inputs.len() as u32).saturating_sub(QUEUE as u32));
             s.queue = keep;
         }
     }
@@ -166,7 +200,14 @@ impl Room {
             }
         }
         for k in 0..self.seats.len() {
-            let Some(i) = self.game.players.iter().position(|p| p.id == self.seats[k].id) else { continue };
+            let Some(i) = self
+                .game
+                .players
+                .iter()
+                .position(|p| p.id == self.seats[k].id)
+            else {
+                continue;
+            };
             let s = &mut self.seats[k];
             // an input lost on the way, and every copy of it, is given up on
             if !s.queue.contains_key(&s.next) && !s.queue.is_empty() {
@@ -177,7 +218,9 @@ impl Room {
             }
             let plays = if s.queue.len() > QUEUE { 2 } else { 1 };
             for _ in 0..plays {
-                let Some(inp) = s.queue.remove(&s.next) else { break };
+                let Some(inp) = s.queue.remove(&s.next) else {
+                    break;
+                };
                 s.ack = s.next;
                 s.next += 1;
                 s.waited = 0;
@@ -199,18 +242,43 @@ impl Room {
     pub fn snapshots(&self) -> Vec<(u8, Vec<Vec<u8>>)> {
         let g = &self.game;
         let shared = net::encode_records(&self.shared_snapshot());
-        let (world, rest) = shared.split_first().expect("a snapshot always says how the game is going");
+        let (world, rest) = shared
+            .split_first()
+            .expect("a snapshot always says how the game is going");
         let mates: Vec<(u8, Vec<u8>)> = g
             .players
             .iter()
-            .map(|p| (p.id, net::encode_records(&Snapshot { mates: vec![mate(p)], ..Default::default() }).remove(0)))
+            .map(|p| {
+                (
+                    p.id,
+                    net::encode_records(&Snapshot {
+                        mates: vec![mate(p)],
+                        ..Default::default()
+                    })
+                    .remove(0),
+                )
+            })
             .collect();
         self.seats
             .iter()
             .map(|seat| {
-                let own = self.own(seat).map(|own| net::encode_records(&Snapshot { own: Some(own), ..Default::default() }).remove(0));
-                let others = mates.iter().filter(|(id, _)| *id != seat.id).map(|(_, r)| r);
-                let records = own.iter().chain([world]).chain(others).chain(rest).map(Vec::as_slice);
+                let own = self.own(seat).map(|own| {
+                    net::encode_records(&Snapshot {
+                        own: Some(own),
+                        ..Default::default()
+                    })
+                    .remove(0)
+                });
+                let others = mates
+                    .iter()
+                    .filter(|(id, _)| *id != seat.id)
+                    .map(|(_, r)| r);
+                let records = own
+                    .iter()
+                    .chain([world])
+                    .chain(others)
+                    .chain(rest)
+                    .map(Vec::as_slice);
                 (seat.id, net::pack(g.tick_n, records))
             })
             .collect()
@@ -221,29 +289,43 @@ impl Room {
     #[cfg(test)]
     pub(crate) fn snapshot_of(&self, id: u8) -> Option<Snapshot> {
         let seat = self.seats.iter().find(|s| s.id == id)?;
-        let mates = self.game.players.iter().filter(|p| p.id != id).map(mate).collect();
-        Some(Snapshot { own: self.own(seat), mates, ..self.shared_snapshot() })
+        let mates = self
+            .game
+            .players
+            .iter()
+            .filter(|p| p.id != id)
+            .map(mate)
+            .collect();
+        Some(Snapshot {
+            own: self.own(seat),
+            mates,
+            ..self.shared_snapshot()
+        })
     }
 
     /// What `seat`'s player is sent of themselves, while they are in the game.
     fn own(&self, seat: &Seat) -> Option<Own> {
-        self.game.players.iter().find(|p| p.id == seat.id).map(|p| Own {
-            ack: seat.ack,
-            life: p.life,
-            pos: p.body.pos,
-            vel: p.body.vel,
-            on_ground: p.body.on_ground,
-            climb: p.climb.as_ref().map(Climb::raw),
-            stamina: p.stamina,
-            winded: p.winded,
-            since_sprint: p.since_sprint,
-            yaw: p.yaw,
-            hp: p.hp,
-            kills: p.kills,
-            deaths: p.deaths,
-            respawn_t: p.respawn_t,
-            kit: p.kit(),
-        })
+        self.game
+            .players
+            .iter()
+            .find(|p| p.id == seat.id)
+            .map(|p| Own {
+                ack: seat.ack,
+                life: p.life,
+                pos: p.body.pos,
+                vel: p.body.vel,
+                on_ground: p.body.on_ground,
+                climb: p.climb.as_ref().map(Climb::raw),
+                stamina: p.stamina,
+                winded: p.winded,
+                since_sprint: p.since_sprint,
+                yaw: p.yaw,
+                hp: p.hp,
+                kills: p.kills,
+                deaths: p.deaths,
+                respawn_t: p.respawn_t,
+                kit: p.kit(),
+            })
     }
 
     /// What everyone is sent alike: how the game is going, the zombies, grenades, blasts, shots and loot.
@@ -275,14 +357,43 @@ impl Room {
         Snapshot {
             tick: g.tick_n,
             own: None,
-            world: Some(World { wave: g.wave, left: g.zombies_left(), started: g.waves_on() }),
+            world: Some(World {
+                wave: g.wave,
+                left: g.zombies_left(),
+                started: g.waves_on(),
+            }),
             mates: Vec::new(),
             zombies,
-            nades: g.grenades.iter().map(|n| Nade { id: n.id, pos: n.pos, rot: n.rot }).collect(),
+            nades: g
+                .grenades
+                .iter()
+                .map(|n| Nade {
+                    id: n.id,
+                    pos: n.pos,
+                    rot: n.rot,
+                })
+                .collect(),
             // a blast is sent for a while, so one lost datagram doesn't lose it
-            booms: g.blasts.iter().filter(|b| b.t < 0.5).map(|b| Boom { id: b.id, pos: b.pos, t: b.t }).collect(),
+            booms: g
+                .blasts
+                .iter()
+                .filter(|b| b.t < 0.5)
+                .map(|b| Boom {
+                    id: b.id,
+                    pos: b.pos,
+                    t: b.t,
+                })
+                .collect(),
             shots: self.shots.clone(),
-            loot: g.boxes.iter().map(|&pos| Loot { pos, gun: 255 }).chain(g.crates.iter().map(|&(pos, gun)| Loot { pos, gun: gun as u8 })).collect(),
+            loot: g
+                .boxes
+                .iter()
+                .map(|&pos| Loot { pos, gun: 255 })
+                .chain(g.crates.iter().map(|&(pos, gun)| Loot {
+                    pos,
+                    gun: gun as u8,
+                }))
+                .collect(),
         }
     }
 
@@ -321,7 +432,9 @@ mod tests {
     }
 
     fn names(room: &Room) -> Vec<(u8, String)> {
-        let Msg::Roster { players, .. } = room.roster() else { unreachable!() };
+        let Msg::Roster { players, .. } = room.roster() else {
+            unreachable!()
+        };
         players
     }
 
@@ -386,12 +499,28 @@ mod tests {
         }
         r.game.boxes.push([3.0, 0.0, 4.0]);
         r.game.crates.push(([-5.0, 0.0, 2.0], 4));
-        assert!(r.game.bots.len() > 4, "zombies enough to take more than one datagram");
+        assert!(
+            r.game.bots.len() > 4,
+            "zombies enough to take more than one datagram"
+        );
         let all = r.snapshots();
-        assert_eq!(all.iter().map(|(id, _)| *id).collect::<Vec<_>>(), [0, 1, 2, 3]);
+        assert_eq!(
+            all.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            [0, 1, 2, 3]
+        );
         for (id, datagrams) in all {
             let seat = r.seats.iter().find(|s| s.id == id).unwrap();
-            let alone = Snapshot { own: r.own(seat), mates: r.game.players.iter().filter(|p| p.id != id).map(mate).collect(), ..r.shared_snapshot() };
+            let alone = Snapshot {
+                own: r.own(seat),
+                mates: r
+                    .game
+                    .players
+                    .iter()
+                    .filter(|p| p.id != id)
+                    .map(mate)
+                    .collect(),
+                ..r.shared_snapshot()
+            };
             assert_eq!(datagrams, net::encode_snapshot(&alone), "player {id}");
         }
     }
@@ -402,9 +531,19 @@ mod tests {
         r.join("<b>Val</b> \"x\"");
         r.join("   ");
         r.join("Ä-1_b.c with a much too long name");
-        assert_eq!(names(&r), [(0, "bValb x".into()), (1, "Player 2".into()), (2, "Ä-1_b.c with a m".into())]);
+        assert_eq!(
+            names(&r),
+            [
+                (0, "bValb x".into()),
+                (1, "Player 2".into()),
+                (2, "Ä-1_b.c with a m".into())
+            ]
+        );
         r.rename(1, "Friend");
         r.rename(0, "");
-        assert_eq!(names(&r)[..2], [(0, "Player 1".into()), (1, "Friend".into())]);
+        assert_eq!(
+            names(&r)[..2],
+            [(0, "Player 1".into()), (1, "Friend".into())]
+        );
     }
 }

@@ -51,7 +51,9 @@ pub struct Client {
 impl Client {
     #[wasm_bindgen(constructor)]
     pub fn new(canvas: HtmlCanvasElement) -> Result<Client, JsValue> {
-        std::panic::set_hook(Box::new(|info| web_sys::console::error_1(&info.to_string().into())));
+        std::panic::set_hook(Box::new(|info| {
+            web_sys::console::error_1(&info.to_string().into())
+        }));
         // the picture is drawn, multisampled, into the renderer's own buffers and only copied onto the canvas,
         // so the canvas needs no multisampling or depth of its own: they would cost a resolve and memory per frame
         let options = js_sys::Object::new();
@@ -68,7 +70,22 @@ impl Client {
         let mut game = Game::on(map, seed);
         game.set_loot(true);
         renderer.upload_world(&game)?;
-        Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true, map, seed, online: None, frames: Frames::default(), net_error: String::new(), queued: 0, picks: Vec::new(), horde: None, watch: None })
+        Ok(Client {
+            game,
+            renderer,
+            acc: 0.0,
+            last: 0.0,
+            paused: true,
+            map,
+            seed,
+            online: None,
+            frames: Frames::default(),
+            net_error: String::new(),
+            queued: 0,
+            picks: Vec::new(),
+            horde: None,
+            watch: None,
+        })
     }
 
     /// The game being played: the room's, online.
@@ -162,7 +179,10 @@ impl Client {
             "KeyE" if down => i.take = true,
             _ if down => {
                 // 1 primary, 2 sidearm; the loadout itself is picked in the menu
-                if let Some(n) = code.strip_prefix("Digit").and_then(|d| d.parse::<usize>().ok()) {
+                if let Some(n) = code
+                    .strip_prefix("Digit")
+                    .and_then(|d| d.parse::<usize>().ok())
+                {
                     let slot = n.wrapping_sub(1);
                     if online {
                         i.select = Some(slot.min(255) as u8);
@@ -213,7 +233,11 @@ impl Client {
         let p = self.game.me_mut();
         p.equip_t = 0.0;
         p.swings = n;
-        p.gore = if gore.is_finite() { gore.clamp(0.0, 1.0) } else { 0.0 };
+        p.gore = if gore.is_finite() {
+            gore.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         p.cooldown = (1.0 - u) * p.gun().delay;
     }
 
@@ -224,7 +248,11 @@ impl Client {
         self.game.bots.clear();
         for i in 0..n {
             let off = (i as f32 - (n as f32 - 1.0) / 2.0) * 1.4 + side;
-            let at = [p[0] + f[0] * dist + right[0] * off, p[1], p[2] + f[2] * dist + right[2] * off];
+            let at = [
+                p[0] + f[0] * dist + right[0] * off,
+                p[1],
+                p[2] + f[2] * dist + right[2] * off,
+            ];
             let mut z = crate::sim::Bot::zombie(at, i as f32 * 1.7 + 0.3);
             z.kind = (i % 3) as u8;
             self.game.bots.push(z);
@@ -235,14 +263,22 @@ impl Client {
     /// each next one turned a quarter further round (front, side, back, other side), `turn` more than that; moving
     /// at `run` metres a second where they face (sprinting over 6), each a little further through a step.
     pub fn show_mates(&mut self, n: u32, dist: f32, turn: f32, run: f32) {
-        let (p, f, yaw) = (self.game.me().body.pos, self.game.me().forward(), self.game.me().yaw);
+        let (p, f, yaw) = (
+            self.game.me().body.pos,
+            self.game.me().forward(),
+            self.game.me().yaw,
+        );
         let right = [-f[2], 0.0, f[0]];
         self.game.bots.clear();
         self.game.players.truncate(1);
         for i in 0..n {
             let off = (i as f32 - (n as f32 - 1.0) / 2.0) * 1.6;
             let mut m = crate::sim::Player::new(i as u8 + 1);
-            m.body.pos = [p[0] + f[0] * dist + right[0] * off, p[1], p[2] + f[2] * dist + right[2] * off];
+            m.body.pos = [
+                p[0] + f[0] * dist + right[0] * off,
+                p[1],
+                p[2] + f[2] * dist + right[2] * off,
+            ];
             m.body.on_ground = true;
             m.yaw = yaw + std::f32::consts::PI + turn + i as f32 * std::f32::consts::FRAC_PI_2;
             m.weapon = (i as usize * 3) % crate::sim::WEAPON_COUNT;
@@ -258,16 +294,30 @@ impl Client {
     /// ground straight ahead of the player, and looks at it from `side` metres to its right (left if negative) and
     /// `back` behind it. False if there is none.
     pub fn show_climb(&mut self, s: f32, side: f32, back: f32) -> bool {
-        let (at, yaw, f) = (self.game.me().body.pos, self.game.me().yaw, self.game.me().forward());
+        let (at, yaw, f) = (
+            self.game.me().body.pos,
+            self.game.me().yaw,
+            self.game.me().forward(),
+        );
         let found = (4..120).find_map(|k| {
             let d = k as f32 * 0.25;
-            crate::sim::Bot::climbing_at([at[0] + f[0] * d, 0.01, at[2] + f[2] * d], yaw, s, &self.game.world).map(|b| (b, d))
+            crate::sim::Bot::climbing_at(
+                [at[0] + f[0] * d, 0.01, at[2] + f[2] * d],
+                yaw,
+                s,
+                &self.game.world,
+            )
+            .map(|b| (b, d))
         });
         self.game.bots.clear();
         let Some((b, d)) = found else { return false };
         let c = [at[0] + f[0] * d, at[2] + f[2] * d];
         let p = self.game.me_mut();
-        p.body.pos = [c[0] - f[2] * side - f[0] * back, p.body.pos[1], c[1] + f[0] * side - f[2] * back];
+        p.body.pos = [
+            c[0] - f[2] * side - f[0] * back,
+            p.body.pos[1],
+            c[1] + f[0] * side - f[2] * back,
+        ];
         p.yaw = yaw - side.atan2(back);
         self.game.bots.push(b);
         true
@@ -288,7 +338,13 @@ impl Client {
     /// Dev view: draws only gun `i`, flat from the side and from above, `half` metres of gun space either side of
     /// `z` along the bore (`y` up it from the side), with or without the hands, for working on its shape.
     pub fn bench(&mut self, i: usize, z: f32, y: f32, half: f32, hands: bool) {
-        self.renderer.bench.set(Some(crate::render::Bench { gun: i, z, y, half, hands }));
+        self.renderer.bench.set(Some(crate::render::Bench {
+            gun: i,
+            z,
+            y,
+            half,
+            hands,
+        }));
     }
 
     /// Where gun `i`'s parts reach in gun space, as the low then the high corner, then its sight line's height and
@@ -303,7 +359,10 @@ impl Client {
 
     /// Sound events since the last call, flattened as code, a, b triples (see `sim::ev`).
     pub fn take_events(&mut self) -> Vec<f32> {
-        std::mem::take(&mut self.game_mut().events).into_iter().flatten().collect()
+        std::mem::take(&mut self.game_mut().events)
+            .into_iter()
+            .flatten()
+            .collect()
     }
 
     /// Picks a primary or a sidearm for the loadout: carried at once before the game starts, otherwise from the
@@ -334,7 +393,17 @@ impl Client {
     pub fn weapon_stats(&self) -> Vec<f32> {
         WEAPONS
             .iter()
-            .flat_map(|w| [w.body_dmg * w.pellets as f32, 60.0 / w.delay, w.mag as f32, w.reload, w.spread, w.ads_spread, w.speed])
+            .flat_map(|w| {
+                [
+                    w.body_dmg * w.pellets as f32,
+                    60.0 / w.delay,
+                    w.mag as f32,
+                    w.reload,
+                    w.spread,
+                    w.ads_spread,
+                    w.speed,
+                ]
+            })
             .collect()
     }
 
@@ -361,11 +430,19 @@ impl Client {
     /// Release everything, e.g. when the pointer lock is lost.
     pub fn release_all(&mut self) {
         let i = &mut self.game_mut().me_mut().input;
-        *i = crate::sim::Input { select: i.select, pick: i.pick, ..Default::default() };
+        *i = crate::sim::Input {
+            select: i.select,
+            pick: i.pick,
+            ..Default::default()
+        };
     }
 
     pub fn frame(&mut self, now_ms: f64) {
-        let dt = if self.last == 0.0 { 0.0 } else { ((now_ms - self.last) / 1000.0).min(0.1) as f32 };
+        let dt = if self.last == 0.0 {
+            0.0
+        } else {
+            ((now_ms - self.last) / 1000.0).min(0.1) as f32
+        };
         self.last = now_ms;
         // online the game can't wait for the menu
         let paused = self.paused && self.online.is_none();
@@ -408,7 +485,12 @@ impl Client {
     /// (`next`, a click, moves on anyway). Up again, or alone, the view is our own.
     fn watch_next(&mut self, next: bool) {
         let g = self.game();
-        let up: Vec<u8> = g.players.iter().filter(|p| p.alive() && p.id != g.me().id).map(|p| p.id).collect();
+        let up: Vec<u8> = g
+            .players
+            .iter()
+            .filter(|p| p.alive() && p.id != g.me().id)
+            .map(|p| p.id)
+            .collect();
         let watch = if self.online.is_none() || g.me().alive() || up.is_empty() {
             None
         } else {
@@ -426,7 +508,9 @@ impl Client {
     /// The player watched while down, as [id, health], or empty watching nobody.
     pub fn watching(&self) -> Vec<f32> {
         let g = self.game();
-        self.watch.and_then(|id| g.players.iter().find(|p| p.id == id)).map_or(Vec::new(), |p| vec![p.id as f32, p.hp.max(0.0)])
+        self.watch
+            .and_then(|id| g.players.iter().find(|p| p.id == id))
+            .map_or(Vec::new(), |p| vec![p.id as f32, p.hp.max(0.0)])
     }
 
     /// Everyone down alone, the score read: play again (see `sim::OVERRUN_SOLO`).
@@ -436,7 +520,11 @@ impl Client {
 
     /// Each player's id and kills this game, for the score once everyone is down: [id, kills, id, kills, ...].
     pub fn scores(&self) -> Vec<f32> {
-        self.game().players.iter().flat_map(|p| [p.id as f32, p.kills as f32]).collect()
+        self.game()
+            .players
+            .iter()
+            .flat_map(|p| [p.id as f32, p.kills as f32])
+            .collect()
     }
 
     /// health, ammo, magazine size, reloading, kills, deaths, hit marker, damage flash, respawn countdown,
@@ -480,7 +568,8 @@ impl Client {
             g.players.len() as f32,
             p.reserve[p.weapon] as f32,
             // the gun in the weapon crate in reach, or -1, and the one taking it would leave behind (NO_GUN none)
-            g.crate_in_reach(g.local).map_or(-1.0, |k| g.crates[k].1 as f32),
+            g.crate_in_reach(g.local)
+                .map_or(-1.0, |k| g.crates[k].1 as f32),
             p.loadout[g.take_slot(g.local)] as f32,
         ]
     }
@@ -493,14 +582,25 @@ impl Client {
         self.frames = Frames::default();
         self.net_error.clear();
         self.queued = 0;
-        Msg::Hello { version: VERSION, room: room.trim().to_uppercase(), map, name: name.into() }.frame()
+        Msg::Hello {
+            version: VERSION,
+            room: room.trim().to_uppercase(),
+            map,
+            name: name.into(),
+        }
+        .frame()
     }
 
     /// Bytes from the reliable stream.
     pub fn net_stream(&mut self, bytes: &[u8]) -> Result<(), JsValue> {
         for m in self.frames.push(bytes) {
             match m {
-                Msg::Welcome { id, room, map, seed } => {
+                Msg::Welcome {
+                    id,
+                    room,
+                    map,
+                    seed,
+                } => {
                     let mut mirror = Mirror::new(id, map, seed);
                     self.renderer.upload_world(&mirror.game)?;
                     // the loadout carries over, and the server is told it
@@ -511,11 +611,25 @@ impl Client {
                     self.picks = picked.iter().map(|&w| w as u8).collect();
                     self.acc = 0.0;
                     self.queued = 0;
-                    self.online = Some(Online { mirror, room, map, started: false, players: Vec::new(), matched: false, starts_in: 0 });
+                    self.online = Some(Online {
+                        mirror,
+                        room,
+                        map,
+                        started: false,
+                        players: Vec::new(),
+                        matched: false,
+                        starts_in: 0,
+                    });
                 }
-                Msg::Roster { started, players, matched, starts_in } => {
+                Msg::Roster {
+                    started,
+                    players,
+                    matched,
+                    starts_in,
+                } => {
                     if let Some(o) = &mut self.online {
-                        (o.started, o.players, o.matched, o.starts_in) = (started, players, matched, starts_in);
+                        (o.started, o.players, o.matched, o.starts_in) =
+                            (started, players, matched, starts_in);
                     }
                 }
                 Msg::Refused { why } => (self.net_error, self.queued) = (why, 0),
@@ -535,7 +649,9 @@ impl Client {
 
     /// The datagrams to send, each with its length in front as two bytes (little-endian).
     pub fn net_take(&mut self) -> Vec<u8> {
-        let Some(o) = &mut self.online else { return Vec::new() };
+        let Some(o) = &mut self.online else {
+            return Vec::new();
+        };
         let mut out = Vec::new();
         for d in o.mirror.take_outgoing() {
             out.extend_from_slice(&(d.len() as u16).to_le_bytes());
@@ -580,10 +696,18 @@ impl Client {
         let q = |s: &str| format!("\"{}\"", s.replace(['"', '\\'], ""));
         match &self.online {
             Some(o) => {
-                let players: Vec<String> = o.players.iter().map(|(id, name)| format!("[{id},{}]", q(name))).collect();
+                let players: Vec<String> = o
+                    .players
+                    .iter()
+                    .map(|(id, name)| format!("[{id},{}]", q(name)))
+                    .collect();
                 format!("{{\"online\":true,\"room\":{},\"map\":{},\"id\":{},\"started\":{},\"players\":[{}],\"matched\":{},\"startsIn\":{},\"error\":{}}}", q(&o.room), o.map, o.mirror.id, o.started, players.join(","), o.matched, o.starts_in, q(&self.net_error))
             }
-            None => format!("{{\"online\":false,\"error\":{},\"queued\":{}}}", q(&self.net_error), self.queued),
+            None => format!(
+                "{{\"online\":false,\"error\":{},\"queued\":{}}}",
+                q(&self.net_error),
+                self.queued
+            ),
         }
     }
 }

@@ -32,7 +32,11 @@ fn add(a: V3, b: V3, k: f32) -> V3 {
     [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k]
 }
 fn cross(a: V3, b: V3) -> V3 {
-    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 }
 fn dot(a: V3, b: V3) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -52,11 +56,14 @@ impl Brass {
         let next = add(self.pos, self.vel, dt);
         // whatever is under it, floor, roof or hillside, from a little above so a fast fall doesn't go through
         let up = 0.3;
-        let floor = self.pos[1] + up - world.raycast([next[0], self.pos[1] + up, next[2]], [0.0, -1.0, 0.0], 50.0);
+        let floor = self.pos[1] + up
+            - world.raycast([next[0], self.pos[1] + up, next[2]], [0.0, -1.0, 0.0], 50.0);
         // into a wall: it bounces back off it
         let ahead = [self.vel[0] * dt, 0.0, self.vel[2] * dt];
         let side = dot(ahead, ahead).sqrt();
-        if side > 1e-6 && world.raycast_walls(self.pos, norm(ahead), side + self.radius) < side + self.radius {
+        if side > 1e-6
+            && world.raycast_walls(self.pos, norm(ahead), side + self.radius) < side + self.radius
+        {
             self.vel[0] *= -0.3;
             self.vel[2] *= -0.3;
         } else {
@@ -87,7 +94,11 @@ impl Brass {
     /// Down on its side, rolled along the way it was pointing.
     fn settle(&mut self) {
         let z = self.rot[2];
-        let z = if z[0].hypot(z[2]) > 1e-3 { norm([z[0], 0.0, z[2]]) } else { [1.0, 0.0, 0.0] };
+        let z = if z[0].hypot(z[2]) > 1e-3 {
+            norm([z[0], 0.0, z[2]])
+        } else {
+            [1.0, 0.0, 0.0]
+        };
         let y = [0.0, 1.0, 0.0];
         self.rot = [cross(y, z), y, z];
         self.vel = [0.0; 3];
@@ -110,7 +121,13 @@ mod tests {
     /// the crate, not in it nor through it.
     #[test]
     fn a_case_comes_to_lie_on_its_side_on_what_it_falls_on() {
-        let world = Grid::new(vec![Aabb { min: [-2.0, 0.0, -2.0], max: [2.0, 0.8, 2.0] }], 4.0);
+        let world = Grid::new(
+            vec![Aabb {
+                min: [-2.0, 0.0, -2.0],
+                max: [2.0, 0.8, 2.0],
+            }],
+            4.0,
+        );
         let mut b = Brass {
             gun: 0,
             spent: true,
@@ -124,10 +141,18 @@ mod tests {
         };
         for _ in 0..240 {
             b.step(1.0 / 60.0, &world);
-            assert!(b.pos[1] >= 0.8 + 0.01 - 1e-4, "sank into the crate: {:?}", b.pos);
+            assert!(
+                b.pos[1] >= 0.8 + 0.01 - 1e-4,
+                "sank into the crate: {:?}",
+                b.pos
+            );
         }
         assert!(b.resting, "still moving at {:?}", b.vel);
-        assert!(b.rot[2][1].abs() < 1e-3 && b.rot[1][1] > 0.999, "not lying on its side: {:?}", b.rot);
+        assert!(
+            b.rot[2][1].abs() < 1e-3 && b.rot[1][1] > 0.999,
+            "not lying on its side: {:?}",
+            b.rot
+        );
         assert!((b.pos[1] - 0.81).abs() < 1e-3);
     }
 }

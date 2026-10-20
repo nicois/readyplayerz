@@ -50,9 +50,18 @@ impl Blend for Zombie {
         z.face = turn(self.face, b.face, k);
         z.vel = [mix(self.vel[0], b.vel[0], k), mix(self.vel[1], b.vel[1], k)];
         z.head = mix3(self.head, b.head, k);
-        (z.hit_t, z.swing_t, z.dead_t) = (mix(self.hit_t, b.hit_t, k), mix(self.swing_t, b.swing_t, k), mix(self.dead_t, b.dead_t, k));
+        (z.hit_t, z.swing_t, z.dead_t) = (
+            mix(self.hit_t, b.hit_t, k),
+            mix(self.swing_t, b.swing_t, k),
+            mix(self.dead_t, b.dead_t, k),
+        );
         if let (Some(p), Some(q)) = (self.pose, b.pose) {
-            z.pose = Some((mix(p.0, q.0, k), mix(p.1, q.1, k), mix(p.2, q.2, k), mix(p.3, q.3, k)));
+            z.pose = Some((
+                mix(p.0, q.0, k),
+                mix(p.1, q.1, k),
+                mix(p.2, q.2, k),
+                mix(p.3, q.3, k),
+            ));
         }
         z
     }
@@ -60,7 +69,11 @@ impl Blend for Zombie {
 
 impl Blend for Nade {
     fn blend(&self, b: &Self, k: f32) -> Self {
-        Nade { id: b.id, pos: mix3(self.pos, b.pos, k), rot: [0, 1, 2].map(|i| turn(self.rot[i], b.rot[i], k)) }
+        Nade {
+            id: b.id,
+            pos: mix3(self.pos, b.pos, k),
+            rot: [0, 1, 2].map(|i| turn(self.rot[i], b.rot[i], k)),
+        }
     }
 }
 
@@ -71,11 +84,17 @@ struct Track<T> {
 
 impl<T: Blend> Track<T> {
     fn new() -> Track<T> {
-        Track { samples: VecDeque::new() }
+        Track {
+            samples: VecDeque::new(),
+        }
     }
 
     fn push(&mut self, tick: u32, s: T) {
-        let at = self.samples.iter().position(|(t, _)| *t >= tick).unwrap_or(self.samples.len());
+        let at = self
+            .samples
+            .iter()
+            .position(|(t, _)| *t >= tick)
+            .unwrap_or(self.samples.len());
         if self.samples.get(at).is_some_and(|(t, _)| *t == tick) {
             return;
         }
@@ -232,29 +251,50 @@ impl Mirror {
         p.look(inp.look_dx, inp.look_dy);
         inp.view = Some([p.yaw, p.pitch]);
         (inp.look_dx, inp.look_dy, inp.seen) = (0.0, 0.0, seen);
-        let lying: Vec<Spot> = self.game.boxes.iter().chain(self.game.crates.iter().map(|(at, _)| at)).map(|&at| spot(at)).collect();
+        let lying: Vec<Spot> = self
+            .game
+            .boxes
+            .iter()
+            .chain(self.game.crates.iter().map(|(at, _)| at))
+            .map(|&at| spot(at))
+            .collect();
         self.game.step_player(i, inp, STEP);
         // what was walked over here is taken, as the server will find when it plays the same input
         for s in lying {
-            if !self.game.boxes.iter().chain(self.game.crates.iter().map(|(at, _)| at)).any(|&at| spot(at) == s) {
+            if !self
+                .game
+                .boxes
+                .iter()
+                .chain(self.game.crates.iter().map(|(at, _)| at))
+                .any(|&at| spot(at) == s)
+            {
                 self.taken.push_back((s, self.clock));
             }
         }
-        self.pending.push_back((self.seq, inp, Some(self.game.players[i].kit())));
+        self.pending
+            .push_back((self.seq, inp, Some(self.game.players[i].kit())));
         self.seq += 1;
         while self.pending.len() > 180 {
             self.pending.pop_front();
         }
         let from = self.pending.len().saturating_sub(net::RESEND);
-        let last: Vec<Input> = self.pending.iter().skip(from).map(|(_, inp, _)| *inp).collect();
-        self.out.push(net::encode_inputs(self.seq - last.len() as u32, &last));
+        let last: Vec<Input> = self
+            .pending
+            .iter()
+            .skip(from)
+            .map(|(_, inp, _)| *inp)
+            .collect();
+        self.out
+            .push(net::encode_inputs(self.seq - last.len() as u32, &last));
         self.game.tick(STEP);
         self.clock += 1.0;
     }
 
     /// A datagram from the server.
     pub fn receive(&mut self, bytes: &[u8]) {
-        let Some(s) = net::decode_snapshot(bytes) else { return };
+        let Some(s) = net::decode_snapshot(bytes) else {
+            return;
+        };
         // the server's clock against this one's: quick to follow snapshots coming sooner, slow to believe they come
         // later, as a late one is more often just held up on the way
         let gap = s.tick as f32 - self.clock;
@@ -282,13 +322,26 @@ impl Mirror {
             }
         }
         for m in s.mates {
-            self.mates.entry(m.id).or_insert_with(Track::new).push(s.tick, m);
+            self.mates
+                .entry(m.id)
+                .or_insert_with(Track::new)
+                .push(s.tick, m);
         }
         for z in s.zombies {
-            self.zombies.entry(z.id).or_insert_with(|| Seen { track: Track::new(), fell: false }).track.push(s.tick, z);
+            self.zombies
+                .entry(z.id)
+                .or_insert_with(|| Seen {
+                    track: Track::new(),
+                    fell: false,
+                })
+                .track
+                .push(s.tick, z);
         }
         for n in s.nades {
-            self.nades.entry(n.id).or_insert_with(Track::new).push(s.tick, n);
+            self.nades
+                .entry(n.id)
+                .or_insert_with(Track::new)
+                .push(s.tick, n);
         }
         for b in s.booms {
             if !self.booms.contains(&b.id) {
@@ -308,7 +361,11 @@ impl Mirror {
             }
         }
         for l in s.loot {
-            let gun = if (l.gun as usize) < WEAPON_COUNT { l.gun as usize } else { NO_GUN };
+            let gun = if (l.gun as usize) < WEAPON_COUNT {
+                l.gun as usize
+            } else {
+                NO_GUN
+            };
             let e = self.loot.entry(spot(l.pos)).or_insert((l.pos, gun, s.tick));
             e.2 = e.2.max(s.tick);
         }
@@ -317,16 +374,36 @@ impl Mirror {
     /// Someone else's shot: a tracer, the sound of it from where they are, and blood if it ended in a zombie.
     fn mate_shot(&mut self, s: Shot) {
         let g = &mut self.game;
-        g.tracers.push(Tracer { a: s.a, b: s.b, life: 0.06, by: s.by });
+        g.tracers.push(Tracer {
+            a: s.a,
+            b: s.b,
+            life: 0.06,
+            by: s.by,
+        });
         let me = g.me();
-        let weapon = self.mates.get(&s.by).and_then(|t| t.samples.back()).map_or(0, |(_, m)| m.weapon);
+        let weapon = self
+            .mates
+            .get(&s.by)
+            .and_then(|t| t.samples.back())
+            .map_or(0, |(_, m)| m.weapon);
         let (dx, dz) = (s.a[0] - me.body.pos[0], s.a[2] - me.body.pos[2]);
         let d = dx.hypot(dz).max(0.001);
         let (sy, cy) = me.yaw.sin_cos();
-        g.events.push([ev::FAR_SHOT, d, weapon as f32 * 4.0 + (dx * cy + dz * sy) / d]);
+        g.events.push([
+            ev::FAR_SHOT,
+            d,
+            weapon as f32 * 4.0 + (dx * cy + dz * sy) / d,
+        ]);
         let near = |b: &Aabb| (0..3).all(|k| s.b[k] > b.min[k] - 0.1 && s.b[k] < b.max[k] + 0.1);
-        if g.bots.iter().any(|b| b.alive && (near(&b.body_box()) || near(&b.head_box()))) {
-            g.blood(s.b, unit([s.b[0] - s.a[0], s.b[1] - s.a[1], s.b[2] - s.a[2]]), 6);
+        if g.bots
+            .iter()
+            .any(|b| b.alive && (near(&b.body_box()) || near(&b.head_box())))
+        {
+            g.blood(
+                s.b,
+                unit([s.b[0] - s.a[0], s.b[1] - s.a[1], s.b[2] - s.a[2]]),
+                6,
+            );
         }
     }
 
@@ -375,7 +452,11 @@ impl Mirror {
             }
         }
         let p = &mut self.game.players[i];
-        p.body = Body { pos: own.pos, vel: own.vel, on_ground: own.on_ground };
+        p.body = Body {
+            pos: own.pos,
+            vel: own.vel,
+            on_ground: own.on_ground,
+        };
         p.climb = own.climb.as_ref().map(Climb::from_raw);
         (p.stamina, p.winded, p.since_sprint) = (own.stamina, own.winded, own.since_sprint);
         if !p.alive() {
@@ -383,7 +464,9 @@ impl Mirror {
         }
         // played again only for where it takes the body: how it looks and sounds has already been, and the view
         // stays where the mouse has it
-        let keep = (p.yaw, p.pitch, p.step_y, p.gait, p.stride, p.land_t, p.sprint_t, p.equip_t);
+        let keep = (
+            p.yaw, p.pitch, p.step_y, p.gait, p.stride, p.land_t, p.sprint_t, p.equip_t,
+        );
         let (mark, world) = (self.game.events.len(), self.game.world.clone());
         for k in 0..self.pending.len() {
             let inp = self.pending[k].1;
@@ -391,7 +474,9 @@ impl Mirror {
         }
         self.game.events.truncate(mark);
         let p = &mut self.game.players[i];
-        (p.yaw, p.pitch, p.step_y, p.gait, p.stride, p.land_t, p.sprint_t, p.equip_t) = keep;
+        (
+            p.yaw, p.pitch, p.step_y, p.gait, p.stride, p.land_t, p.sprint_t, p.equip_t,
+        ) = keep;
     }
 
     /// The boxes and crates on the ground: those the server still sends, less those taken here. One the server
@@ -400,7 +485,8 @@ impl Mirror {
     fn put_loot(&mut self) {
         let (newest, clock) = (self.newest, self.clock);
         self.loot.retain(|_, (_, _, tick)| *tick + 60 >= newest);
-        self.taken.retain(|(s, at)| self.loot.contains_key(s) && clock - at < 120.0);
+        self.taken
+            .retain(|(s, at)| self.loot.contains_key(s) && clock - at < 120.0);
         let g = &mut self.game;
         // refilled in place every frame, so it never allocates once it has room for them all
         g.boxes.clear();
@@ -424,11 +510,17 @@ impl Mirror {
         let t = self.view_tick(frac);
         let g = &mut self.game;
 
-        let gone: Vec<u8> = self.mates.iter().filter(|(_, tr)| tr.last_tick() + 120 < self.newest).map(|(id, _)| *id).collect();
+        let gone: Vec<u8> = self
+            .mates
+            .iter()
+            .filter(|(_, tr)| tr.last_tick() + 120 < self.newest)
+            .map(|(id, _)| *id)
+            .collect();
         for id in gone {
             self.mates.remove(&id);
         }
-        g.players.retain(|p| p.id == self.id || self.mates.contains_key(&p.id));
+        g.players
+            .retain(|p| p.id == self.id || self.mates.contains_key(&p.id));
         g.local = g.players.iter().position(|p| p.id == self.id).unwrap_or(0);
         for (id, tr) in &self.mates {
             let Some(m) = tr.at(t) else { continue };
@@ -448,8 +540,21 @@ impl Mirror {
                 p.gait = (p.gait + moved) % (2.0 * STRIDE);
             }
             p.sprint_t = m.sprint;
-            p.body = Body { pos: m.pos, vel: [(m.pos[0] - was[0]) / STEP, (m.pos[1] - was[1]) / STEP, (m.pos[2] - was[2]) / STEP], on_ground: m.on_ground };
-            (p.yaw, p.pitch, p.weapon, p.hp) = (m.yaw, m.pitch, (m.weapon as usize).min(WEAPON_COUNT - 1), if m.alive { m.hp.max(1.0) } else { 0.0 });
+            p.body = Body {
+                pos: m.pos,
+                vel: [
+                    (m.pos[0] - was[0]) / STEP,
+                    (m.pos[1] - was[1]) / STEP,
+                    (m.pos[2] - was[2]) / STEP,
+                ],
+                on_ground: m.on_ground,
+            };
+            (p.yaw, p.pitch, p.weapon, p.hp) = (
+                m.yaw,
+                m.pitch,
+                (m.weapon as usize).min(WEAPON_COUNT - 1),
+                if m.alive { m.hp.max(1.0) } else { 0.0 },
+            );
             (p.aiming, p.ads, p.kills) = (m.aiming, if m.ads { 1.0 } else { 0.0 }, m.kills);
             p.reload_t = if m.reloading { 1.0 } else { 0.0 };
         }
@@ -459,7 +564,9 @@ impl Mirror {
         let mut dead = Vec::new();
         let mut fell = Vec::new();
         for (id, seen) in self.zombies.iter_mut() {
-            let Some(mut z) = seen.track.at(t) else { continue };
+            let Some(mut z) = seen.track.at(t) else {
+                continue;
+            };
             let last = seen.track.last_tick();
             if !z.alive {
                 // lying where it was last seen, for as long as a corpse lies
@@ -481,7 +588,8 @@ impl Mirror {
             b.kind = z.kind;
             b.scale = [1.0, 0.95, 1.25][z.kind.min(2) as usize];
             (b.speed, b.face, b.alive, b.corpse) = (z.speed, z.face, z.alive, z.corpse);
-            (b.dead_t, b.hit_t, b.swing_t, b.head, b.pose) = (z.dead_t, z.hit_t, z.swing_t, z.head, z.pose);
+            (b.dead_t, b.hit_t, b.swing_t, b.head, b.pose) =
+                (z.dead_t, z.hit_t, z.swing_t, z.head, z.pose);
             b.body.vel = [z.vel[0], 0.0, z.vel[1]];
             b.body.on_ground = z.on_ground;
             b.hp = if z.alive { 1.0 } else { 0.0 };
@@ -504,11 +612,21 @@ impl Mirror {
             }
         }
 
-        let gone: Vec<u32> = self.nades.iter().filter(|(_, tr)| tr.last_tick() + 4 < newest).map(|(id, _)| *id).collect();
+        let gone: Vec<u32> = self
+            .nades
+            .iter()
+            .filter(|(_, tr)| tr.last_tick() + 4 < newest)
+            .map(|(id, _)| *id)
+            .collect();
         for id in gone {
             self.nades.remove(&id);
         }
-        g.grenades = self.nades.values().filter_map(|tr| tr.at(t)).map(|n| Grenade::seen(n.id, n.pos, n.rot)).collect();
+        g.grenades = self
+            .nades
+            .values()
+            .filter_map(|tr| tr.at(t))
+            .map(|n| Grenade::seen(n.id, n.pos, n.rot))
+            .collect();
     }
 }
 
@@ -538,7 +656,14 @@ mod tests {
                     Mirror::with(id, arena())
                 })
                 .collect();
-            Link { room, clients, lag, up: VecDeque::new(), down: VecDeque::new(), now: 0 }
+            Link {
+                room,
+                clients,
+                lag,
+                up: VecDeque::new(),
+                down: VecDeque::new(),
+                now: 0,
+            }
         }
 
         fn step(&mut self) {
@@ -558,7 +683,9 @@ mod tests {
             self.room.tick();
             if self.room.snapshot_due() {
                 for (id, datagrams) in self.room.snapshots() {
-                    let Some(k) = self.clients.iter().position(|c| c.id == id) else { continue };
+                    let Some(k) = self.clients.iter().position(|c| c.id == id) else {
+                        continue;
+                    };
                     for d in datagrams {
                         self.down.push_back((self.now + self.lag, k, d));
                     }
@@ -589,21 +716,41 @@ mod tests {
         let mut l = Link::new(1, 6);
         l.run(0.5);
         let start = l.clients[0].game.me().body.pos;
-        assert!(len([start[0] - l.server_player(0).body.pos[0], 0.0, start[2] - l.server_player(0).body.pos[2]]) < 0.01, "spawned where the server put it");
+        assert!(
+            len([
+                start[0] - l.server_player(0).body.pos[0],
+                0.0,
+                start[2] - l.server_player(0).body.pos[2]
+            ]) < 0.01,
+            "spawned where the server put it"
+        );
         let c = &mut l.clients[0];
         c.game.me_mut().input.w = true;
         c.game.me_mut().input.look_dx = 200.0;
         l.step();
         let moved = l.clients[0].game.me().body.pos;
-        assert!(moved != start, "it moves on the very first step, before the server has heard");
+        assert!(
+            moved != start,
+            "it moves on the very first step, before the server has heard"
+        );
         l.run(1.0);
         l.clients[0].game.me_mut().input.w = false;
         l.run(1.0);
         let (c, s) = (l.clients[0].game.me(), l.server_player(0));
-        let d = len([c.body.pos[0] - s.body.pos[0], c.body.pos[1] - s.body.pos[1], c.body.pos[2] - s.body.pos[2]]);
+        let d = len([
+            c.body.pos[0] - s.body.pos[0],
+            c.body.pos[1] - s.body.pos[1],
+            c.body.pos[2] - s.body.pos[2],
+        ]);
         assert!(d < 0.001, "client {:?} server {:?}", c.body.pos, s.body.pos);
-        assert!((c.yaw - s.yaw).abs() < 1e-5, "the server looks where the client turned");
-        assert!(len([s.body.pos[0] - start[0], 0.0, s.body.pos[2] - start[2]]) > 3.0, "it really went somewhere");
+        assert!(
+            (c.yaw - s.yaw).abs() < 1e-5,
+            "the server looks where the client turned"
+        );
+        assert!(
+            len([s.body.pos[0] - start[0], 0.0, s.body.pos[2] - start[2]]) > 3.0,
+            "it really went somewhere"
+        );
     }
 
     #[test]
@@ -612,14 +759,29 @@ mod tests {
         l.run(0.5);
         let at = l.server_player(0).body.pos;
         let world = l.room.game.world.clone();
-        l.room.game.explode([at[0] + 4.5, at[1] + 0.1, at[2]], 9, &world);
+        l.room
+            .game
+            .explode([at[0] + 4.5, at[1] + 0.1, at[2]], 9, &world);
         let hp = l.server_player(0).hp;
         assert!(hp < 100.0 && hp > 0.0);
         l.run(0.5);
         let c = l.clients[0].game.me();
-        assert!(c.body.pos[0] < at[0] - 0.3, "thrown away from it: {:?} from {:?}", c.body.pos, at);
-        assert!(c.hp < 100.0 && (c.hp - l.server_player(0).hp).abs() < 1.0, "hurt as the server says: {} {}", c.hp, l.server_player(0).hp);
-        assert!(l.clients[0].game.blasts.len() == 1 || l.clients[0].game.debris.len() > 10, "the client saw it go off");
+        assert!(
+            c.body.pos[0] < at[0] - 0.3,
+            "thrown away from it: {:?} from {:?}",
+            c.body.pos,
+            at
+        );
+        assert!(
+            c.hp < 100.0 && (c.hp - l.server_player(0).hp).abs() < 1.0,
+            "hurt as the server says: {} {}",
+            c.hp,
+            l.server_player(0).hp
+        );
+        assert!(
+            l.clients[0].game.blasts.len() == 1 || l.clients[0].game.debris.len() > 10,
+            "the client saw it go off"
+        );
     }
 
     #[test]
@@ -631,20 +793,55 @@ mod tests {
         let yaw = l.server_player(0).yaw;
         let f = [yaw.sin(), 0.0, -yaw.cos()];
         let r = [-f[2], 0.0, f[0]];
-        let mut z = Bot::zombie([me[0] + f[0] * 8.0 - r[0] * 6.0, me[1], me[2] + f[2] * 8.0 - r[2] * 6.0], 0.0);
+        let mut z = Bot::zombie(
+            [
+                me[0] + f[0] * 8.0 - r[0] * 6.0,
+                me[1],
+                me[2] + f[2] * 8.0 - r[2] * 6.0,
+            ],
+            0.0,
+        );
         z.id = 4242;
         z.hp = 1.0;
         l.room.game.bots.push(z);
         l.run(0.3);
-        assert!(l.clients[0].game.players.len() == 2 && l.clients[1].game.players.len() == 2, "each sees the other");
-        let other = l.clients[0].game.players.iter().find(|p| p.id != l.clients[0].id).unwrap().body.pos;
+        assert!(
+            l.clients[0].game.players.len() == 2 && l.clients[1].game.players.len() == 2,
+            "each sees the other"
+        );
+        let other = l.clients[0]
+            .game
+            .players
+            .iter()
+            .find(|p| p.id != l.clients[0].id)
+            .unwrap()
+            .body
+            .pos;
         let real = l.server_player(1).body.pos;
-        assert!(len([other[0] - real[0], 0.0, other[2] - real[2]]) < 0.1, "where they are: {other:?} {real:?}");
+        assert!(
+            len([other[0] - real[0], 0.0, other[2] - real[2]]) < 0.1,
+            "where they are: {other:?} {real:?}"
+        );
         // on the client the zombie is where it was a little while back; aim at that and fire
         let c = &mut l.clients[0];
         c.present(0.0);
-        let seen = c.game.bots.iter().find(|b| b.id == 4242).expect("the client sees the zombie").body.pos;
-        let server_now = l.room.game.bots.iter().find(|b| b.id == 4242).unwrap().body.pos;
+        let seen = c
+            .game
+            .bots
+            .iter()
+            .find(|b| b.id == 4242)
+            .expect("the client sees the zombie")
+            .body
+            .pos;
+        let server_now = l
+            .room
+            .game
+            .bots
+            .iter()
+            .find(|b| b.id == 4242)
+            .unwrap()
+            .body
+            .pos;
         let eye = c.game.me().eye();
         let to = [seen[0] - eye[0], seen[1] + 1.0 - eye[1], seen[2] - eye[2]];
         let p = c.game.me_mut();
@@ -652,13 +849,29 @@ mod tests {
         p.pitch = (to[1] / to[0].hypot(to[2])).atan();
         p.input.fire = true;
         p.input.ads = true;
-        assert!(len([seen[0] - server_now[0], 0.0, seen[2] - server_now[2]]) > 0.1, "the zombie has moved on since: {seen:?} {server_now:?}");
+        assert!(
+            len([seen[0] - server_now[0], 0.0, seen[2] - server_now[2]]) > 0.1,
+            "the zombie has moved on since: {seen:?} {server_now:?}"
+        );
         l.run(0.4);
         l.clients[0].game.me_mut().input.fire = false;
         l.run(0.3);
-        assert!(!l.room.game.bots.iter().find(|b| b.id == 4242).unwrap().alive, "the shot hit where the client saw it");
+        assert!(
+            !l.room
+                .game
+                .bots
+                .iter()
+                .find(|b| b.id == 4242)
+                .unwrap()
+                .alive,
+            "the shot hit where the client saw it"
+        );
         assert_eq!(l.server_player(0).kills, 1);
-        assert_eq!(l.clients[0].game.me().kills, 1, "and the client hears of it");
+        assert_eq!(
+            l.clients[0].game.me().kills,
+            1,
+            "and the client hears of it"
+        );
     }
 
     #[test]
@@ -670,16 +883,26 @@ mod tests {
         l.clients[0].game.me_mut().input.throw = false;
         l.run(0.5);
         assert_eq!(l.room.game.grenades.len(), 1);
-        assert_eq!(l.clients[1].game.grenades.len(), 1, "the other player sees it in the air");
+        assert_eq!(
+            l.clients[1].game.grenades.len(),
+            1,
+            "the other player sees it in the air"
+        );
         assert_eq!(l.clients[0].game.me().grenades, GRENADES - 1);
         l.run(3.0);
-        assert!(l.clients[1].game.blasts.len() + l.clients[1].booms.len() > 0, "and sees it go off");
+        assert!(
+            l.clients[1].game.blasts.len() + l.clients[1].booms.len() > 0,
+            "and sees it go off"
+        );
         assert!(!l.clients[0].started());
         let host = l.room.host().unwrap();
         l.room.start(host);
         l.run(4.0);
         assert!(l.clients.iter().all(|c| c.started() && c.game.wave == 1));
-        assert!(l.clients.iter().all(|c| !c.game.bots.is_empty()), "zombies come for both");
+        assert!(
+            l.clients.iter().all(|c| !c.game.bots.is_empty()),
+            "zombies come for both"
+        );
     }
 
     /// Online every life starts with the pistol, and a crate the server puts down is seen on the client and
@@ -693,14 +916,25 @@ mod tests {
         let at = l.server_player(0).body.pos;
         l.room.game.crates.push(([at[0] + 1.0, at[1], at[2]], 4));
         l.run(0.5);
-        assert_eq!(l.clients[0].game.crates.len(), 1, "the client sees the crate");
+        assert_eq!(
+            l.clients[0].game.crates.len(),
+            1,
+            "the client sees the crate"
+        );
         l.clients[0].game.me_mut().input.take = true;
         l.step();
         assert!(l.clients[0].game.crates.is_empty(), "taken here at once");
         l.run(0.5);
-        assert!(l.room.game.crates.is_empty() && l.clients[0].game.crates.is_empty(), "taken, and gone on both");
+        assert!(
+            l.room.game.crates.is_empty() && l.clients[0].game.crates.is_empty(),
+            "taken, and gone on both"
+        );
         assert_eq!(l.server_player(0).loadout, [4, PISTOL]);
-        assert_eq!(l.clients[0].game.me().kit(), l.server_player(0).kit(), "the client carries what the server says");
+        assert_eq!(
+            l.clients[0].game.me().kit(),
+            l.server_player(0).kit(),
+            "the client carries what the server says"
+        );
     }
 
     /// A crate the client took that the server never let it have is put right: the gun goes back to what the
@@ -714,9 +948,17 @@ mod tests {
         l.clients[0].loot.insert(spot(at), (at, 4, newest));
         l.clients[0].game.me_mut().input.take = true;
         l.step();
-        assert_eq!(l.clients[0].game.me().loadout, [4, PISTOL], "taken here first");
+        assert_eq!(
+            l.clients[0].game.me().loadout,
+            [4, PISTOL],
+            "taken here first"
+        );
         l.run(1.0);
-        assert_eq!(l.clients[0].game.me().loadout, [NO_GUN, PISTOL], "put right by the server");
+        assert_eq!(
+            l.clients[0].game.me().loadout,
+            [NO_GUN, PISTOL],
+            "put right by the server"
+        );
         assert_eq!(l.clients[0].game.me().kit(), l.server_player(0).kit());
         assert!(l.clients[0].game.crates.is_empty());
     }
@@ -738,6 +980,10 @@ mod tests {
         let (c, s) = (l.clients[0].game.me().kit(), l.server_player(0).kit());
         assert_eq!(c, s);
         assert_eq!(l.clients[0].fixes, 0, "never put right");
-        assert!(s.ammo[PISTOL] < WEAPONS[PISTOL].mag as u8 || s.reserve[PISTOL] < 2 * WEAPONS[PISTOL].mag as u8, "it did shoot");
+        assert!(
+            s.ammo[PISTOL] < WEAPONS[PISTOL].mag as u8
+                || s.reserve[PISTOL] < 2 * WEAPONS[PISTOL].mag as u8,
+            "it did shoot"
+        );
     }
 }

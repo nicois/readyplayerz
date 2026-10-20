@@ -39,7 +39,10 @@ pub fn input(g: &Game, k: usize, n: u32) -> Input {
         .filter(|(_, d)| *d < 40.0)
         .min_by(|a, b| a.1.total_cmp(&b.1));
     let secs = n as f32 * STEP;
-    let mut inp = Input { seen: g.tick_n.saturating_sub(6) as f32, ..Default::default() };
+    let mut inp = Input {
+        seen: g.tick_n.saturating_sub(6) as f32,
+        ..Default::default()
+    };
     match near {
         Some((b, d)) => {
             let (dx, dz) = (b.body.pos[0] - eye[0], b.body.pos[2] - eye[2]);
