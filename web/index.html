@@ -1013,7 +1013,8 @@ function loop(t) {
   [carried, carried2].forEach((w, s) => {
     if (w !== shownCarried[s]) {
       shownCarried[s] = w;
-      slots[s].querySelector("span").textContent = names[w];
+      // playing for loot, the primary slot is empty until a gun is found
+      slots[s].querySelector("span").textContent = names[w] ?? "Empty";
     }
     slots[s].classList.toggle("on", weapon === w);
   });
@@ -1050,7 +1051,10 @@ function loop(t) {
   const benched = down > 0 && standing > 0;
   watchGame(t, wave, kills, deaths, inPlay > 0, respawn > 0 && !benched, team);
   dead.style.display = respawn > 0 || benched ? "block" : "none";
-  const next = `<small>Next life: ${names[picked]} and ${names[picked2]} &middot; Esc to change your loadout</small>`;
+  // alone it is played for loot: every life starts with only the pistol
+  const next = lobby.online
+    ? `<small>Next life: ${names[picked]} and ${names[picked2]} &middot; Esc to change your loadout</small>`
+    : `<small>Next life: the ${names[primaries]} &middot; find the rest in weapon crates</small>`;
   if (benched) {
     dead.innerHTML = `You're down. Back when the next wave starts` + next;
   } else if (respawn > 0) {
