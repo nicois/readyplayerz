@@ -8,6 +8,11 @@
 - An ammo box pops up a little cartoon "ammo" under the aim, rising and fading; a crate pops up the gun's name.
 - The take key goes over the network with the other keys (protocol version 5). The controls in Settings and on the About page list E.
 
+### The zombies can't be walked away from
+- Runners go 7 to 7.8 m/s (were 5 to 5.8): faster than a walk with any gun, slower than a sprint. A sprint opens a few metres on one, but once it runs out the runner catches up, even sprinting again each time the bar comes back.
+- Walkers go 3.5 to 4.5 m/s (were 2.5 to 3.4): still slower than a walk, but they close in on anyone who stops to reload or loot.
+- More of each wave are runners: about a quarter on wave one, rising to 60% by wave nine (was 14% rising to 40%). Brutes are unchanged.
+
 ### The guns are proportioned like the real ones
 - Every gun's trigger moved back 5.3 cm, to 7.4 cm from the back of the grip as on a real gun (it was 12.7), with the trigger guards shortened to match. The rifles' triggers were buried in the magwell; they now hang into the guard where they can be seen.
 - Magazines are as deep front to back as their rounds are long: the Carbine's and AK-47's grew from under 4 cm to 6, the Sniper's from 4.6 to 8, and their magwells with them. The SMG's sits right ahead of the guard instead of 6 cm in front of it.

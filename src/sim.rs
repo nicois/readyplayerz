@@ -16,6 +16,9 @@ const GRAVITY: f32 = 22.0;
 const JUMP: f32 = 7.5;
 const WALK: f32 = 6.0;
 const SPRINT: f32 = 9.0;
+/// How fast a runner goes, the slowest and the fastest: between a walk and a sprint, and quicker than sprinting
+/// each time the bar comes back, which averages about 6.8.
+const RUNNER_SPEED: (f32, f32) = (7.0, 7.8);
 /// Metres between footsteps.
 pub const STRIDE: f32 = 2.1;
 /// Seconds of sprinting on a full bar of stamina, and seconds for an empty bar to fill again once rested.
@@ -1277,13 +1280,15 @@ impl Game {
         let pos = self.zombie_spawn();
         let (r, w) = (self.rng.f(), self.wave as f32);
         let p_brute = if self.wave >= 3 { (0.03 * w).min(0.15) } else { 0.0 };
-        let p_run = (0.1 + 0.04 * w).min(0.4);
+        let p_run = (0.21 + 0.045 * w).min(0.6);
+        // runners are quicker than a walk and slower than a sprint, so one can be put off but not got away from;
+        // walkers can be walked away from, but close in on anyone who stops
         let (kind, hp, speed, scale) = if r < p_brute {
             (2, 320.0, self.rng.range(2.0, 2.4), 1.25)
         } else if r < p_brute + p_run {
-            (1, 60.0, self.rng.range(5.0, 5.8), 0.95)
+            (1, 60.0, self.rng.range(RUNNER_SPEED.0, RUNNER_SPEED.1), 0.95)
         } else {
-            (0, 100.0, self.rng.range(2.5, 3.4), 1.0)
+            (0, 100.0, self.rng.range(3.5, 4.5), 1.0)
         };
         let phase = self.rng.range(0.0, 6.28);
         let mut z = Bot::zombie(pos, phase);
@@ -2955,6 +2960,48 @@ mod tests {
             shots += 1;
         }
         assert!(shots >= 6, "a brute died in {shots} shots");
+    }
+
+    /// A runner closes in on anyone walking away from it, whatever they hold, and falls behind a sprint, but only
+    /// until the sprint runs out: then it catches up.
+    #[test]
+    fn a_runner_catches_a_walk_and_is_put_off_by_a_sprint_but_not_for_long() {
+        let fastest = WEAPONS.iter().map(|w| w.speed).fold(0.0, f32::max);
+        let slowest = WEAPONS.iter().map(|w| w.speed).fold(f32::INFINITY, f32::min);
+        assert!(RUNNER_SPEED.0 > WALK * fastest, "a runner is outwalked with the quickest gun");
+        assert!(RUNNER_SPEED.1 < SPRINT * slowest, "a runner outruns a sprint with the slowest gun");
+
+        let chase = |sprint: bool| {
+            let mut g = arena();
+            g.wave_t = f32::INFINITY;
+            // walking off down the arena, away from a runner ten metres behind
+            g.players[0].body.pos = [0.0, 0.0, 60.0];
+            g.players[0].yaw = 0.0;
+            g.players[0].input.w = true;
+            g.players[0].input.sprint = sprint;
+            let mut z = Bot::zombie([0.0, 0.0, 70.0], 0.0);
+            (z.kind, z.hp, z.speed) = (1, 60.0, RUNNER_SPEED.0);
+            g.bots.push(z);
+            let gap = |g: &Game| {
+                let (a, b) = (g.bots[0].body.pos, g.players[0].body.pos);
+                (a[0] - b[0]).hypot(a[2] - b[2])
+            };
+            let start = gap(&g);
+            idle(&mut g, SPRINT_TIME);
+            let after = gap(&g);
+            let caught = (0..(25.0 / STEP) as usize).position(|_| {
+                g.tick(STEP);
+                g.players[0].hp < 100.0
+            });
+            (after - start, caught.map(|k| k as f32 * STEP))
+        };
+        let (closed, caught) = chase(false);
+        assert!(closed < -1.0, "walking, a runner only closed {} m", -closed);
+        assert!(caught.is_some(), "walking, a runner never caught up");
+        let (opened, caught) = chase(true);
+        assert!(opened > 3.0, "sprinting only opened {opened} m on a runner");
+        let caught = caught.expect("winded, a runner never caught up");
+        assert!(caught > 2.0, "a sprint bought only {caught} s");
     }
 
     #[test]
