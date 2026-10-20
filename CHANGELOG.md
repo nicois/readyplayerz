@@ -2,6 +2,12 @@
 
 ## 2026-10-20
 
+### Weapon crates are taken with E, into any slot; pickups pop up
+- Walking over a weapon crate no longer takes its gun. In reach of one (1.6 m) the HUD says "E Take the AK-47", and what it would leave behind; E takes it, running or not.
+- The gun goes into an empty slot if there is one, and otherwise in place of the gun in hand, whatever kind either is: holding the Pistol, a rifle can replace it, for two rifles. The gun left behind is gone.
+- An ammo box pops up a little cartoon "ammo" under the aim, rising and fading; a crate pops up the gun's name.
+- The take key goes over the network with the other keys (protocol version 5). The controls in Settings and on the About page list E.
+
 ### The zombies can't be walked away from
 - Runners go 7 to 7.8 m/s (were 5 to 5.8): faster than a walk with any gun, slower than a sprint. A sprint opens a few metres on one, but once it runs out the runner catches up, even sprinting again each time the bar comes back.
 - Walkers go 3.5 to 4.5 m/s (were 2.5 to 3.4): still slower than a walk, but they close in on anyone who stops to reload or loot.
