@@ -1,0 +1,17 @@
+#!/bin/sh
+# Pre-commit: refuse commits that are not rustfmt-clean or clippy-clean.
+#
+# Activate once per clone:
+#   git config core.hooksPath .githooks
+#
+# It fails with a message instead of reformatting, so you see what it objects to.
+
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+if ! cargo fmt --check --quiet; then
+    echo "pre-commit: not rustfmt-clean. Run 'cargo fmt', re-stage, and retry." >&2
+    exit 1
+fi
+
+cargo clippy --workspace --all-targets --quiet
