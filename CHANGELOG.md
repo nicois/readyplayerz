@@ -2,6 +2,12 @@
 
 ## 2026-10-20
 
+### Privacy and terms pages
+- New `/privacy` page: what the analytics collect (a visitor ID in the browser, game events, the device, a rough location), why, who handles it (PostHog, Cloudflare, Fly.io) and how to have it deleted, by writing to contact@readyplayerz.com.
+- New `/terms` page: free and as it is, fair play online (no cheating, attacking the server or offensive names), ownership and Finnish law.
+- The main menu's link under the menu items is now a row: About the game · Privacy · Terms. The About page's footer links both too.
+- The About page and `llms.txt` say solo starts each life with the Pistol and finds the other guns in crates.
+
 ### An About page, real favicons and fuller search data (`1f6d2c0`)
 - New `/about` page, linked from the main menu (it opens in a new tab, so a game in progress isn't lost): how the waves and ammo work, solo and online co-op, the two maps, the eleven guns, the controls and a short FAQ. It gives search engines text to index, which the game page itself barely has.
 - The favicon is now real files (`favicon.svg`, `favicon.ico`, `apple-touch-icon.png`), not an inline data URI, so Google can show it in search results.
