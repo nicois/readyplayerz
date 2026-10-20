@@ -4,12 +4,12 @@
 
 - Each wave is bigger than the last. Health comes back when you stay clear of zombies for a while.
 - Ammo is limited: ammo boxes on the map top up each gun's reserve and are the only way to get more grenades.
-- Two maps: Playground (a ruined town round a clock tower, close and quick) and Suburb (houses, a school and a strip mall in wooded hills, wide open).
+- One map, Suburb: houses, a school and a strip mall in wooded hills, wide open.
 - Eleven guns. Each life, alone or online, starts with the Pistol and finds the rest in weapon crates:Carbine, AK-47, SMG, Uzi, Shotgun, Double barrel, Sniper, Mosin, Pistol, Revolver, Desert Eagle.
 - Online: make a room and send the invite link, or join with a four-letter room code.
 
 ## Pages
 
 - [Play](https://readyplayerz.com/): the game itself
-- [About](https://readyplayerz.com/about): how it works, the maps, guns, controls and common questions
+- [About](https://readyplayerz.com/about): how it works, the map, guns, controls and common questions
 - [Discord](https://discord.gg/ptPAsh6UR): the community, for finding people to play with

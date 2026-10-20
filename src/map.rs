@@ -14,6 +14,12 @@ mod suburb;
 /// The maps there are, by number: 0 the ruined town, 1 the suburb.
 pub const MAPS: u8 = 2;
 
+/// The map a game asked for on map `map` is played on: the suburb, the only one played for now. The town is
+/// kept, for the tests built on it and to come back to, but no game is made on it.
+pub fn played(_map: u8) -> u8 {
+    1
+}
+
 pub struct Map {
     /// half the side of the square arena, which runs from -half to half on x and z
     pub half: f32,
