@@ -633,6 +633,13 @@ struct GpuGrenade {
     hand: Vec<GpuPiece>,
 }
 
+/// What goes with the bat in the view: both hands round it, and the coats of blood it gathers (see
+/// `gunmodel::bat_blood`).
+struct GpuBat {
+    hands: Vec<GpuPiece>,
+    blood: Vec<GpuPiece>,
+}
+
 /// A zombie or another player to draw this frame: its bones, how detailed it is, and what it looks like.
 struct SkinJob {
     bones: Vec<f32>,
@@ -687,6 +694,7 @@ pub struct Renderer {
     guns: Vec<GpuGun>,
     hands: GpuHands,
     grenade: GpuGrenade,
+    bat: GpuBat,
     u_view: Option<WebGlUniformLocation>,
     u_envrot: Option<WebGlUniformLocation>,
     u_eyew: Option<WebGlUniformLocation>,
@@ -1093,6 +1101,61 @@ fn hand_at(side: f32, wrist: V3, fingers: V3, palm: V3) -> M4 {
     mul(&translate(wrist[0], wrist[1], wrist[2]), &mul(&r, &translate(-side * crate::body::ARM_X, -0.87, 0.0)))
 }
 
+/// The bat's frame: the hands at `at`, the barrel out along `tip` (the bat's -z) and the forearms running back
+/// towards `arms` (its +y), squared up to the barrel, so the wrists turn with the swing as real ones would.
+fn bat_frame(at: V3, tip: V3, arms: V3) -> M4 {
+    let z = norm(tip.map(|v| -v));
+    let ad = dot(arms, z);
+    let y = norm(std::array::from_fn(|i| arms[i] - z[i] * ad));
+    let x = cross(y, z);
+    [x[0], x[1], x[2], 0.0, y[0], y[1], y[2], 0.0, z[0], z[1], z[2], 0.0, at[0], at[1], at[2], 1.0]
+}
+
+/// One moment of a swing in the view: when it is, as a fraction of the time between swings, where the hands are and
+/// the way the barrel points. The forearms reach back to `BAT_ELBOWS`.
+type BatKey = (f32, V3, V3);
+const BAT_ELBOWS: V3 = [0.22, -0.72, 0.02];
+/// At rest: up by the right shoulder, the barrel leaning a little in and back.
+const BAT_REST: BatKey = (0.0, [0.24, -0.30, -0.42], [-0.14, 0.95, 0.10]);
+/// Flat across from the right: cocked back behind the shoulder, the barrel whipped round out in front and level
+/// across the view as it connects (see `sim::STRIKE`), on round to the left and wrapped behind, then back up to rest.
+const FOREHAND: [BatKey; 7] = [
+    BAT_REST,
+    (0.12, [0.29, -0.15, -0.30], [0.40, 0.72, 0.56]),
+    (0.19, [0.30, -0.16, -0.36], [0.60, 0.20, -0.78]),
+    (0.24, [0.22, -0.13, -0.38], [-0.85, 0.10, -0.50]),
+    (0.32, [0.0, -0.17, -0.40], [-0.95, 0.0, 0.10]),
+    (0.50, [-0.20, -0.31, -0.32], [-0.75, -0.20, 0.60]),
+    (1.0, BAT_REST.1, BAT_REST.2),
+];
+/// The other way: brought over high to the left, chopped down across the view to the right, and round back up.
+const BACKHAND: [BatKey; 7] = [
+    BAT_REST,
+    (0.12, [-0.10, -0.10, -0.34], [-0.50, 0.80, 0.30]),
+    (0.19, [-0.20, -0.12, -0.38], [-0.60, 0.45, -0.65]),
+    (0.24, [-0.14, -0.15, -0.38], [0.85, -0.12, -0.50]),
+    (0.32, [0.10, -0.30, -0.40], [0.92, -0.35, 0.10]),
+    (0.50, [0.22, -0.35, -0.30], [0.60, -0.50, 0.60]),
+    (1.0, BAT_REST.1, BAT_REST.2),
+];
+
+/// Where the bat is `u` of the way through a swing, on a smooth curve through its moments: the hands, and the way
+/// the barrel points.
+fn bat_swing(keys: &[BatKey], u: f32) -> (V3, V3) {
+    let n = keys.len() as isize;
+    let i = keys.iter().rposition(|k| k.0 <= u).unwrap_or(0).min(keys.len() - 2) as isize;
+    let t = ((u - keys[i as usize].0) / (keys[i as usize + 1].0 - keys[i as usize].0)).clamp(0.0, 1.0);
+    let k = |j: isize| keys[j.clamp(0, n - 1) as usize];
+    let (a, b, c, d) = (k(i - 1), k(i), k(i + 1), k(i + 2));
+    // Catmull-Rom, so it carries on through each moment rather than stopping at it
+    let curve = |a: V3, b: V3, c: V3, d: V3| -> V3 {
+        std::array::from_fn(|j| {
+            0.5 * (2.0 * b[j] + (c[j] - a[j]) * t + (2.0 * a[j] - 5.0 * b[j] + 4.0 * c[j] - d[j]) * t * t + (3.0 * b[j] - a[j] - 3.0 * c[j] + d[j]) * t * t * t)
+        })
+    };
+    (curve(a.1, b.1, c.1, d.1), norm(curve(a.2, b.2, c.2, d.2)))
+}
+
 /// Where a gun's moving part is, in gun space: a pump slides back, a bolt lifts before it pulls back, a slide kicks
 /// back as it fires, barrels tip down on their hinge, a cylinder turns and swings out. A break action or a cylinder
 /// opens at the start of a reload and closes at the end.
@@ -1227,6 +1290,7 @@ impl Renderer {
             pin: Self::upload_pieces(&gl, &n.pin)?,
             hand: Self::upload_pieces(&gl, &n.hand)?,
         };
+        let bat = GpuBat { hands: Self::upload_pieces(&gl, &crate::gunmodel::bat_hands())?, blood: Self::upload_pieces(&gl, &crate::gunmodel::bat_blood())? };
         // the zombie body at two levels of detail, near and far. A finer one for close up (half the grid) looked
         // no different even a metre away, and took most of a second to build at every load
         let figures = [2.0, 4.0].iter().map(|s| Self::upload_figure(&gl, &crate::body::Figure::new(*s))).collect::<Result<Vec<_>, _>>()?;
@@ -1290,6 +1354,7 @@ impl Renderer {
             guns,
             hands,
             grenade,
+            bat,
             u_view: u("u_view"),
             u_envrot: u("u_envrot"),
             u_eyew: u("u_eyew"),
@@ -1951,6 +2016,14 @@ impl Renderer {
         // the head bobs with the stride; shots still go from the true eye, and rolling around the line of sight
         // leaves the crosshair on it
         let (side, up, roll) = head_bob(p);
+        // a swing leans the view into it and back
+        let roll = roll + if p.gun().melee && p.cooldown > 0.0 {
+            let u = 1.0 - p.cooldown / p.gun().delay;
+            let way = if p.swings % 2 == 1 { 1.0 } else { -1.0 };
+            way * 0.04 * (ease(0.08, 0.26, u) - ease(0.3, 0.75, u))
+        } else {
+            0.0
+        };
         // a blast close by shakes the view
         let k = p.shake * p.shake * 0.06;
         let (side, up, roll) = (side + (g.time * 53.0).sin() * k, up + (g.time * 61.0).cos() * k, roll + (g.time * 47.0).sin() * k * 0.5);
@@ -2377,7 +2450,11 @@ impl Renderer {
                 // the wrist, the way the fingers run and the way the palm faces, in gun space: the right hand
                 // round the grip, the left under the handguard, or on a pistol round the right hand
                 let s = &self.guns[p.weapon].spec;
-                let (at, k, fingers, palm) = if side > 0.0 {
+                let (at, k, fingers, palm) = if p.gun().melee {
+                    // both round the bat's handle, the right above the left, palms facing each other's way
+                    let z = if side > 0.0 { crate::gunmodel::BAT_RIGHT_Z } else { crate::gunmodel::BAT_LEFT_Z };
+                    ([0.0; 3], [side * 0.028, 0.09, z], [0.0, -1.0, 0.0], [-side, 0.0, 0.0])
+                } else if side > 0.0 {
                     (s.right_at, [0.04, -0.125, 0.15], [0.0, -0.3, -1.0], [-1.0, 0.0, 0.0])
                 } else if s.pistol_hold {
                     (s.left_at, [-0.045, -0.11, 0.128], [0.3, -0.4, -0.85], [1.0, 0.0, 0.2])
@@ -2440,6 +2517,12 @@ impl Renderer {
         let g = &self.guns[p.weapon];
         let s = &g.spec;
         let run = self.mate_run(p);
+        if p.gun().melee {
+            // a bat up by the right shoulder, sloped further back over it at a run
+            let at = [0.17, 1.2 - 0.05 * run, -0.22 + 0.06 * run];
+            let tip = norm([-0.15 + 0.35 * run, 0.9 - 0.2 * run, -0.25 + 0.75 * run]);
+            return mul(&body, &bat_frame(at, tip, [0.1, -0.6, 0.5]));
+        }
         let pitch = p.pitch * (1.0 - run) - 0.65 * run;
         if s.pistol_hold {
             let held = mul(&translate(0.1 - 0.06 * run, 1.42 + 0.2 * pitch.sin() - 0.08 * run, -0.2 + 0.08 * run), &mul(&rot_y(0.4 * run), &rot_x(pitch)));
@@ -2622,9 +2705,46 @@ impl Renderer {
         }
     }
 
+    /// The bat in both hands: at rest up by the right shoulder, swung round one way and then the other (see
+    /// `FOREHAND`), shuddering to a stop for a moment where it connects, bloodied by what it has hit, and carried
+    /// back on the shoulder at a run.
+    fn draw_bat_view(&self, g: &Game) {
+        let p = g.me();
+        let u = if p.cooldown > 0.0 { 1.0 - p.cooldown / p.gun().delay } else { 1.0 };
+        let (at, tip) = bat_swing(if p.swings % 2 == 1 { &FOREHAND } else { &BACKHAND }, u);
+        let speed = (p.body.vel[0].powi(2) + p.body.vel[2].powi(2)).sqrt();
+        let walk = if p.body.on_ground { (speed / 6.0).min(1.5) } else { 0.0 };
+        let th = p.gait / crate::sim::STRIDE * std::f32::consts::PI - 0.4;
+        let big = 1.0 + 1.6 * p.sprint_t;
+        let bob_x = th.sin() * 0.012 * walk * big;
+        let bob_y = -(2.0 * th).cos() * 0.007 * walk * big + (g.time * 1.5).sin() * 0.002;
+        // running, it goes back on the shoulder, unless it is being swung; coming out, it comes up from below
+        let swinging = if p.cooldown > 0.0 { 1.0 - ease(0.7, 1.0, u) } else { 0.0 };
+        let carry = p.sprint_t * (1.0 - swinging);
+        let raise = (p.equip_t / crate::sim::EQUIP_TIME).powi(2);
+        // a blow that lands shudders back through it
+        let jolt = if p.stop_t > 0.0 { 0.006 } else { 0.0 };
+        let at = [
+            at[0] + bob_x + 0.03 * carry + jolt * (g.time * 90.0).sin(),
+            at[1] + bob_y - 0.06 * carry - 0.4 * raise + jolt * (g.time * 77.0).cos(),
+            at[2] + 0.05 * carry,
+        ];
+        let back = [0.25, 0.55, 0.80];
+        let tip = norm(std::array::from_fn(|i| tip[i] + (back[i] - tip[i]) * (0.8 * carry + raise).min(1.0)));
+        let m = bat_frame(at, tip, std::array::from_fn(|i| BAT_ELBOWS[i] - at[i]));
+        self.draw_pieces(&m, &self.guns[p.weapon].body);
+        self.draw_pieces(&m, &self.bat.hands);
+        let coats = ((p.gore * self.bat.blood.len() as f32).ceil() as usize).min(self.bat.blood.len());
+        self.draw_pieces(&m, &self.bat.blood[..coats]);
+    }
+
     fn draw_viewmodel(&self, g: &Game, view: &Camera) {
         let p = g.me();
         let w = p.gun();
+        if w.melee {
+            self.draw_bat_view(g);
+            return;
+        }
         let t = g.time;
         let speed = (p.body.vel[0].powi(2) + p.body.vel[2].powi(2)).sqrt();
         let walk = if p.body.on_ground { (speed / 6.0).min(1.5) } else { 0.0 } * (1.0 - 0.8 * p.ads);

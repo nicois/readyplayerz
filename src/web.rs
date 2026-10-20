@@ -168,6 +168,17 @@ impl Client {
         p.pitch = pitch;
     }
 
+    /// Dev view: the bat in hand `u` of the way through swing `n` (odd swings go one way, even the other), as
+    /// bloodied as `gore`, held there for as long as the game is paused.
+    pub fn pose_swing(&mut self, u: f32, n: u32, gore: f32) {
+        self.game.select(crate::sim::BAT);
+        let p = self.game.me_mut();
+        p.equip_t = 0.0;
+        p.swings = n;
+        p.gore = if gore.is_finite() { gore.clamp(0.0, 1.0) } else { 0.0 };
+        p.cooldown = (1.0 - u) * p.gun().delay;
+    }
+
     /// Dev view: replaces the bots with `n` zombies standing in a row `dist` metres in front of the player.
     pub fn show_zombies(&mut self, n: u32, dist: f32, side: f32) {
         let (p, f) = (self.game.me().body.pos, self.game.me().forward());
