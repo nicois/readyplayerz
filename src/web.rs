@@ -60,7 +60,8 @@ impl Client {
             .dyn_into::<WebGl2RenderingContext>()?;
         let mut renderer = Renderer::new(gl, canvas.width(), canvas.height())?;
         let seed = (js_sys::Math::random() * 4_000_000_000.0) as u32;
-        let game = Game::new(seed);
+        let mut game = Game::new(seed);
+        game.set_loot(true);
         renderer.upload_world(&game)?;
         Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true, map: 0, seed, online: None, frames: Frames::default(), net_error: String::new(), queued: 0, picks: Vec::new() })
     }
@@ -80,6 +81,7 @@ impl Client {
     pub fn end_game(&mut self) {
         let picked = self.game().me().picked;
         self.game = Game::on(self.map, self.seed);
+        self.game.set_loot(true);
         for i in picked {
             self.game.pick(i);
         }
@@ -102,6 +104,7 @@ impl Client {
     pub fn set_seed(&mut self, seed: u32) -> Result<(), JsValue> {
         self.seed = seed;
         self.game = Game::on(self.map, seed);
+        self.game.set_loot(true);
         Ok(self.renderer.upload_world(&self.game)?)
     }
 
@@ -166,6 +169,17 @@ impl Client {
         p.climb = None;
         p.yaw = yaw;
         p.pitch = pitch;
+    }
+
+    /// Dev view: the bat in hand `u` of the way through swing `n` (odd swings go one way, even the other), as
+    /// bloodied as `gore`, held there for as long as the game is paused.
+    pub fn pose_swing(&mut self, u: f32, n: u32, gore: f32) {
+        self.game.select(crate::sim::BAT);
+        let p = self.game.me_mut();
+        p.equip_t = 0.0;
+        p.swings = n;
+        p.gore = if gore.is_finite() { gore.clamp(0.0, 1.0) } else { 0.0 };
+        p.cooldown = (1.0 - u) * p.gun().delay;
     }
 
     /// Dev view: replaces the bots with `n` zombies standing in a row `dist` metres in front of the player.
@@ -330,7 +344,7 @@ impl Client {
     }
 
     /// health, ammo, magazine size, reloading, kills, deaths, hit marker, damage flash, respawn countdown,
-    /// weapon index, aim amount, scoped, kill marker, x, z, yaw, wave, zombies left, carried primary,
+    /// weapon index, aim amount, scoped, kill marker, x, z, yaw, wave, zombies left, carried primary (the gun count when none),
     /// picked primary, game under way, the circle shots land in as a fraction of half the screen's height,
     /// stamina, winded, carried sidearm, picked sidearm, grenades, down (waiting for the next wave), players
     /// still standing, players in all, reserve
