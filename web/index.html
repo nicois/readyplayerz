@@ -111,8 +111,8 @@
   .slots .lslot h3 { font-size: 20px; }
   .slots .lslot em { grid-column: 1 / -1; }
   .note.pending:empty { display: none; }
-  /* the loadout cards are hidden for now: solo is played for loot, and online plays the loadout last picked. Kept,
-     with the picker, to bring back later */
+  /* the loadout cards are hidden for now: every game is played for loot. Kept, with the picker, to bring back
+     later */
   .loadout { display: none; }
   .room-map .mapcard span { display: none; }
   .room-map .mapcard img { aspect-ratio: 21 / 9; }
@@ -1101,10 +1101,8 @@ function loop(t) {
   const benched = down > 0 && standing > 0;
   watchGame(t, wave, kills, deaths, inPlay > 0, respawn > 0 && !benched, team);
   dead.style.display = respawn > 0 || benched ? "block" : "none";
-  // alone it is played for loot: every life starts with only the pistol
-  const next = lobby.online
-    ? `<small>Next life: ${names[picked]} and ${names[picked2]}</small>`
-    : `<small>Next life: the ${names[primaries]} &middot; find the rest in weapon crates</small>`;
+  // it is played for loot: every life starts with only the pistol
+  const next = `<small>Next life: the ${names[primaries]} &middot; find the rest in weapon crates</small>`;
   if (benched) {
     dead.innerHTML = `You're down. Back when the next wave starts` + next;
   } else if (respawn > 0) {

@@ -2,6 +2,15 @@
 
 ## 2026-10-20
 
+### Loot online too, and weapon crates that can be found from afar
+- Online is played for loot as well: each life starts with only the Pistol, and the guns are found in weapon crates. The death screen says so online too.
+- Online, the server spawns the ammo boxes and the crates for the room and sends them in its snapshots (protocol version 3). Pickups run in each player's step, so a client takes a box or crate on the same input the server does, without waiting for it.
+- The server's record of a player now carries their guns, rounds and grenades. A client carrying something else after the same input (a crate a teammate got to first) is put right by the difference, so shots fired since still count.
+- Crates are placed at least 10 m from every player in the room, not only the first.
+- A column of red light rises out of each weapon crate, pulsing and thinning as it rises, so one can be seen from across the map.
+- Each crate within 45 m chimes every 2.5 s, panned and quieter with distance, so it can be found by ear.
+- The About page and `llms.txt` say online starts each life with the Pistol too, and how the crates can be found.
+
 ### Privacy and terms pages
 - New `/privacy` page: what the analytics collect (a visitor ID in the browser, game events, the device, a rough location), why, who handles it (PostHog, Cloudflare, Fly.io) and how to have it deleted, by writing to contact@readyplayerz.com.
 - New `/terms` page: free and as it is, fair play online (no cheating, attacking the server or offensive names), ownership and Finnish law.
@@ -31,6 +40,7 @@
 - Each wave tops up weapon crates to two, plus one every third wave, up to five, placed like the ammo boxes: reachable open ground at least 10 m away.
 - A crate holds any gun but the Pistol, shown turning over it. Standing or walking over one puts the gun in its slot (a Revolver or Desert Eagle replaces the Pistol), loaded with full reserves and raised; running over one, or one holding a gun already carried, leaves it.
 - The death screen says the next life starts with the Pistol instead of naming the loadout.
+
 ### Analytics on PostHog (`a2a08f1`)
 - The page now reports to PostHog, through our own subdomain `t.readyplayerz.com` (PostHog's managed proxy), so retention, funnels and load problems can be seen.
 - Tracked: the game loading (how long, the GPU) or failing to, phones and old browsers turned away, games started and ended (wave, kills, time played, fps), each wave reached, rooms made, joined, lost and waited for, invites copied, loadout and settings changes, and uncaught errors.
