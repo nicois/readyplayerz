@@ -1045,6 +1045,14 @@ addEventListener("wheel", e => { if (locked() && e.deltaY) client.cycle_weapon(e
 // isn't in it)
 const perf = params.has("perf") ? { n: 0, cpu: 0, worst: 0, since: 0 } : null;
 
+// the HUD's writes to the page, each made only when it changes: a frame that rewrites text or styles that are
+// already so still costs the browser a style pass
+const wrote = new Map();
+const changed = (k, v) => wrote.get(k) !== v && (wrote.set(k, v), true);
+const text = (id, v) => { if (changed(id, v)) $(id).textContent = v; };
+const html = (id, v) => { if (changed(id + "<", v)) $(id).innerHTML = v; };
+const css = (id, key, v) => { if (changed(id + "." + key, v)) $(id).style.setProperty(key, v); };
+
 let lastFrame = 0;
 let lobbyFrames = 0;
 function loop(t) {
@@ -1079,11 +1087,11 @@ function loop(t) {
     }
   }
   const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped, killt, px, pz, pyaw, wave, left, carried, picked, inPlay, spread, stamina, winded, carried2, picked2, grenades, down, standing, team, reserve] = client.hud();
-  $("hp").textContent = Math.ceil(hp);
-  $("am").textContent = ammo;
-  $("mg").textContent = reserve;
+  text("hp", Math.ceil(hp));
+  text("am", ammo);
+  text("mg", reserve);
   // a melee weapon has no rounds to count
-  $("rounds").style.display = mag > 0 ? "" : "none";
+  css("rounds", "display", mag > 0 ? "" : "none");
   [carried, carried2].forEach((w, s) => {
     if (w !== shownCarried[s]) {
       shownCarried[s] = w;
@@ -1095,41 +1103,40 @@ function loop(t) {
   // the main menu and the solo screen: a game alone under way can be resumed or ended, a room jumped back into
   const soloOn = inPlay && !lobby.online;
   const soloMap = MAPS[client.map()].name;
-  $("end").style.display = soloOn ? "block" : "none";
-  $("resume").style.display = soloOn || lobby.online ? "" : "none";
-  $("resume").firstChild.textContent = lobby.online ? "Jump in" : "Resume";
-  $("resume-sum").textContent = lobby.online ? `Room ${lobby.room} · ${MAPS[lobby.map].name}` : `${wave ? `Wave ${wave} · ` : ""}${soloMap}`;
-  $("solo-sum").textContent = soloMap;
-  $("solo-play").textContent = lobby.online ? "Leave the room and play" : soloOn ? "Resume" : "Play";
-  $("solo-end").style.display = soloOn ? "" : "none";
-  $("solo-note").textContent = soloOn ? `Your game on ${soloMap} is paused. End it to play another map.` : lobby.online ? "You're in an online room: playing solo leaves it." : "";
-  markSolo(client.map(), soloOn);
+  css("end", "display", soloOn ? "block" : "none");
+  css("resume", "display", soloOn || lobby.online ? "" : "none");
+  if (changed("resume^", lobby.online)) $("resume").firstChild.textContent = lobby.online ? "Jump in" : "Resume";
+  text("resume-sum", lobby.online ? `Room ${lobby.room} · ${MAPS[lobby.map].name}` : `${wave ? `Wave ${wave} · ` : ""}${soloMap}`);
+  text("solo-sum", soloMap);
+  text("solo-play", lobby.online ? "Leave the room and play" : soloOn ? "Resume" : "Play");
+  css("solo-end", "display", soloOn ? "" : "none");
+  text("solo-note", soloOn ? `Your game on ${soloMap} is paused. End it to play another map.` : lobby.online ? "You're in an online room: playing solo leaves it." : "");
+  if (changed("solo-maps", `${client.map()} ${soloOn}`)) markSolo(client.map(), soloOn);
   const scopeOn = scoped && ads > 0.85;
-  $("scope").style.display = scopeOn ? "block" : "none";
-  $("cross").style.display = scopeOn || ads > 0.5 ? "none" : "block";
-  // the spread is a fraction of half the screen's height, so the ring's diameter is that times the height
-  $("sfill").style.width = `${stamina * 100}%`;
+  css("scope", "display", scopeOn ? "block" : "none");
+  css("cross", "display", scopeOn || ads > 0.5 ? "none" : "block");
+  css("sfill", "width", `${Math.round(stamina * 1000) / 10}%`);
   $("stamina").classList.toggle("show", stamina < 1 && respawn <= 0);
   $("stamina").classList.toggle("winded", winded > 0);
-  $("ring").style.setProperty("--d", `${Math.max(14, spread * innerHeight)}px`);
-  $("rl").textContent = reloading ? "reloading..." : "";
-  $("gr").textContent = `${grenades} grenade${grenades === 1 ? "" : "s"} [G]`;
-  $("kd").textContent = `${kills} kills / ${deaths} deaths`;
+  // the spread is a fraction of half the screen's height, so the ring's diameter is that times the height
+  css("ring", "--d", `${Math.round(Math.max(14, spread * innerHeight))}px`);
+  text("rl", reloading ? "reloading..." : "");
+  text("gr", `${grenades} grenade${grenades === 1 ? "" : "s"} [G]`);
+  text("kd", `${kills} kills / ${deaths} deaths`);
   const waiting = !lobby.online || lobby.started ? "Get ready..." : lobby.startsIn ? `Starting in ${lobby.startsIn}` : lobby.matched ? "Waiting for another player" : "Waiting for the host to start";
   const squad = team > 1 ? ` \u00b7 ${standing} of ${team} standing` : "";
-  $("score").textContent = (left > 0 ? `Wave ${wave} \u00b7 ${left} left` : wave === 0 ? waiting : `Wave ${wave} cleared`) + squad;
-  $("flash").style.opacity = flash;
-  const dead = $("dead");
+  text("score", (left > 0 ? `Wave ${wave} \u00b7 ${left} left` : wave === 0 ? waiting : `Wave ${wave} cleared`) + squad);
+  css("flash", "opacity", String(Math.round(flash * 100) / 100));
   // down with others still standing: back for the next wave; everyone down: the game starts over
   const benched = down > 0 && standing > 0;
   watchGame(t, wave, kills, deaths, inPlay > 0, respawn > 0 && !benched, team);
-  dead.style.display = respawn > 0 || benched ? "block" : "none";
+  css("dead", "display", respawn > 0 || benched ? "block" : "none");
   // it is played for loot: every life starts with only the pistol
   const next = `<small>Next life: the ${names[primaries]} &middot; find the rest in weapon crates</small>`;
   if (benched) {
-    dead.innerHTML = `You're down. Back when the next wave starts` + next;
+    html("dead", `You're down. Back when the next wave starts` + next);
   } else if (respawn > 0) {
-    dead.innerHTML = `Overrun on wave ${wave}. Restarting in ${respawn.toFixed(1)}` + next;
+    html("dead", `Overrun on wave ${wave}. Restarting in ${respawn.toFixed(1)}` + next);
   }
   if (!loaded) {
     // the first frame has been drawn: show it on the next one

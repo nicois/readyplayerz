@@ -550,6 +550,9 @@ fn grade_rgb(c: [f32; 3]) -> [f32; 3] {
 /// The fog starts here and is fully opaque at FOG_END; past that there is only haze, so nothing is drawn.
 const FOG_START: f32 = 45.0;
 const FOG_END: f32 = 150.0;
+/// A weapon crate's gun is drawn turning over it from this close: further off it is a few pixels, and its beam says
+/// where it is.
+const CRATE_GUN_FAR: f32 = 40.0;
 /// Overcast sky and the colour the fog fades to, so the horizon melts into it.
 const HAZE: [f32; 3] = [0.52, 0.56, 0.62];
 /// Shadow map: its side in texels, and half the width of the area it covers around the player, in metres.
@@ -2077,19 +2080,26 @@ impl Renderer {
             self.draw_mate_gun(m);
         }
         self.draw_brass(None);
+        // boxes and crates behind the view or lost in the haze aren't drawn, and a crate's gun only near enough to make
+        // out: each of its pieces is a draw of its own
+        let off = |at: V3| [at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]];
+        let shown = |at: V3, far: f32| dot(off(at), fwd) > -1.0 && dot(off(at), off(at)) < far * far;
         // the ammo crates: a drab box with a yellow band
-        for at in &g.boxes {
+        for &at in g.boxes.iter().filter(|&&at| shown(at, self.fog_end)) {
             let m = box_model([at[0] - 0.35, at[1], at[2] - 0.35], [at[0] + 0.35, at[1] + 0.7, at[2] + 0.35]);
             self.draw_model(&m, [0.38, 0.36, 0.22], 0.0, 0.1);
             let m = box_model([at[0] - 0.40, at[1] + 0.28, at[2] - 0.40], [at[0] + 0.40, at[1] + 0.42, at[2] + 0.40]);
             self.draw_model(&m, [0.98, 0.75, 0.2], 0.0, 0.2);
         }
         // the weapon crates: a dark case with a red band, and its gun turning over it to show what is inside
-        for &(at, gun) in &g.crates {
+        for &(at, gun) in g.crates.iter().filter(|&&(at, _)| shown(at, self.fog_end)) {
             let m = box_model([at[0] - 0.45, at[1], at[2] - 0.45], [at[0] + 0.45, at[1] + 0.5, at[2] + 0.45]);
             self.draw_model(&m, [0.16, 0.18, 0.2], 0.0, 0.25);
             let m = box_model([at[0] - 0.5, at[1] + 0.18, at[2] - 0.5], [at[0] + 0.5, at[1] + 0.3, at[2] + 0.5]);
             self.draw_model(&m, [0.85, 0.12, 0.1], 0.3, 0.2);
+            if !shown(at, CRATE_GUN_FAR) {
+                continue;
+            }
             let (lo, hi) = self.guns[gun].bounds;
             let mid = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0];
             let bob = 1.1 + 0.08 * (g.time * 2.0 + at[0]).sin();
