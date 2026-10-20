@@ -12,6 +12,10 @@ pub const SNAPSHOT_EVERY: u32 = 2;
 const QUEUE: usize = 4;
 /// Ticks to wait for an input that was lost on the way before going on without it.
 const GAP_WAIT: u32 = 3;
+/// A quick-match room starts by itself this many seconds after a second player is in, or after this many once
+/// it is full.
+pub const MATCH_WAIT: f32 = 30.0;
+pub const MATCH_FULL: f32 = 5.0;
 
 /// One player's place in a room.
 struct Seat {
@@ -37,9 +41,13 @@ pub struct Room {
     pub game: Game,
     pub map: u8,
     pub seed: u32,
+    /// found by quick match: strangers come and go, and it starts by itself (see `MATCH_WAIT`)
+    pub matched: bool,
     seats: Vec<Seat>,
     /// the shots fired since the last snapshot
     shots: Vec<Shot>,
+    /// ticks until a quick-match room starts by itself, while it is counting down
+    countdown: Option<u32>,
 }
 
 impl Room {
@@ -53,11 +61,35 @@ impl Room {
         game.role = Role::Server;
         game.players.clear();
         game.hold_waves();
-        Room { game, map, seed, seats: Vec::new(), shots: Vec::new() }
+        Room { game, map, seed, matched: false, seats: Vec::new(), shots: Vec::new(), countdown: None }
     }
 
     pub fn is_empty(&self) -> bool {
         self.seats.is_empty()
+    }
+
+    /// How many are in.
+    pub fn players(&self) -> usize {
+        self.seats.len()
+    }
+
+    /// A quick-match room's countdown after someone comes or goes: it starts once a second player is in, is cut
+    /// short when the room fills, and stops if all but one leave.
+    fn recount(&mut self) {
+        if !self.matched || self.game.waves_on() {
+            return;
+        }
+        let ticks = |s: f32| (s / STEP).round() as u32;
+        self.countdown = match self.seats.len() {
+            0 | 1 => None,
+            MAX_PLAYERS => Some(self.countdown.unwrap_or(u32::MAX).min(ticks(MATCH_FULL))),
+            _ => self.countdown.or(Some(ticks(MATCH_WAIT))),
+        };
+    }
+
+    /// Whole seconds until a quick-match room starts by itself, 0 when it isn't counting down.
+    pub fn starts_in(&self) -> u8 {
+        self.countdown.map_or(0, |t| t.div_ceil((1.0 / STEP).round() as u32).clamp(1, 255) as u8)
     }
 
     /// Someone coming in, called `name`: their player's id, or None if the room is full.
@@ -68,6 +100,7 @@ impl Room {
         let id = (0..=u8::MAX).find(|id| self.seats.iter().all(|s| s.id != *id))?;
         self.seats.push(Seat { id, name: clean_name(name, id), queue: BTreeMap::new(), next: 0, waited: 0, ack: 0 });
         self.game.add_player(id);
+        self.recount();
         Some(id)
     }
 
@@ -81,6 +114,7 @@ impl Room {
     pub fn leave(&mut self, id: u8) {
         self.seats.retain(|s| s.id != id);
         self.game.remove_player(id);
+        self.recount();
     }
 
     /// The host, who starts the game: whoever has been in longest.
@@ -92,12 +126,14 @@ impl Room {
     pub fn start(&mut self, by: u8) {
         if self.host() == Some(by) && !self.game.waves_on() {
             self.game.start_waves();
+            self.countdown = None;
         }
     }
 
     /// Who is in, for everyone's lobby.
     pub fn roster(&self) -> Msg {
-        Msg::Roster { started: self.game.waves_on(), players: self.seats.iter().map(|s| (s.id, s.name.clone())).collect() }
+        let players = self.seats.iter().map(|s| (s.id, s.name.clone())).collect();
+        Msg::Roster { started: self.game.waves_on(), players, matched: self.matched, starts_in: self.starts_in() }
     }
 
     /// Inputs from player `id`, the first of them number `first`. Ones already played or already here are
@@ -119,6 +155,15 @@ impl Room {
 
     /// One step: everyone's next input played, then the world.
     pub fn tick(&mut self) {
+        if let Some(t) = &mut self.countdown {
+            *t = t.saturating_sub(1);
+            if *t == 0 {
+                self.countdown = None;
+                if let Some(host) = self.host() {
+                    self.start(host);
+                }
+            }
+        }
         for k in 0..self.seats.len() {
             let Some(i) = self.game.players.iter().position(|p| p.id == self.seats[k].id) else { continue };
             let s = &mut self.seats[k];
@@ -260,6 +305,37 @@ mod tests {
         assert_eq!(r.join(""), Some(0));
         r.start(1);
         assert!(r.game.waves_on());
+    }
+
+    #[test]
+    fn a_quick_match_room_starts_itself_once_two_are_in_and_soon_after_it_fills() {
+        let secs = |r: &mut Room, s: f32| (0..(s / STEP).round() as u32).for_each(|_| r.tick());
+        let mut r = room();
+        r.matched = true;
+        r.join("");
+        secs(&mut r, 60.0);
+        assert_eq!(r.starts_in(), 0, "alone, it waits");
+        r.join("");
+        assert_eq!(r.starts_in(), MATCH_WAIT as u8);
+        // down to one stops the clock, and a second starts it over
+        r.leave(1);
+        assert_eq!(r.starts_in(), 0);
+        r.join("");
+        secs(&mut r, 10.0);
+        assert_eq!(r.starts_in(), (MATCH_WAIT - 10.0) as u8);
+        // full: a few seconds more
+        (2..MAX_PLAYERS).for_each(|_| _ = r.join(""));
+        assert_eq!(r.starts_in(), MATCH_FULL as u8);
+        secs(&mut r, MATCH_FULL - 0.1);
+        assert!(!r.game.waves_on());
+        secs(&mut r, 0.2);
+        assert!(r.game.waves_on());
+        assert_eq!(r.starts_in(), 0);
+        // a room made by code only starts when its host says
+        let mut r = room();
+        (0..MAX_PLAYERS).for_each(|_| _ = r.join(""));
+        secs(&mut r, 60.0);
+        assert!(!r.game.waves_on());
     }
 
     #[test]

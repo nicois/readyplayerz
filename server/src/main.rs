@@ -11,6 +11,10 @@
 //!
 //! `MAX_ROOMS` (20) is how many rooms can be open at once. Past that, whoever makes a room waits in line for one,
 //! told their place as it changes; joining a room already open never waits.
+//!
+//! Quick match puts a player in the fullest quick-match room that hasn't started and has a seat, or makes one on
+//! any map for the next to find. Such a room starts by itself (see `Room::matched`); once it has, nobody more is
+//! matched into it. Rooms made to play with friends are never matched into.
 
 use arena::net::{self, Frames, Msg};
 use arena::sim::host::Room;
@@ -33,7 +37,8 @@ type Error = Box<dyn std::error::Error + Send + Sync>;
 
 /// What a session tells its room.
 enum ToRoom {
-    Join { name: String, out: amp::UnboundedSender<Out>, reply: oneshot::Sender<Option<u8>> },
+    /// someone in, or None if there's no seat for them; one sent by quick match isn't let in once the game is on
+    Join { name: String, matched: bool, out: amp::UnboundedSender<Out>, reply: oneshot::Sender<Option<u8>> },
     Inputs(u8, u32, Vec<Input>),
     Start(u8),
     Rename(u8, String),
@@ -50,6 +55,8 @@ enum Out {
 struct Lobby {
     max: usize,
     rooms: HashMap<String, mpsc::Sender<ToRoom>>,
+    /// the quick-match rooms that haven't started, and how many are in each
+    matching: HashMap<String, usize>,
     /// the tickets of those waiting to make a room, first in line first
     line: VecDeque<u64>,
 }
@@ -63,7 +70,13 @@ enum Turn {
 
 impl Lobby {
     fn new(max: usize) -> Lobby {
-        Lobby { max, rooms: HashMap::new(), line: VecDeque::new() }
+        Lobby { max, rooms: HashMap::new(), matching: HashMap::new(), line: VecDeque::new() }
+    }
+
+    /// The quick-match room to put someone in: the fullest with a seat left, so games fill and start.
+    fn pick(&self) -> Option<mpsc::Sender<ToRoom>> {
+        let (code, _) = self.matching.iter().filter(|(_, &n)| n < net::MAX_PLAYERS).max_by_key(|(_, &n)| n)?;
+        self.rooms.get(code).cloned()
     }
 
     /// Ticket `t` asking for a room, at the back of the line the first time it asks: its turn once it is first in
@@ -130,13 +143,14 @@ fn run_room(code: String, mut room: Room, rx: mpsc::Receiver<ToRoom>, rooms: Roo
     };
     let (start, mut ticks) = (Instant::now(), 0u64);
     let mut empty_since = Some(Instant::now());
-    let mut started = false;
-    println!("room {code} open, map {}", room.map);
+    // what everyone was last told of the game starting, and what quick match was last told of the room
+    let (mut told, mut listed) = ((false, 0), Some(0));
+    println!("room {code} open, map {}{}", room.map, if room.matched { ", for quick match" } else { "" });
     loop {
         while let Ok(m) = rx.try_recv() {
             match m {
-                ToRoom::Join { name, out, reply } => {
-                    let id = room.join(&name);
+                ToRoom::Join { name, matched, out, reply } => {
+                    let id = if matched && room.game.waves_on() { None } else { room.join(&name) };
                     if let Some(id) = id {
                         let _ = out.send(Out::Stream(Msg::Welcome { id, room: code.clone(), map: room.map, seed: room.seed }.frame()));
                         outs.insert(id, out);
@@ -159,9 +173,19 @@ fn run_room(code: String, mut room: Room, rx: mpsc::Receiver<ToRoom>, rooms: Roo
                 }
             }
         }
-        if room.game.waves_on() != started {
-            started = room.game.waves_on();
+        if (room.game.waves_on(), room.starts_in()) != told {
+            told = (room.game.waves_on(), room.starts_in());
             send_all(&outs, &room.roster());
+        }
+        // a quick-match room is matched into until its game is on
+        let listing = (room.matched && !room.game.waves_on()).then(|| room.players());
+        if listing != listed {
+            let mut lobby = rooms.lock().unwrap();
+            match listing {
+                Some(n) => lobby.matching.insert(code.clone(), n),
+                None => lobby.matching.remove(&code),
+            };
+            listed = listing;
         }
         // as many steps as the clock says are due; a long stall is let go rather than caught up all at once
         let due = (start.elapsed().as_secs_f64() / STEP as f64) as u64;
@@ -187,6 +211,7 @@ fn run_room(code: String, mut room: Room, rx: mpsc::Receiver<ToRoom>, rooms: Roo
                 let mut lobby = rooms.lock().unwrap();
                 if lobby.closes(t.elapsed()) {
                     lobby.rooms.remove(&code);
+                    lobby.matching.remove(&code);
                     println!("room {code} closed, {} open", lobby.rooms.len());
                     return;
                 }
@@ -198,27 +223,34 @@ fn run_room(code: String, mut room: Room, rx: mpsc::Receiver<ToRoom>, rooms: Roo
     }
 }
 
-/// A new room on map `map`, on a thread of its own.
-fn open_room(lobby: &mut Lobby, rooms: &Rooms, map: u8) -> mpsc::Sender<ToRoom> {
+/// A new room on map `map`, for quick match or not, on a thread of its own.
+fn open_room(lobby: &mut Lobby, rooms: &Rooms, map: u8, matched: bool) -> mpsc::Sender<ToRoom> {
     let code = new_code(&lobby.rooms);
     let (tx, rx) = mpsc::channel();
     let (map, seed) = (map.min(arena::map::MAPS - 1), random() as u32);
     let (rooms, name) = (rooms.clone(), code.clone());
     // the game is made on its own thread, as it never leaves it
-    std::thread::spawn(move || run_room(name, Room::new(map, seed), rx, rooms));
+    std::thread::spawn(move || {
+        let mut room = Room::new(map, seed);
+        room.matched = matched;
+        run_room(name, room, rx, rooms)
+    });
+    if matched {
+        lobby.matching.insert(code.clone(), 0);
+    }
     lobby.rooms.insert(code, tx.clone());
     tx
 }
 
 /// A room made on map `map` as soon as there is space for one: until then the session waits in line, told its
 /// place whenever that changes. None if they went before their turn came.
-async fn make_room(rooms: &Rooms, map: u8, send: &mut SendStream, recv: &mut RecvStream) -> Result<Option<mpsc::Sender<ToRoom>>, Error> {
+async fn make_room(rooms: &Rooms, map: u8, matched: bool, send: &mut SendStream, recv: &mut RecvStream) -> Result<Option<mpsc::Sender<ToRoom>>, Error> {
     let ticket = Ticket(rooms.clone(), random());
     let (mut told, mut buf) = (0, [0u8; 256]);
     loop {
         let place = {
             let mut lobby = rooms.lock().unwrap();
-            let Turn::Wait(place) = lobby.turn(ticket.1) else { return Ok(Some(open_room(&mut lobby, rooms, map))) };
+            let Turn::Wait(place) = lobby.turn(ticket.1) else { return Ok(Some(open_room(&mut lobby, rooms, map, matched))) };
             if told == 0 {
                 println!("all {} rooms taken, {} waiting", lobby.max, lobby.line.len());
             }
@@ -254,23 +286,37 @@ async fn session(incoming: IncomingSession, rooms: Rooms) -> Result<(), Error> {
         send.write_all(&refuse("The game has been updated: reload the page.")).await?;
         return Ok(());
     }
-    let tx = if code.is_empty() {
-        let Some(tx) = make_room(&rooms, map, &mut send, &mut recv).await? else { return Ok(()) };
-        tx
-    } else {
-        let tx = rooms.lock().unwrap().rooms.get(&code.to_uppercase()).cloned();
-        let Some(tx) = tx else {
-            send.write_all(&refuse("There is no room with that code.")).await?;
-            return Ok(());
+    let quick = code == net::QUICK;
+    // quick match tries the rooms it finds (one can fill or start on the way in) a few times, then makes its own
+    let mut tries = 0;
+    let (tx, id, mut outgoing) = loop {
+        let found = if quick && tries < 5 { rooms.lock().unwrap().pick() } else { None };
+        let tx = if let Some(tx) = found {
+            tx
+        } else if quick || code.is_empty() {
+            let map = if quick { (random() % arena::map::MAPS as u64) as u8 } else { map };
+            let Some(tx) = make_room(&rooms, map, quick, &mut send, &mut recv).await? else { return Ok(()) };
+            tx
+        } else {
+            let tx = rooms.lock().unwrap().rooms.get(&code.to_uppercase()).cloned();
+            let Some(tx) = tx else {
+                send.write_all(&refuse("There is no room with that code.")).await?;
+                return Ok(());
+            };
+            tx
         };
-        tx
-    };
-    let (out, mut outgoing) = amp::unbounded_channel();
-    let (reply, id) = oneshot::channel();
-    tx.send(ToRoom::Join { name, out, reply })?;
-    let Some(id) = id.await? else {
-        send.write_all(&refuse("That room is full.")).await?;
-        return Ok(());
+        let (out, outgoing) = amp::unbounded_channel();
+        let (reply, id) = oneshot::channel();
+        tx.send(ToRoom::Join { name: name.clone(), matched: quick, out, reply })?;
+        // no answer is a room that closed as the message went
+        match id.await.ok().flatten() {
+            Some(id) => break (tx, id, outgoing),
+            None if quick => tries += 1,
+            None => {
+                send.write_all(&refuse("That room is full.")).await?;
+                return Ok(());
+            }
+        }
     };
     let result: Result<(), Error> = async {
         loop {
@@ -461,6 +507,30 @@ mod tests {
         assert_eq!(ask(&mut rooms.lock().unwrap(), 3), Turn::Wait(1));
         rooms.lock().unwrap().rooms.clear();
         assert_eq!(ask(&mut rooms.lock().unwrap(), 3), Turn::Now);
+    }
+
+    #[test]
+    fn quick_match_fills_the_fullest_room_with_a_seat() {
+        let mut lobby = Lobby::new(5);
+        assert!(lobby.pick().is_none());
+        let rooms = [("A", 2), ("B", 4), ("C", net::MAX_PLAYERS)];
+        let mut tx = HashMap::new();
+        for (code, n) in rooms {
+            let (t, r) = mpsc::channel();
+            lobby.rooms.insert(code.into(), t);
+            lobby.matching.insert(code.into(), n);
+            tx.insert(code, r);
+        }
+        // the room it picks is the one that hears from it
+        let pick = |lobby: &Lobby| {
+            let (out, reply) = (amp::unbounded_channel().0, oneshot::channel().0);
+            lobby.pick().unwrap().send(ToRoom::Join { name: "".into(), matched: true, out, reply }).unwrap();
+            tx.iter().find(|(_, r)| r.try_recv().is_ok()).map(|(c, _)| *c)
+        };
+        assert_eq!(pick(&lobby), Some("B"));
+        // started (or closed): not matched into any more
+        lobby.matching.remove("B");
+        assert_eq!(pick(&lobby), Some("A"));
     }
 
     #[test]
