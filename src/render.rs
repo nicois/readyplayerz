@@ -153,21 +153,21 @@ float hash(vec2 p) {
     return fract(p.x * p.y);
 }
 // GRADE
+// Value noise, read from tiling tables of random corners (see `noise_tables`) instead of hashing every corner: one
+// lookup instead of four or eight hashes. Moving the point through its cell by the smooth fade first makes the
+// hardware's straight blend between texels come out as the smooth one.
+uniform mediump sampler2D u_noise2;
+uniform mediump sampler3D u_noise3;
+const float NOISE2 = 256.0, NOISE3 = 64.0;
 float noise(vec2 p) {
     vec2 i = floor(p), f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
-}
-float hash3(vec3 p) {
-    p = fract(p * 0.3183099 + 0.1);
-    p *= 17.0;
-    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+    return textureLod(u_noise2, (mod(i, NOISE2) + f + 0.5) / NOISE2, 0.0).r;
 }
 float noise3(vec3 x) {
     vec3 i = floor(x), f = fract(x);
     f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(mix(hash3(i), hash3(i + vec3(1, 0, 0)), f.x), mix(hash3(i + vec3(0, 1, 0)), hash3(i + vec3(1, 1, 0)), f.x), f.y),
-               mix(mix(hash3(i + vec3(0, 0, 1)), hash3(i + vec3(1, 0, 1)), f.x), mix(hash3(i + vec3(0, 1, 1)), hash3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+    return textureLod(u_noise3, (mod(i, NOISE3) + f + 0.5) / NOISE3, 0.0).r;
 }
 // flesh, cloth and blood for the zombies: 9 skin, 10 cloth, 11 blood; p is in metres on the part. The living
 // have healthy skin, without the veins, bruises and sores
@@ -1506,6 +1506,7 @@ impl Renderer {
         gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&shadow_fbo));
         gl.framebuffer_texture_2d(GL::FRAMEBUFFER, GL::DEPTH_ATTACHMENT, GL::TEXTURE_2D, Some(&shadow_tex), 0);
         gl.bind_framebuffer(GL::FRAMEBUFFER, None);
+        Self::noise_tables(&gl, &prog)?;
 
         let line_vao = gl.create_vertex_array().ok_or("vao")?;
         gl.bind_vertex_array(Some(&line_vao));
@@ -2091,6 +2092,49 @@ impl Renderer {
         self.count(1);
         gl.depth_mask(true);
         gl.depth_func(GL::LESS);
+    }
+
+    /// The tables FRAG's `noise` and `noise3` read: a random byte at each corner of a 256x256 and a 64x64x64 grid
+    /// that wrap round, blended linearly, put on texture units 1 and 2 for good (everything else uses unit 0).
+    fn noise_tables(gl: &GL, prog: &WebGlProgram) -> Result<(), String> {
+        // a well-mixed hash of the corner's index, so the table has no pattern of its own
+        let table = |n: u32, salt: u32| -> Vec<u8> {
+            (0..n)
+                .map(|i| {
+                    let mut x = i.wrapping_mul(0x9e37_79b9) ^ salt;
+                    x ^= x >> 16;
+                    x = x.wrapping_mul(0x7feb_352d);
+                    x ^= x >> 15;
+                    x = x.wrapping_mul(0x846c_a68b);
+                    x ^= x >> 16;
+                    (x >> 24) as u8
+                })
+                .collect()
+        };
+        let wrap = |target: u32| {
+            for p in [GL::TEXTURE_WRAP_S, GL::TEXTURE_WRAP_T, GL::TEXTURE_WRAP_R] {
+                gl.tex_parameteri(target, p, GL::REPEAT as i32);
+            }
+            gl.tex_parameteri(target, GL::TEXTURE_MIN_FILTER, GL::LINEAR as i32);
+            gl.tex_parameteri(target, GL::TEXTURE_MAG_FILTER, GL::LINEAR as i32);
+        };
+        gl.active_texture(GL::TEXTURE1);
+        gl.bind_texture(GL::TEXTURE_2D, gl.create_texture().as_ref());
+        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+            GL::TEXTURE_2D, 0, GL::R8 as i32, 256, 256, 0, GL::RED, GL::UNSIGNED_BYTE, Some(&table(256 * 256, 1)),
+        )
+        .map_err(|_| "noise table")?;
+        wrap(GL::TEXTURE_2D);
+        gl.active_texture(GL::TEXTURE2);
+        gl.bind_texture(GL::TEXTURE_3D, gl.create_texture().as_ref());
+        gl.tex_image_3d_with_opt_u8_array(GL::TEXTURE_3D, 0, GL::R8 as i32, 64, 64, 64, 0, GL::RED, GL::UNSIGNED_BYTE, Some(&table(64 * 64 * 64, 2)))
+            .map_err(|_| "noise table")?;
+        wrap(GL::TEXTURE_3D);
+        gl.active_texture(GL::TEXTURE0);
+        gl.use_program(Some(prog));
+        gl.uniform1i(gl.get_uniform_location(prog, "u_noise2").as_ref(), 1);
+        gl.uniform1i(gl.get_uniform_location(prog, "u_noise3").as_ref(), 2);
+        Ok(())
     }
 
     fn make_targets(gl: &GL, w: u32, h: u32) -> Result<Targets, String> {

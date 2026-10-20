@@ -475,8 +475,12 @@ function autoFrame(t, dt) {
   }
 }
 
+// a sharp screen's pixels are drawn at no more than 1.5 a CSS pixel: at its full 2 there are 4 times the pixels of
+// an ordinary screen to shade, for a picture that barely looks different while moving
+const MAX_DPR = 1.5;
+
 function size() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2) * RES_SCALE[quality] * auto.scale;
+  const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR) * RES_SCALE[quality] * auto.scale;
   canvas.width = Math.floor(innerWidth * dpr);
   canvas.height = Math.floor(innerHeight * dpr);
   return [canvas.width, canvas.height];

@@ -8,6 +8,10 @@
 - Kills and deaths count for the game now, starting from 0 when it starts over, instead of for the whole visit. Teammates' kills are sent with them (protocol version 6).
 - Down online with others still standing, a DOWN banner says when you're back ("Back next wave · wave 5 has 7 left") and the view goes over the shoulder of a teammate still standing: behind and above their right shoulder, looking where they look, pulled in short of walls. The banner says who and their health; a click watches the next one. The crosshair and the ammo count are hidden while down.
 
+### Cheaper pixels: noise from tables, and sharp screens drawn at 1.5
+- The surface patterns (skin, cloth, hair, wood, metal, brick, plaster) read their noise from two small tiling tables, a 256×256 and a 64×64×64, instead of working out four or eight random corners per lookup; a zombie's skin takes about twenty lookups a pixel. They look the same, with the speckles in other places. On an M1 at 1920×993 on High, a frame of the horde bench went from about 10.1 ms to 8.9.
+- A sharp (Retina) screen is drawn at most 1.5 pixels to the CSS pixel (was 2), so about half the pixels. On High it went from 34 to about 60 fps in the horde bench.
+
 ### Edges smoothed by FXAA instead of multisampling
 - Every quality now draws the picture without multisampling and smooths its edges with an FXAA pass on the way to the screen (Medium had 2x MSAA, High 4x, Low none). On an M1 at 1920×993, High's 4x MSAA took about a quarter of each frame; the FXAA pass takes about a millisecond.
 - FXAA also smooths edges multisampling never did: the holes in the zombies' clothes and their hairlines. Side by side with 4x MSAA no difference could be seen in play.
