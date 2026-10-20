@@ -43,6 +43,8 @@ pub struct Client {
     picks: Vec<u8>,
     /// playing the drawing bench (see `horde`): the number of the next tick of it
     horde: Option<u32>,
+    /// down online with others still standing: the id of the one watched (see `Renderer::watch`)
+    watch: Option<u8>,
 }
 
 #[wasm_bindgen]
@@ -66,7 +68,7 @@ impl Client {
         let mut game = Game::on(map, seed);
         game.set_loot(true);
         renderer.upload_world(&game)?;
-        Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true, map, seed, online: None, frames: Frames::default(), net_error: String::new(), queued: 0, picks: Vec::new(), horde: None })
+        Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true, map, seed, online: None, frames: Frames::default(), net_error: String::new(), queued: 0, picks: Vec::new(), horde: None, watch: None })
     }
 
     /// The game being played: the room's, online.
@@ -344,6 +346,10 @@ impl Client {
 
     /// 0 is the primary button (fire), 2 the secondary (aim down sights).
     pub fn mouse_button(&mut self, button: u8, down: bool) {
+        // down, a click watches the next one standing
+        if button == 0 && down && self.watch.is_some() {
+            self.watch_next(true);
+        }
         let i = &mut self.game_mut().me_mut().input;
         match button {
             0 => i.fire = down,
@@ -394,7 +400,43 @@ impl Client {
         if !paused {
             self.game_mut().chime(dt);
         }
+        self.watch_next(false);
         self.renderer.render(self.game());
+    }
+
+    /// Down online: keeps watching whoever is watched while they stand, or moves on to the next one standing
+    /// (`next`, a click, moves on anyway). Up again, or alone, the view is our own.
+    fn watch_next(&mut self, next: bool) {
+        let g = self.game();
+        let up: Vec<u8> = g.players.iter().filter(|p| p.alive() && p.id != g.me().id).map(|p| p.id).collect();
+        let watch = if self.online.is_none() || g.me().alive() || up.is_empty() {
+            None
+        } else {
+            match self.watch.and_then(|id| up.iter().position(|&u| u == id)) {
+                Some(k) if next => Some(up[(k + 1) % up.len()]),
+                Some(k) => Some(up[k]),
+                None => Some(up[0]),
+            }
+        };
+        let i = watch.and_then(|id| g.players.iter().position(|p| p.id == id));
+        self.watch = watch;
+        self.renderer.watch.set(i);
+    }
+
+    /// The player watched while down, as [id, health], or empty watching nobody.
+    pub fn watching(&self) -> Vec<f32> {
+        let g = self.game();
+        self.watch.and_then(|id| g.players.iter().find(|p| p.id == id)).map_or(Vec::new(), |p| vec![p.id as f32, p.hp.max(0.0)])
+    }
+
+    /// Everyone down alone, the score read: play again (see `sim::OVERRUN_SOLO`).
+    pub fn again(&mut self) {
+        self.game.again = true;
+    }
+
+    /// Each player's id and kills this game, for the score once everyone is down: [id, kills, id, kills, ...].
+    pub fn scores(&self) -> Vec<f32> {
+        self.game().players.iter().flat_map(|p| [p.id as f32, p.kills as f32]).collect()
     }
 
     /// health, ammo, magazine size, reloading, kills, deaths, hit marker, damage flash, respawn countdown,

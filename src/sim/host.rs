@@ -308,6 +308,7 @@ fn mate(p: &Player) -> Mate {
         climbing: p.climb.is_some(),
         hp: p.hp.max(0.0),
         sprint: p.sprint_t,
+        kills: p.kills,
     }
 }
 

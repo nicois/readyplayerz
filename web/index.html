@@ -90,7 +90,35 @@
   #ammo { position: absolute; right: 22px; bottom: 18px; font-size: 34px; text-shadow: 0 1px 3px #000; text-align: right; }
   #ammo small { display: block; font-size: 13px; opacity: .7; }
   #score { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); font-size: 18px; text-shadow: 0 1px 3px #000; }
-  #dead { position: absolute; top: 40%; width: 100%; text-align: center; font-size: 28px; display: none; text-shadow: 0 2px 6px #000; }
+  /* down: the aim, the gun's count and the prompts are of no use, and online the view is someone else's */
+  #hud.down :is(#cross, #ring, #ammo, #take, #stamina) { visibility: hidden; }
+  /* down online while others stand: a banner up top, and who is being watched over the shoulder */
+  #downed { position: absolute; top: 15%; left: 50%; transform: translateX(-50%); display: none; text-align: center; text-shadow: 0 2px 6px #000; }
+  #downed b { display: block; font: 900 46px/1 "Arial Rounded MT Bold", "Trebuchet MS", system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: #ff4a35; -webkit-text-stroke: 6px #2a0505; paint-order: stroke fill; transform: rotate(-2deg); animation: slam .45s cubic-bezier(.2, 1.5, .4, 1) both; }
+  #downed span { display: block; margin-top: 10px; font-size: 16px; }
+  #downed small { display: block; margin-top: 6px; font-size: 13px; opacity: .75; }
+  /* everyone down: the score, slammed on like a cartoon caption, over a darkened red view */
+  #over { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; text-align: center; background: radial-gradient(rgba(60,0,0,.3), rgba(16,0,0,.8)); text-shadow: 0 2px 6px #000; animation: fade .5s both; }
+  #over h2 { margin: 0; font: 900 min(104px, 17vw)/1 "Arial Rounded MT Bold", "Trebuchet MS", system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #ff3a2a; -webkit-text-stroke: 10px #2a0505; paint-order: stroke fill; transform: rotate(-3deg); animation: slam .6s cubic-bezier(.2, 1.5, .4, 1) both; }
+  .ov-stats { display: flex; gap: min(48px, 7vw); margin-top: 34px; }
+  .ov-stats div { animation: rise .35s both; }
+  .ov-stats div:nth-child(1) { animation-delay: .45s; }
+  .ov-stats div:nth-child(2) { animation-delay: .6s; }
+  .ov-stats div:nth-child(3) { animation-delay: .75s; }
+  .ov-stats b { display: block; font-size: 46px; color: #ffd36a; }
+  .ov-stats small, .ov-note { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; opacity: .65; }
+  #ov-team { margin: 26px 0 0; padding: 0; min-width: 280px; list-style: none; font-size: 15px; animation: rise .35s .9s both; }
+  #ov-team:empty { display: none; }
+  #ov-team li { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,.12); text-align: left; }
+  #ov-team li i { width: 10px; height: 10px; border-radius: 50%; }
+  #ov-team li span { flex: 1; }
+  #ov-team li small { margin-left: 6px; opacity: .55; }
+  #ov-next { min-height: 1.3em; margin: 30px 0 10px; font-size: 17px; }
+  #ov-next.ready { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes slam { from { opacity: 0; scale: 2.8; } 55% { opacity: 1; } to { scale: 1; } }
+  @keyframes rise { from { opacity: 0; translate: 0 14px; } to { opacity: 1; translate: 0 0; } }
+  @keyframes fade { from { opacity: 0; } }
+  @keyframes pulse { 50% { opacity: .55; } }
   /* the menu is a stack of screens: main picks solo or online, and each of those has the loadout and a button to
      settings; the weapon picker for a slot and settings go back to the one they came from */
   #menu { position: fixed; inset: 0; display: flex; background: linear-gradient(90deg, rgba(8,11,20,.94), rgba(8,11,20,.8) 50%, rgba(8,11,20,.4)); }
@@ -241,7 +269,6 @@
   #scope::before { left: 50%; top: calc(50% - 30vmin); width: 2px; height: 60vmin; margin-left: -1px; }
   #scope::after { top: 50%; left: calc(50% - 30vmin); height: 2px; width: 60vmin; margin-top: -1px; }
   #scope i { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: #ff3b3b; }
-  #dead small { display: block; margin-top: 10px; font-size: 15px; }
   #loading { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #12182a; transition: opacity .35s; }
   #loading.done { opacity: 0; pointer-events: none; }
   #loading .name { margin: 0 0 18px; font-size: min(40px, 8vw); font-weight: bold; letter-spacing: .12em; }
@@ -267,7 +294,14 @@
   <div id="hitmark"><i></i><i></i><i></i><i></i></div>
   <div id="take"></div>
   <div id="score"></div>
-  <div id="dead"></div>
+  <div id="downed"><b>Down</b><span id="dn-wave"></span><small id="dn-watch"></small></div>
+  <div id="over">
+    <h2 id="ov-title">You died</h2>
+    <div class="ov-stats"><div><b id="ov-wave"></b><small>Wave reached</small></div><div><b id="ov-kills"></b><small>Kills</small></div><div><b id="ov-time"></b><small>Survived</small></div></div>
+    <ol id="ov-team"></ol>
+    <p id="ov-next"></p>
+    <small class="ov-note">Next life starts with the Pistol &middot; find the rest in weapon crates</small>
+  </div>
   <div id="stats"><span id="hp">100</span> HP<small id="kd"></small></div>
   <div id="ammo"><span id="rounds"><span id="am">30</span> / <span id="mg">30</span></span><small id="rl"></small><small id="gr"></small></div>
   <div id="stamina"><div id="sfill"></div></div>
@@ -955,8 +989,11 @@ function watchGame(t, wave, kills, deaths, inPlay, overrun, team) {
 }
 // `how`: "overrun", "ended", "left" (the room), "lost" (the connection), "switched" (to another room) or "closed"
 // (the page)
+// the last game's time in play, for the score (see `showOver`)
+let lastRun = null;
 function gameOver(how) {
   if (!game) return;
+  lastRun = { seconds: Math.round(game.ms / 1000) };
   const { kills, deaths } = game.last || game;
   track("game_over", {
     ...game.props, how, wave: game.wave, team: game.team,
@@ -1154,11 +1191,12 @@ addEventListener("keydown", e => {
   if (e.repeat) return;
   if (e.code === "Escape" && !locked() && BACK[screen]) show(BACK[screen]);
   if (e.code === "KeyM" && !(e.target instanceof HTMLInputElement)) setSound(sound.muted ? 0 : 1);
-  if (locked()) { client.key(e.code, true); if (e.code === "Space") e.preventDefault(); }
+  // Space and a click also play again once the score is up alone (and do nothing otherwise)
+  if (locked()) { client.key(e.code, true); if (e.code === "Space") { e.preventDefault(); client.again(); } }
 });
 addEventListener("keyup", e => client.key(e.code, false));
 addEventListener("mousemove", e => { if (locked()) client.mouse_move(e.movementX, e.movementY); });
-addEventListener("mousedown", e => { if (locked()) client.mouse_button(e.button, true); });
+addEventListener("mousedown", e => { if (locked()) { client.mouse_button(e.button, true); if (e.button === 0) client.again(); } });
 addEventListener("mouseup", e => client.mouse_button(e.button, false));
 addEventListener("contextmenu", e => e.preventDefault());
 addEventListener("wheel", e => { if (locked() && e.deltaY) client.cycle_weapon(e.deltaY > 0 ? 1 : -1); }, { passive: true });
@@ -1263,17 +1301,19 @@ function loop(t) {
   const squad = team > 1 ? ` \u00b7 ${standing} of ${team} standing` : "";
   text("score", (left > 0 ? `Wave ${wave} \u00b7 ${left} left` : wave === 0 ? waiting : `Wave ${wave} cleared`) + squad);
   css("flash", "opacity", String(Math.round(flash * 100) / 100));
-  // down with others still standing: back for the next wave; everyone down: the game starts over
-  const benched = down > 0 && standing > 0;
-  watchGame(t, wave, kills, deaths, inPlay > 0, respawn > 0 && !benched, team);
-  css("dead", "display", respawn > 0 || benched ? "block" : "none");
-  // it is played for loot: every life starts with only the pistol
-  const next = `<small>Next life: the ${names[primaries]} &middot; find the rest in weapon crates</small>`;
+  // down with others still standing: back for the next wave, watching one of them; everyone down: the score, and
+  // the game starts over
+  const benched = down > 0 && standing > 0, overrun = down > 0 && standing === 0;
+  watchGame(t, wave, kills, deaths, inPlay > 0, overrun, team);
+  $("hud").classList.toggle("down", down > 0);
+  css("downed", "display", benched ? "block" : "none");
   if (benched) {
-    html("dead", `You're down. Back when the next wave starts` + next);
-  } else if (respawn > 0) {
-    html("dead", `Overrun on wave ${wave}. Restarting in ${respawn.toFixed(1)}` + next);
+    text("dn-wave", left > 0 ? `Back next wave · wave ${wave} has ${left} left` : "Back for the next wave");
+    const [id, hpOf] = client.watching();
+    const who = lobby.players?.find(([pid]) => pid === id)?.[1] ?? "a teammate";
+    text("dn-watch", id === undefined ? "" : `Watching ${who} · ${Math.ceil(hpOf)} HP` + (standing > 1 ? " · click for the next" : ""));
   }
+  showOver(t, overrun, wave, kills, respawn);
   if (!loaded) {
     // the first frame has been drawn: show it on the next one
     loaded = true;
@@ -1290,6 +1330,41 @@ function loop(t) {
   requestAnimationFrame(loop);
 }
 const HITMARKS = { 3: "hit", 4: "head", 5: "kill" };
+// ---- the score once everyone is down: alone it waits for a click or Space (see `sim::OVERRUN_SOLO`), online the
+// server starts the next game by itself this many seconds after the last one went down
+const OVERRUN_ONLINE = 10;
+let overAt = 0;
+function showOver(t, on, wave, kills, respawn) {
+  if (!on) {
+    if (overAt) css("over", "display", "none");
+    overAt = 0;
+    return;
+  }
+  if (!overAt) {
+    overAt = t;
+    text("ov-title", lobby.online ? "Overrun" : "You died");
+    text("ov-wave", wave);
+    text("ov-kills", kills);
+    const s = lastRun?.seconds;
+    text("ov-time", s == null ? "—" : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`);
+    // online, everyone's kills this game, most first
+    const sc = client.scores(), rows = [];
+    for (let i = 0; i < sc.length; i += 2) rows.push([sc[i], sc[i + 1]]);
+    rows.sort((a, b) => b[1] - a[1]);
+    html("ov-team", lobby.online ? rows.map(([id, k]) => {
+      const name = lobby.players?.find(([pid]) => pid === id)?.[1] ?? `Player ${id + 1}`;
+      return `<li><i style="background:${SHIRTS[id % SHIRTS.length]}"></i><span>${name}${id === lobby.id ? "<small>you</small>" : ""}</span>${k} kills</li>`;
+    }).join("") : "");
+    // shown afresh, so its animations play again
+    css("over", "display", "none");
+    void $("over").offsetWidth;
+    css("over", "display", "flex");
+  }
+  const left = Math.ceil(OVERRUN_ONLINE - (t - overAt) / 1000);
+  const ready = !lobby.online && respawn <= 0;
+  text("ov-next", lobby.online ? `Next game in ${Math.max(left, 0)}` : ready ? "Click or press Space to play again" : "");
+  $("ov-next").classList.toggle("ready", ready);
+}
 const PICKUP = 20;
 let loaded = false;
 requestAnimationFrame(loop);

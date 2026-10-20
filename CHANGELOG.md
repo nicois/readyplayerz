@@ -2,6 +2,12 @@
 
 ## 2026-10-20
 
+### A score when the game is over, and watching a teammate while down
+- Everyone down, a card slams on over a darkened red view: YOU DIED alone, OVERRUN online, with the wave reached, the kills and the time survived. Online it lists everyone's kills, most first.
+- Alone the game waits on the card: a click or Space plays again, from 1.2 s after dying so a shot still held doesn't skip it. Online the next game starts by itself 10 s after the last player goes down (was 4), counted down on the card.
+- Kills and deaths count for the game now, starting from 0 when it starts over, instead of for the whole visit. Teammates' kills are sent with them (protocol version 6).
+- Down online with others still standing, a DOWN banner says when you're back ("Back next wave · wave 5 has 7 left") and the view goes over the shoulder of a teammate still standing: behind and above their right shoulder, looking where they look, pulled in short of walls. The banner says who and their health; a click watches the next one. The crosshair and the ammo count are hidden while down.
+
 ### Edges smoothed by FXAA instead of multisampling
 - Every quality now draws the picture without multisampling and smooths its edges with an FXAA pass on the way to the screen (Medium had 2x MSAA, High 4x, Low none). On an M1 at 1920×993, High's 4x MSAA took about a quarter of each frame; the FXAA pass takes about a millisecond.
 - FXAA also smooths edges multisampling never did: the holes in the zombies' clothes and their hairlines. Side by side with 4x MSAA no difference could be seen in play.
