@@ -238,36 +238,41 @@ fn head(p: V) -> f32 {
     d
 }
 
-/// A living head: the same skull, with a face built on the bones under it rather than on a zombie's lumps. A
-/// mid-face that narrows to the mouth, cheekbones running back to the ears, a jaw from below the ear to a squared
-/// chin, closed lips on the curve of the teeth, and open eyes under a relaxed lid.
+/// A box of half-sizes `r` centred on `c`, its edges rounded over `round`.
+fn rbox(p: V, c: V, r: V, round: f32) -> f32 {
+    let d = [(p[0] - c[0]).abs() - r[0] + round, (p[1] - c[1]).abs() - r[1] + round, (p[2] - c[2]).abs() - r[2] + round];
+    len([d[0].max(0.0), d[1].max(0.0), d[2].max(0.0)]) + d[0].max(d[1]).max(d[2]).min(0.0) - round
+}
+
+/// A living head, rounded forms over squarer bones: a round skull and high forehead, full cheeks low on the face, a
+/// flat brow and a flat front across the eyes, the jaw a wedge to a square chin, closed lips on the curve of the
+/// teeth, and open eyes under a relaxed lid.
 fn living_head(p: V) -> f32 {
     let q = [p[0].abs(), p[1], p[2]];
-    // the skull, its forehead broad and flattish across the front, and the face under it: as wide at the
-    // cheekbones as the skull nearly, turning sharply from its front to its sides there
-    let mut d = ell(p, [0.0, 1.685, 0.014], [0.086, 0.113, 0.1]);
-    d = smin(d, ell(p, [0.0, 1.715, -0.035], [0.068, 0.07, 0.053]), 0.03);
-    let f = [p[0], p[1], p[2] - 8.0 * p[0] * p[0]];
-    d = smin(d, ell(f, [0.0, 1.638, -0.03], [0.068, 0.058, 0.06]), 0.03);
-    d = smin(d, ell(q, [0.042, 1.695, -0.084], [0.028, 0.01, 0.015]), 0.02);
-    d = smin(d, ell(q, [0.056, 1.648, -0.056], [0.018, 0.014, 0.022]), 0.045);
-    d = smin(d, ell(q, [0.028, 1.628, -0.064], [0.03, 0.025, 0.022]), 0.03);
-    d = smin(d, ell(q, [0.046, 1.615, -0.035], [0.018, 0.03, 0.035]), 0.04);
-    // the mouth and chin are bent back round the curve of the teeth, the corners of the mouth well behind its
-    // middle; the teeth themselves under the lips
-    let b = [p[0], p[1], p[2] - 18.0 * p[0] * p[0]];
-    d = smin(d, ell(b, [0.0, 1.595, -0.068], [0.036, 0.026, 0.022]), 0.03);
+    let mut d = ell(p, [0.0, 1.69, 0.012], [0.086, 0.116, 0.1]);
+    d = smin(d, ell(p, [0.0, 1.72, -0.03], [0.07, 0.074, 0.058]), 0.035);
+    let f = [p[0], p[1], p[2] - 7.0 * p[0] * p[0]];
+    d = smin(d, ell(f, [0.0, 1.63, -0.035], [0.066, 0.056, 0.058]), 0.035);
+    // full cheeks, and a softened corner at the cheekbone so the face turns from its front to its sides
+    d = smin(d, ell(q, [0.044, 1.626, -0.058], [0.028, 0.026, 0.026]), 0.03);
+    d = smin(d, rbox(q, [0.056, 1.647, -0.052], [0.016, 0.011, 0.02], 0.01), 0.025);
+    // the jaw: a box sheared narrower the lower it goes, a wedge to a square chin
+    let j = [p[0].abs() + ((1.62 - p[1]) * 0.45).max(0.0), p[1], p[2]];
+    d = smin(d, rbox(j, [0.0, 1.585, -0.035], [0.064, 0.034, 0.048], 0.018), 0.03);
+    d = smin(d, rbox(p, [0.0, 1.556, -0.081], [0.023, 0.016, 0.013], 0.011), 0.025);
+    // the mouth is bent back round the curve of the teeth, the corners of the mouth well behind its middle
+    let b = [p[0], p[1], p[2] - 16.0 * p[0] * p[0]];
+    d = smin(d, ell(b, [0.0, 1.595, -0.067], [0.034, 0.025, 0.022]), 0.03);
+    // one flat shelf of a brow, and a flat front across the eyes under it, so the sockets are cut into a plane
+    // rather than leaving a groove between brow and lid
+    d = smin(d, rbox(p, [0.0, 1.69, -0.08], [0.058, 0.009, 0.012], 0.008), 0.016);
+    d = smin(d, rbox(p, [0.0, 1.672, -0.062], [0.058, 0.02, 0.022], 0.014), 0.02);
     // the nose, ears
-    d = smin(d, cone(p, [0.0, 1.668, -0.094], [0.0, 1.627, -0.107], 0.007, 0.011), 0.012);
-    d = smin(d, ell(q, [0.0135, 1.617, -0.097], [0.0095, 0.007, 0.009]), 0.01);
-    d = smin(d, ell(p, [0.0, 1.621, -0.108], [0.0105, 0.0095, 0.011]), 0.01);
-    d = smin(d, ell(q, [0.089, 1.655, 0.012], [0.01, 0.028, 0.018]), 0.01);
-    // the jaw: up from its angle to below the ear, along to the chin
-    d = smin(d, cone(q, [0.051, 1.6, 0.0], [0.059, 1.628, 0.006], 0.014, 0.012), 0.03);
-    d = smin(d, cone(q, [0.051, 1.6, 0.0], [0.016, 1.551, -0.074], 0.014, 0.012), 0.03);
-    d = smin(d, ell(b, [0.0, 1.57, -0.074], [0.02, 0.02, 0.015]), 0.02);
-    d = smin(d, ell(b, [0.0, 1.556, -0.085], [0.018, 0.015, 0.014]), 0.02);
+    d = smin(d, cone(p, [0.0, 1.669, -0.093], [0.0, 1.628, -0.108], 0.0065, 0.0105), 0.01);
+    d = smin(d, ell(q, [0.0125, 1.621, -0.099], [0.009, 0.007, 0.009]), 0.008);
+    d = smin(d, ell(q, [0.087, 1.655, 0.012], [0.01, 0.027, 0.017]), 0.01);
     // closed lips, the upper one in two curves (the shader draws the line between them), and the eyes
+    let b = [p[0], p[1], p[2] - 18.0 * p[0] * p[0]];
     let bq = [b[0].abs(), b[1], b[2]];
     d = smin(d, ell(bq, [0.009, 1.5985, -0.089], [0.017, 0.006, 0.011]), 0.008);
     d = smin(d, ell(b, [0.0, 1.5805, -0.0855], [0.024, 0.009, 0.012]), 0.008);
