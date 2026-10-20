@@ -60,10 +60,11 @@ impl Client {
             .dyn_into::<WebGl2RenderingContext>()?;
         let mut renderer = Renderer::new(gl, canvas.width(), canvas.height())?;
         let seed = (js_sys::Math::random() * 4_000_000_000.0) as u32;
-        let mut game = Game::new(seed);
+        let map = crate::map::played(0);
+        let mut game = Game::on(map, seed);
         game.set_loot(true);
         renderer.upload_world(&game)?;
-        Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true, map: 0, seed, online: None, frames: Frames::default(), net_error: String::new(), queued: 0, picks: Vec::new() })
+        Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true, map, seed, online: None, frames: Frames::default(), net_error: String::new(), queued: 0, picks: Vec::new() })
     }
 
     /// The game being played: the room's, online.
@@ -88,9 +89,10 @@ impl Client {
         self.acc = 0.0;
     }
 
-    /// A fresh game on map number `map` (0 the town, 1 the suburb), keeping the loadout picked so far.
+    /// A fresh game on map number `map` (0 the town, 1 the suburb), keeping the loadout picked so far. Only the
+    /// suburb is played for now, so any number is the suburb (see `map::played`).
     pub fn set_map(&mut self, map: u8) -> Result<(), JsValue> {
-        self.map = map.min(crate::map::MAPS - 1);
+        self.map = crate::map::played(map);
         self.end_game();
         Ok(self.renderer.upload_world(&self.game)?)
     }

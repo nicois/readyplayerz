@@ -2,6 +2,11 @@
 
 ## 2026-10-20
 
+### One map: the Suburb
+- The Playground (the ruined town) is no longer played: solo and online both play the Suburb, and the map pickers show only its card. A map saved from before, or asked for by a page from before, is the Suburb too, on the server as well.
+- The town's code stays, for the tests built on it and to come back to (`map::played` picks the map a game is made on); its picture is gone.
+- The About page, `llms.txt` and the game's structured data describe the one map; the solo screen no longer says to pick where to make your stand.
+
 ### Loot online too, and weapon crates that can be found from afar
 - Online is played for loot as well: each life starts with only the Pistol, and the guns are found in weapon crates. The death screen says so online too.
 - Online, the server spawns the ammo boxes and the crates for the room and sends them in its snapshots (protocol version 3). Pickups run in each player's step, so a client takes a box or crate on the same input the server does, without waiting for it.

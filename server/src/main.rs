@@ -223,11 +223,12 @@ fn run_room(code: String, mut room: Room, rx: mpsc::Receiver<ToRoom>, rooms: Roo
     }
 }
 
-/// A new room on map `map`, for quick match or not, on a thread of its own.
+/// A new room on map `map`, for quick match or not, on a thread of its own: on the suburb, whatever is asked for,
+/// as it is the only map played for now (see `map::played`), so a page from before still gets it.
 fn open_room(lobby: &mut Lobby, rooms: &Rooms, map: u8, matched: bool) -> mpsc::Sender<ToRoom> {
     let code = new_code(&lobby.rooms);
     let (tx, rx) = mpsc::channel();
-    let (map, seed) = (map.min(arena::map::MAPS - 1), random() as u32);
+    let (map, seed) = (arena::map::played(map), random() as u32);
     let (rooms, name) = (rooms.clone(), code.clone());
     // the game is made on its own thread, as it never leaves it
     std::thread::spawn(move || {
@@ -294,7 +295,6 @@ async fn session(incoming: IncomingSession, rooms: Rooms) -> Result<(), Error> {
         let tx = if let Some(tx) = found {
             tx
         } else if quick || code.is_empty() {
-            let map = if quick { (random() % arena::map::MAPS as u64) as u8 } else { map };
             let Some(tx) = make_room(&rooms, map, quick, &mut send, &mut recv).await? else { return Ok(()) };
             tx
         } else {

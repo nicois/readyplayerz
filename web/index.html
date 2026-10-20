@@ -38,9 +38,8 @@
   "inLanguage": "en",
   "isAccessibleForFree": true,
   "image": "https://readyplayerz.com/og.jpg",
-  "screenshot": ["https://readyplayerz.com/og.jpg", "https://readyplayerz.com/maps/playground.webp", "https://readyplayerz.com/maps/suburb.webp"],
+  "screenshot": ["https://readyplayerz.com/og.jpg", "https://readyplayerz.com/maps/suburb.webp"],
   "gameLocation": [
-    { "@type": "Place", "name": "Playground", "description": "A ruined town round a clock tower, with a yard, trenches and a hill." },
     { "@type": "Place", "name": "Suburb", "description": "Streets of houses, a school and a strip mall in a ring of wooded hills." }
   ],
   "author": { "@type": "Organization", "name": "readyplayerz", "url": "https://readyplayerz.com/" },
@@ -275,7 +274,7 @@
   </section>
   <section class="screen" id="s-solo">
     <header><button class="back">&lsaquo; Back</button><h2>Solo</h2></header>
-    <p class="sub">Just you against the waves. Pick where to make your stand: you start with a pistol, and find the rest in weapon crates.</p>
+    <p class="sub">Just you against the waves. You start with a pistol, and find the rest in weapon crates.</p>
     <div class="setup">
       <div><b class="lbl">Map</b><div class="maps small" id="solo-maps"></div></div>
       <div class="loadout"><b class="lbl">Loadout</b><div class="slots" id="solo-slots"></div><p class="note pending"></p></div>
@@ -641,21 +640,25 @@ const pendingText = () => {
   return later.length ? `${later.join(" and ")} from your next life` : inPlay ? "Loadout changes are carried from your next life" : "";
 };
 
-// the maps, by number (see src/map.rs), each with a picture for its card
+// the maps, by number (see src/map.rs), each with a picture for its card. Only the suburb is played for now: the
+// town is named, for a room a server from before made on it, but has no card (see map.rs `played`)
 const MAPS = [
-  { name: "Playground", pic: "maps/playground.webp", about: "A ruined town round a clock tower, with a yard, trenches and a hill. Close and quick." },
+  { name: "Playground", hidden: true },
   { name: "Suburb", pic: "maps/suburb.webp", about: "Streets of houses, a school and a strip mall in a ring of wooded hills. Wide open." },
 ];
+const PLAYED = 1;
 // a row of map cards, picking one calls `pick` with its number; returns a function that marks map `on` and, with
 // `locked`, makes the others unpickable
 function mapCards(parent, pick) {
   const cards = MAPS.map((m, i) => {
+    if (m.hidden) return null;
     const b = el("button", "mapcard", `<img src="${m.pic}" alt=""><div><h3>${m.name}</h3><span>${m.about}</span></div>`);
     b.addEventListener("click", () => pick(i));
     parent.appendChild(b);
     return b;
   });
   return (on, locked = false) => cards.forEach((b, i) => {
+    if (!b) return;
     b.classList.toggle("on", i === on);
     b.disabled = locked && i !== on;
   });
@@ -750,11 +753,12 @@ const shownCarried = [0, primaries];
 // opens a menu screen (pick2 is the sidearm's picker)
 const params = new URLSearchParams(location.search);
 if (params.has("gfx")) setQuality(Number(params.get("gfx"))); // 0 low, 1 medium, 2 high
-// the map played alone is the one picked last time, unless ?map says
-let savedMap = 0;
-try { savedMap = Number(localStorage.getItem("map")) || 0; } catch {}
+// the map played alone is the one picked last time, unless ?map says (while only the suburb is played, the game
+// starts on it anyway)
+let savedMap = PLAYED;
+try { savedMap = Number(localStorage.getItem("map")) || PLAYED; } catch {}
 if (params.has("map")) client.set_map(Number(params.get("map")));
-else if (savedMap > 0 && savedMap < MAPS.length) client.set_map(savedMap);
+else if (savedMap !== client.map() && MAPS[savedMap] && !MAPS[savedMap].hidden) client.set_map(savedMap);
 if (params.has("seed")) client.set_seed(Number(params.get("seed")));
 if (params.has("demo")) client.set_paused(false);
 if (params.has("calm")) client.remove_bots();
@@ -896,8 +900,8 @@ const mpStatus = t => ($("mp-status").textContent = t);
 const SEATS = client.seats();
 const SHIRTS = ["#2a4d9e", "#bf611a", "#387333", "#80338c", "#b39e26", "#1f808c", "#9e292e", "#d9d9d9"];
 // the map a room is made on: picked apart from the one played alone, and remembered too
-let roomMap = 0;
-try { roomMap = Math.min(MAPS.length - 1, Number(localStorage.getItem("roomMap")) || 0); } catch {}
+let roomMap = PLAYED;
+try { const m = Number(localStorage.getItem("roomMap")); if (MAPS[m] && !MAPS[m].hidden) roomMap = m; } catch {}
 const markRoomMap = mapCards($("mp-maps"), i => {
   if (lobby.queued) return;
   roomMap = i;
