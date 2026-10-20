@@ -196,8 +196,9 @@ fn run_room(code: String, mut room: Room, rx: mpsc::Receiver<ToRoom>, rooms: Roo
             ticks += 1;
             room.tick();
             if room.snapshot_due() {
-                for (id, tx) in &outs {
-                    for d in room.snapshot_for(*id) {
+                for (id, datagrams) in room.snapshots() {
+                    let Some(tx) = outs.get(&id) else { continue };
+                    for d in datagrams {
                         let _ = tx.send(Out::Datagram(d));
                     }
                 }

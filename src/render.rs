@@ -750,6 +750,8 @@ pub struct Renderer {
     world: Option<WorldMesh>,
     inst_e: (WebGlVertexArrayObject, WebGlBuffer),
     list_e: RefCell<Vec<f32>>,
+    /// the debris, laid out as `list_e` is, refilled every frame
+    list_d: RefCell<Vec<f32>>,
     seed: Cell<f32>,
     u_inst: Option<WebGlUniformLocation>,
     u_lvp: Option<WebGlUniformLocation>,
@@ -1396,6 +1398,7 @@ impl Renderer {
             quality: 0,
             inst_e,
             list_e: RefCell::new(Vec::new()),
+            list_d: RefCell::new(Vec::new()),
             seed: Cell::new(0.0),
             shadow_fbo,
             shadow_tex,
@@ -1539,22 +1542,25 @@ impl Renderer {
     /// Draws everything queued by `ell`, and empties nothing: the same lists are drawn once for the
     /// sun's shadow and once for the picture.
     fn flush(&self) {
+        self.draw_ellipsoids(&self.list_e.borrow());
+        self.flush_bodies();
+    }
+
+    /// Ellipsoids laid out as `queue` lays them out, all in one draw.
+    fn draw_ellipsoids(&self, l: &[f32]) {
+        if l.is_empty() {
+            return;
+        }
         let gl = &self.gl;
         gl.uniform1f(self.u_inst.as_ref(), 1.0);
-        {
-            let l = self.list_e.borrow();
-            if !l.is_empty() {
-                let (vao, buf) = &self.inst_e;
-                gl.bind_vertex_array(Some(vao));
-                gl.bind_buffer(GL::ARRAY_BUFFER, Some(buf));
-                unsafe {
-                    gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(&l), GL::DYNAMIC_DRAW);
-                }
-                gl.draw_arrays_instanced(GL::TRIANGLES, 0, self.sphere_count, (l.len() / 24) as i32);
-            }
+        let (vao, buf) = &self.inst_e;
+        gl.bind_vertex_array(Some(vao));
+        gl.bind_buffer(GL::ARRAY_BUFFER, Some(buf));
+        unsafe {
+            gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(l), GL::DYNAMIC_DRAW);
         }
+        gl.draw_arrays_instanced(GL::TRIANGLES, 0, self.sphere_count, (l.len() / 24) as i32);
         gl.uniform1f(self.u_inst.as_ref(), 0.0);
-        self.flush_bodies();
     }
 
     /// Draws the queued zombie bodies: skin, hands, head, then clothes and hair, each posed by the zombie's bones.
@@ -2067,14 +2073,21 @@ impl Renderer {
 
         self.draw_world(eye, &vp);
         self.flush();
-        for d in &g.debris {
-            // drops shrink away at the end of their life
-            let k = (d.life / 0.6).min(1.0);
-            let h = [d.half[0] * k, d.half[1] * k, d.half[2] * k];
-            let spin = mul(&rot_y(d.rot[1]), &mul(&rot_x(d.rot[0]), &rot_z(d.rot[2])));
-            let model = mul(&translate(d.pos[0], d.pos[1], d.pos[2]), &mul(&spin, &scale(h[0], h[1], h[2])));
-            self.draw_mesh(&self.sphere_vao, self.sphere_count, &model, d.color, d.glow, 0.3, 0.0);
+        // the debris, up to `sim::MAX_DEBRIS` of it, in one draw; it casts no shadow, so it isn't in `list_e`
+        {
+            let mut l = self.list_d.borrow_mut();
+            l.clear();
+            for d in &g.debris {
+                // drops shrink away at the end of their life
+                let k = (d.life / 0.6).min(1.0);
+                let h = [d.half[0] * k, d.half[1] * k, d.half[2] * k];
+                let spin = mul(&rot_y(d.rot[1]), &mul(&rot_x(d.rot[0]), &rot_z(d.rot[2])));
+                let model = mul(&translate(d.pos[0], d.pos[1], d.pos[2]), &mul(&spin, &scale(h[0], h[1], h[2])));
+                l.extend_from_slice(&model);
+                l.extend_from_slice(&[d.color[0], d.color[1], d.color[2], 0.0, 0.3, d.glow, 0.0, 0.0]);
+            }
         }
+        self.draw_ellipsoids(&self.list_d.borrow());
         self.draw_grenades(g);
         for (_, m) in g.players.iter().enumerate().filter(|(i, _)| *i != g.local) {
             self.draw_mate_gun(m);

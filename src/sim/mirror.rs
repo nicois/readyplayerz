@@ -556,8 +556,9 @@ mod tests {
             }
             self.room.tick();
             if self.room.snapshot_due() {
-                for (k, c) in self.clients.iter().enumerate() {
-                    for d in self.room.snapshot_for(c.id) {
+                for (id, datagrams) in self.room.snapshots() {
+                    let Some(k) = self.clients.iter().position(|c| c.id == id) else { continue };
+                    for d in datagrams {
                         self.down.push_back((self.now + self.lag, k, d));
                     }
                 }
