@@ -2,7 +2,7 @@
 //! snapshots of it each player is sent. Nothing here touches the network itself; the server binary moves the bytes.
 
 use super::*;
-use crate::net::{self, Boom, Mate, Msg, Nade, Own, Snapshot, World, Zombie, MAX_PLAYERS};
+use crate::net::{self, Boom, Loot, Mate, Msg, Nade, Own, Snapshot, World, Zombie, MAX_PLAYERS};
 use std::collections::BTreeMap;
 
 /// A snapshot goes out every this many ticks.
@@ -59,6 +59,7 @@ impl Room {
     /// A room on the map of `game`.
     pub(crate) fn with(mut game: Game, map: u8, seed: u32) -> Room {
         game.role = Role::Server;
+        game.loot = true;
         game.players.clear();
         game.hold_waves();
         Room { game, map, seed, matched: false, seats: Vec::new(), shots: Vec::new(), countdown: None }
@@ -212,6 +213,7 @@ impl Room {
             kills: p.kills,
             deaths: p.deaths,
             respawn_t: p.respawn_t,
+            kit: p.kit(),
         });
         let mates = g
             .players
@@ -266,6 +268,7 @@ impl Room {
             // a blast is sent for a while, so one lost datagram doesn't lose it
             booms: g.blasts.iter().filter(|b| b.t < 0.5).map(|b| Boom { id: b.id, pos: b.pos, t: b.t }).collect(),
             shots: self.shots.clone(),
+            loot: g.boxes.iter().map(|&pos| Loot { pos, gun: 255 }).chain(g.crates.iter().map(|&(pos, gun)| Loot { pos, gun: gun as u8 })).collect(),
         };
         net::encode_snapshot(&snap)
     }

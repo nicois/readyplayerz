@@ -340,6 +340,9 @@ impl Client {
         if let Some(o) = &mut self.online {
             o.mirror.present(self.acc / STEP);
         }
+        if !paused {
+            self.game_mut().chime(dt);
+        }
         self.renderer.render(self.game());
     }
 
