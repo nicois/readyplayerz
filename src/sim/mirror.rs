@@ -7,7 +7,7 @@
 //! were in that past (see `Game::trace_bots`), so what the player saw on target was on target.
 
 use super::*;
-use crate::net::{self, Mate, Nade, Own, World, Zombie};
+use crate::net::{self, Kit, Mate, Nade, Own, World, Zombie};
 use std::collections::{HashMap, VecDeque};
 
 /// How far behind the newest snapshot the rest of the game is drawn, in ticks: enough for one or two to be late
@@ -104,6 +104,27 @@ impl<T: Blend> Track<T> {
     }
 }
 
+/// Where a box or crate lies, to the 64th of a metre it is sent at: what it is known by, as it never moves.
+type Spot = [i32; 3];
+
+fn spot(p: V3) -> Spot {
+    p.map(|x| (x * 64.0).round() as i32)
+}
+
+/// `k` moved on by however much the server's `to` differs from the client's `from` after the same input: the
+/// counts by the difference, and the guns to the server's where those differ.
+fn shift(k: &mut Kit, from: &Kit, to: &Kit) {
+    let by = |n: u8, a: u8, b: u8| (n as i32 + b as i32 - a as i32).clamp(0, 255) as u8;
+    for i in 0..k.ammo.len() {
+        k.ammo[i] = by(k.ammo[i], from.ammo[i], to.ammo[i]);
+        k.reserve[i] = by(k.reserve[i], from.reserve[i], to.reserve[i]);
+    }
+    k.grenades = by(k.grenades, from.grenades, to.grenades);
+    if from.loadout != to.loadout || from.weapon != to.weapon {
+        (k.loadout, k.weapon) = (to.loadout, to.weapon);
+    }
+}
+
 /// A zombie as the client has it: its snapshots, and whether its death has been seen yet.
 struct Seen {
     track: Track<Zombie>,
@@ -114,9 +135,16 @@ pub struct Mirror {
     pub game: Game,
     /// which player is this one
     pub id: u8,
-    /// the number the next input gets, and the ones played here the server hasn't said it has played yet
+    /// the number the next input gets, and the ones played here the server hasn't said it has played yet, each
+    /// with what the player carried after it (None: in a life since ended)
     seq: u32,
-    pending: VecDeque<(u32, Input)>,
+    pending: VecDeque<(u32, Input, Option<Kit>)>,
+    /// the boxes and crates the server says are lying about: what each is (`NO_GUN` a box) and when last heard of
+    loot: HashMap<Spot, (V3, usize, u32)>,
+    /// the ones taken here, and when, kept off the ground until the server has them gone too
+    taken: VecDeque<(Spot, f32)>,
+    /// how many times what the player carries has been put right by the server
+    fixes: u32,
     /// steps played here, and the server's tick less that, as best it can be told from when snapshots come in
     clock: f32,
     offset: Option<f32>,
@@ -143,6 +171,7 @@ impl Mirror {
     /// Player `id`'s copy of a game on the map of `game`.
     pub(crate) fn with(id: u8, mut game: Game) -> Mirror {
         game.role = Role::Mirror;
+        game.loot = true;
         game.hold_waves();
         game.remote_left = Some(0);
         let p = &mut game.players[0];
@@ -154,6 +183,9 @@ impl Mirror {
             id,
             seq: 0,
             pending: VecDeque::new(),
+            loot: HashMap::new(),
+            taken: VecDeque::new(),
+            fixes: 0,
             clock: 0.0,
             offset: None,
             newest: 0,
@@ -199,14 +231,21 @@ impl Mirror {
         p.look(inp.look_dx, inp.look_dy);
         inp.view = Some([p.yaw, p.pitch]);
         (inp.look_dx, inp.look_dy, inp.seen) = (0.0, 0.0, seen);
+        let lying: Vec<Spot> = self.game.boxes.iter().chain(self.game.crates.iter().map(|(at, _)| at)).map(|&at| spot(at)).collect();
         self.game.step_player(i, inp, STEP);
-        self.pending.push_back((self.seq, inp));
+        // what was walked over here is taken, as the server will find when it plays the same input
+        for s in lying {
+            if !self.game.boxes.iter().chain(self.game.crates.iter().map(|(at, _)| at)).any(|&at| spot(at) == s) {
+                self.taken.push_back((s, self.clock));
+            }
+        }
+        self.pending.push_back((self.seq, inp, Some(self.game.players[i].kit())));
         self.seq += 1;
         while self.pending.len() > 180 {
             self.pending.pop_front();
         }
         let from = self.pending.len().saturating_sub(net::RESEND);
-        let last: Vec<Input> = self.pending.iter().skip(from).map(|(_, inp)| *inp).collect();
+        let last: Vec<Input> = self.pending.iter().skip(from).map(|(_, inp, _)| *inp).collect();
         self.out.push(net::encode_inputs(self.seq - last.len() as u32, &last));
         self.game.tick(STEP);
         self.clock += 1.0;
@@ -267,6 +306,11 @@ impl Mirror {
                 self.mate_shot(shot);
             }
         }
+        for l in s.loot {
+            let gun = if (l.gun as usize) < WEAPON_COUNT { l.gun as usize } else { NO_GUN };
+            let e = self.loot.entry(spot(l.pos)).or_insert((l.pos, gun, s.tick));
+            e.2 = e.2.max(s.tick);
+        }
     }
 
     /// Someone else's shot: a tracer, the sound of it from where they are, and blood if it ended in a zombie.
@@ -292,6 +336,10 @@ impl Mirror {
         if own.life != self.game.players[i].life {
             self.game.players[i].life = own.life.saturating_sub(1);
             self.game.respawn_at(i, own.pos, own.yaw);
+            // what was carried after the inputs not yet played there was the old life's, so nothing to go by
+            for (_, _, k) in self.pending.iter_mut() {
+                *k = None;
+            }
         }
         let p = &mut self.game.players[i];
         if p.alive() && own.hp < p.hp - 0.01 {
@@ -307,9 +355,25 @@ impl Mirror {
         }
         (p.hp, p.kills, p.deaths, p.respawn_t) = (own.hp, own.kills, own.deaths, own.respawn_t);
 
-        while self.pending.front().is_some_and(|(n, _)| *n <= own.ack) {
-            self.pending.pop_front();
+        let mut then = None;
+        while self.pending.front().is_some_and(|(n, _, _)| *n <= own.ack) {
+            let (n, _, kit) = self.pending.pop_front().unwrap();
+            if n == own.ack {
+                then = kit;
+            }
         }
+        // carrying other than the server says after the same input: put right by the difference, so what was
+        // done since still counts
+        if let Some(then) = then.filter(|k| *k != own.kit) {
+            self.fixes += 1;
+            let mut now = p.kit();
+            shift(&mut now, &then, &own.kit);
+            p.set_kit(&now);
+            for k in self.pending.iter_mut().filter_map(|(_, _, k)| k.as_mut()) {
+                shift(k, &then, &own.kit);
+            }
+        }
+        let p = &mut self.game.players[i];
         p.body = Body { pos: own.pos, vel: own.vel, on_ground: own.on_ground };
         p.climb = own.climb.as_ref().map(Climb::from_raw);
         (p.stamina, p.winded, p.since_sprint) = (own.stamina, own.winded, own.since_sprint);
@@ -329,9 +393,31 @@ impl Mirror {
         (p.yaw, p.pitch, p.step_y, p.gait, p.stride, p.land_t, p.sprint_t, p.equip_t) = keep;
     }
 
+    /// The boxes and crates on the ground: those the server still sends, less those taken here. One the server
+    /// hasn't let go of a couple of seconds after it was taken here (a teammate got to it first, and has gone
+    /// on without it) is back.
+    fn put_loot(&mut self) {
+        let (newest, clock) = (self.newest, self.clock);
+        self.loot.retain(|_, (_, _, tick)| *tick + 60 >= newest);
+        self.taken.retain(|(s, at)| self.loot.contains_key(s) && clock - at < 120.0);
+        let g = &mut self.game;
+        (g.boxes, g.crates) = (Vec::new(), Vec::new());
+        for (s, &(at, gun, _)) in &self.loot {
+            if self.taken.iter().any(|(t, _)| t == s) {
+                continue;
+            }
+            if gun == NO_GUN {
+                g.boxes.push(at);
+            } else {
+                g.crates.push((at, gun));
+            }
+        }
+    }
+
     /// Puts the rest of the game where it is seen, `frac` of a step on from the last one played: the other
     /// players, the zombies (letting the fallen lie) and the grenades in the air.
     pub fn present(&mut self, frac: f32) {
+        self.put_loot();
         let t = self.view_tick(frac);
         let g = &mut self.game;
 
@@ -590,5 +676,67 @@ mod tests {
         l.run(4.0);
         assert!(l.clients.iter().all(|c| c.started() && c.game.wave == 1));
         assert!(l.clients.iter().all(|c| !c.game.bots.is_empty()), "zombies come for both");
+    }
+
+    /// Online every life starts with the pistol, and a crate the server puts down is seen on the client and
+    /// ends up in the hands of whoever walks over it, on both.
+    #[test]
+    fn a_crate_from_the_server_is_taken_on_both() {
+        let mut l = Link::new(1, 6);
+        l.run(0.5);
+        assert_eq!(l.server_player(0).loadout, [NO_GUN, PISTOL]);
+        assert_eq!(l.clients[0].game.me().loadout, [NO_GUN, PISTOL]);
+        let at = l.server_player(0).body.pos;
+        l.room.game.crates.push(([at[0] + 3.0, at[1], at[2]], 4));
+        l.run(0.5);
+        assert_eq!(l.clients[0].game.crates.len(), 1, "the client sees the crate");
+        // walk over it: turned to face +x, then forward
+        let c = l.clients[0].game.me_mut();
+        c.input.look_dx = (std::f32::consts::FRAC_PI_2 - c.yaw) / SENS;
+        l.step();
+        l.clients[0].game.me_mut().input.w = true;
+        l.run(1.0);
+        l.clients[0].game.me_mut().input.w = false;
+        l.run(0.5);
+        assert!(l.room.game.crates.is_empty() && l.clients[0].game.crates.is_empty(), "taken, and gone on both");
+        assert_eq!(l.server_player(0).loadout, [4, PISTOL]);
+        assert_eq!(l.clients[0].game.me().kit(), l.server_player(0).kit(), "the client carries what the server says");
+    }
+
+    /// A crate the client took that the server never let it have is put right: the gun goes back to what the
+    /// server says, and nothing is left on the ground that isn't there.
+    #[test]
+    fn a_crate_the_server_never_gave_is_put_right() {
+        let mut l = Link::new(1, 6);
+        l.run(0.5);
+        let at = l.clients[0].game.me().body.pos;
+        let newest = l.clients[0].newest;
+        l.clients[0].loot.insert(spot(at), (at, 4, newest));
+        l.step();
+        assert_eq!(l.clients[0].game.me().loadout, [4, PISTOL], "taken here first");
+        l.run(1.0);
+        assert_eq!(l.clients[0].game.me().loadout, [NO_GUN, PISTOL], "put right by the server");
+        assert_eq!(l.clients[0].game.me().kit(), l.server_player(0).kit());
+        assert!(l.clients[0].game.crates.is_empty());
+    }
+
+    /// Shooting and reloading over a lagged link, the client's count of rounds keeps with the server's without
+    /// once needing putting right.
+    #[test]
+    fn rounds_fired_online_keep_with_the_server() {
+        let mut l = Link::new(1, 8);
+        l.run(0.5);
+        for k in 0..240 {
+            let c = l.clients[0].game.me_mut();
+            c.input.fire = k % 20 < 12;
+            c.input.reload = k % 60 == 59;
+            l.step();
+        }
+        l.clients[0].game.me_mut().input = Input::default();
+        l.run(1.0);
+        let (c, s) = (l.clients[0].game.me().kit(), l.server_player(0).kit());
+        assert_eq!(c, s);
+        assert_eq!(l.clients[0].fixes, 0, "never put right");
+        assert!(s.ammo[PISTOL] < WEAPONS[PISTOL].mag as u8 || s.reserve[PISTOL] < 2 * WEAPONS[PISTOL].mag as u8, "it did shoot");
     }
 }

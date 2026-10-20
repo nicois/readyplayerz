@@ -2,10 +2,12 @@
 
 ## 2026-10-20
 
-### Solo is played for loot: a pistol to start, the other guns in weapon crates
-- Alone, each life starts with only the Pistol; the primary slot is empty until a gun is found. Online keeps the picked loadout.
-- Each wave tops up weapon crates to two, plus one every third wave, up to five, placed like the ammo boxes: reachable open ground at least 10 m away.
+### Played for loot, alone and online: a pistol to start, the other guns in weapon crates
+- Each life starts with only the Pistol; the primary slot is empty until a gun is found. The loadout menu is gone.
+- Each wave tops up weapon crates to two, plus one every third wave, up to five, placed like the ammo boxes: reachable open ground at least 10 m from every player.
 - A crate holds any gun but the Pistol, shown turning over it. Standing or walking over one puts the gun in its slot (a Revolver or Desert Eagle replaces the Pistol), loaded with full reserves and raised; running over one, or one holding a gun already carried, leaves it.
+- Online, the server spawns the ammo boxes and the crates for the room and sends them in its snapshots (protocol version 3). Pickups run in each player's step, so a client takes a box or crate on the same input the server does, without waiting for it.
+- The server's record of a player now carries their guns, rounds and grenades. A client carrying something else after the same input (a crate a teammate got to first) is put right by the difference, so shots fired since still count.
 - The death screen says the next life starts with the Pistol instead of naming the loadout.
 
 ### Grenades come from the ammo boxes; the boxes thin to two thirds of a wave (`deb3833`)

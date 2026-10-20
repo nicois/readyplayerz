@@ -42,7 +42,7 @@ pub const HALF: f32 = 100.0;
 const MAX_ZOMBIES: u32 = 24;
 /// Zombies come in at least this far from the player, as the crow flies...
 const SPAWN_NEAR: f32 = 30.0;
-/// An ammo box comes in at least this far from the player, as the crow flies.
+/// An ammo box comes in at least this far from every player, as the crow flies.
 const BOX_NEAR: f32 = 10.0;
 /// No two ammo boxes closer than this, as the crow flies.
 const BOX_GAP: f32 = 1.0;
@@ -418,6 +418,28 @@ impl Player {
     fn arm(&mut self, loot: bool) {
         self.loadout = if loot { [NO_GUN, PISTOL] } else { self.picked };
         self.weapon = if self.loadout[0] == NO_GUN { self.loadout[1] } else { self.loadout[0] };
+    }
+    /// What they carry, to send over the network.
+    pub(crate) fn kit(&self) -> crate::net::Kit {
+        crate::net::Kit {
+            loadout: self.loadout.map(|w| w as u8),
+            weapon: self.weapon as u8,
+            grenades: self.grenades as u8,
+            ammo: self.ammo.map(|n| n.min(255) as u8),
+            reserve: self.reserve.map(|n| n.min(255) as u8),
+        }
+    }
+    /// Carrying `k`, as the server says: a gun put away by it stops reloading.
+    pub(crate) fn set_kit(&mut self, k: &crate::net::Kit) {
+        let weapon = (k.weapon as usize).min(WEAPON_COUNT - 1);
+        if weapon != self.weapon {
+            (self.reload_t, self.ads) = (0.0, 0.0);
+        }
+        self.loadout = k.loadout.map(|w| (w as usize).min(NO_GUN));
+        self.weapon = weapon;
+        self.grenades = k.grenades as u32;
+        self.ammo = k.ammo.map(u32::from);
+        self.reserve = k.reserve.map(u32::from);
     }
     /// Vertical field of view, narrowing while aiming down sights.
     pub fn fov(&self) -> f32 {
@@ -1262,7 +1284,7 @@ impl Game {
     /// Where an ammo box or weapon crate goes: on open ground the player can walk to, clear of the player and of
     /// the other boxes and crates.
     fn ammo_box_pos(&mut self) -> Option<V3> {
-        let p = self.players[self.local].body.pos;
+        let players: Vec<V3> = self.players.iter().map(|p| p.body.pos).collect();
         for _ in 0..40 {
             let at = if self.spawns.is_empty() {
                 // no spawn points (a bare test arena): anywhere open
@@ -1279,8 +1301,8 @@ impl Game {
             if !self.nav.reachable(at) {
                 continue;
             }
-            let d = ((at[0] - p[0]).powi(2) + (at[2] - p[2]).powi(2)).sqrt();
-            if d < BOX_NEAR {
+            // online, away from everyone
+            if players.iter().any(|p| ((at[0] - p[0]).powi(2) + (at[2] - p[2]).powi(2)).sqrt() < BOX_NEAR) {
                 continue;
             }
             if self.boxes.iter().chain(self.crates.iter().map(|(c, _)| c)).any(|b| ((b[0] - at[0]).powi(2) + (b[2] - at[2]).powi(2)) < BOX_GAP * BOX_GAP) {
@@ -1299,8 +1321,8 @@ impl Game {
             if self.wave_t <= 0.0 {
                 self.wave += 1;
                 self.to_spawn = 6 + 3 * self.wave;
-                // solo only: the boxes are not in the network snapshots
-                if self.role == Role::Solo {
+                // by the server for everyone online: a client has them from its snapshots
+                if self.role != Role::Mirror {
                     self.top_up_boxes();
                     if self.loot {
                         self.top_up_crates();
@@ -1749,8 +1771,6 @@ impl Game {
             let inp = p.input;
             (p.input.look_dx, p.input.look_dy) = (0.0, 0.0);
             self.step_player(0, inp, dt);
-            self.tick_boxes();
-            self.tick_crates();
         }
         if self.role != Role::Mirror {
             let goals = self.standing();
@@ -1876,28 +1896,31 @@ impl Game {
         if crash > 0.0 {
             self.hurt_player(pi, crash);
         }
+        // with the step, so a client playing its player ahead picks up on the same input the server does
+        self.tick_boxes(pi);
+        self.tick_crates(pi);
     }
 
     /// Walk over an ammo box standing or walking and a magazine of its rounds goes into the reserves, so far as
     /// they are not full, and one grenade, so far as there is room; running over one leaves it be.
-    fn tick_boxes(&mut self) {
-        if !self.players[self.local].alive() || self.players[self.local].sprinting {
+    fn tick_boxes(&mut self, pi: usize) {
+        if !self.players[pi].alive() || self.players[pi].sprinting {
             return;
         }
         let full = full_reserve();
-        if self.players[self.local].reserve == full && self.players[self.local].grenades == MAX_GRENADES {
+        if self.players[pi].reserve == full && self.players[pi].grenades == MAX_GRENADES {
             return;
         }
-        let body = aabb_at(self.players[self.local].body.pos, HW, H);
+        let body = aabb_at(self.players[pi].body.pos, HW, H);
         let mut kept = Vec::new();
         for at in std::mem::take(&mut self.boxes) {
             if !overlaps(&body, &aabb_at(at, 0.35, 0.7)) {
                 kept.push(at);
             } else {
                 for i in 0..WEAPON_COUNT {
-                    self.players[self.local].reserve[i] = (self.players[self.local].reserve[i] + WEAPONS[i].mag).min(full[i]);
+                    self.players[pi].reserve[i] = (self.players[pi].reserve[i] + WEAPONS[i].mag).min(full[i]);
                 }
-                self.players[self.local].grenades = (self.players[self.local].grenades + 1).min(MAX_GRENADES);
+                self.players[pi].grenades = (self.players[pi].grenades + 1).min(MAX_GRENADES);
                 self.events.push([ev::PICKUP, 0.0, 0.0]);
             }
         }
@@ -1906,8 +1929,7 @@ impl Game {
 
     /// Walk over a weapon crate standing or walking and its gun takes the place of the one carried in its slot,
     /// loaded, with full reserves, and raised. Running over one, or over one with a gun already carried, leaves it be.
-    fn tick_crates(&mut self) {
-        let pi = self.local;
+    fn tick_crates(&mut self, pi: usize) {
         let p = &self.players[pi];
         if !p.alive() || p.sprinting {
             return;

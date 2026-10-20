@@ -230,7 +230,8 @@
       <button class="item" id="resume">Resume<small id="resume-sum"></small></button>
       <button class="item" data-go="s-solo">Solo<small id="solo-sum"></small></button>
       <button class="item" data-go="s-mp">Online<small id="mp-sum"></small></button>
-      <button class="item" data-go="s-loadout">Loadout<small id="sum"></small></button>
+      <!-- every game is played for loot, so there is no loadout to pick -->
+      <button class="item" data-go="s-loadout" hidden>Loadout<small id="sum"></small></button>
       <button class="item" data-go="s-settings">Settings</button>
       <button class="item danger" id="end">End game</button>
     </nav>
@@ -963,10 +964,8 @@ function loop(t) {
   // down with others still standing: back for the next wave; everyone down: the game starts over
   const benched = down > 0 && standing > 0;
   dead.style.display = respawn > 0 || benched ? "block" : "none";
-  // alone it is played for loot: every life starts with only the pistol
-  const next = lobby.online
-    ? `<small>Next life: ${names[picked]} and ${names[picked2]} &middot; Esc to change your loadout</small>`
-    : `<small>Next life: the ${names[primaries]} &middot; find the rest in weapon crates</small>`;
+  // it is played for loot: every life starts with only the pistol
+  const next = `<small>Next life: the ${names[primaries]} &middot; find the rest in weapon crates</small>`;
   if (benched) {
     dead.innerHTML = `You're down. Back when the next wave starts` + next;
   } else if (respawn > 0) {
