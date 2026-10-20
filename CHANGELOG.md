@@ -9,6 +9,11 @@
 - `llms.txt` describes the game for AI search; the sitemap lists `/about` and has modified dates.
 - Link previews use `og.jpg` (60 KB) in place of `og.png` (600 KB). The loading screen's title is no longer a second `<h1>`.
 
+### Solo is played for loot: a pistol to start, the other guns in weapon crates
+- Alone, each life starts with only the Pistol; the primary slot is empty until a gun is found. Online keeps the picked loadout.
+- Each wave tops up weapon crates to two, plus one every third wave, up to five, placed like the ammo boxes: reachable open ground at least 10 m away.
+- A crate holds any gun but the Pistol, shown turning over it. Standing or walking over one puts the gun in its slot (a Revolver or Desert Eagle replaces the Pistol), loaded with full reserves and raised; running over one, or one holding a gun already carried, leaves it.
+- The death screen says the next life starts with the Pistol instead of naming the loadout.
 ### Analytics on PostHog (`a2a08f1`)
 - The page now reports to PostHog, through our own subdomain `t.readyplayerz.com` (PostHog's managed proxy), so retention, funnels and load problems can be seen.
 - Tracked: the game loading (how long, the GPU) or failing to, phones and old browsers turned away, games started and ended (wave, kills, time played, fps), each wave reached, rooms made, joined, lost and waited for, invites copied, loadout and settings changes, and uncaught errors.
