@@ -8,10 +8,10 @@
 //! own: a client's last few inputs (`Inputs`), and the server's snapshots of the game, each split into as many
 //! datagrams as it takes (see `encode_snapshot`), every one of them a list of records about one thing each.
 
-use crate::sim::{Input, Pose, V3};
+use crate::sim::{Input, Pose, V3, WEAPON_COUNT};
 
 /// Bumped whenever the format changes, so an old page is told to reload instead of misreading.
-pub const VERSION: u8 = 2;
+pub const VERSION: u8 = 3;
 /// Most players in a room.
 pub const MAX_PLAYERS: usize = 6;
 /// How many of its latest inputs a client sends each time, so a lost datagram or two loses none of them.
@@ -285,6 +285,25 @@ pub struct Own {
     pub kills: u32,
     pub deaths: u32,
     pub respawn_t: f32,
+    pub kit: Kit,
+}
+
+/// What a player carries. A client works it out from its own inputs as the server does, so the two only part
+/// where the server knew better: a crate a teammate got to first. Then the client is put right.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct Kit {
+    pub loadout: [u8; 2],
+    pub weapon: u8,
+    pub grenades: u8,
+    pub ammo: [u8; WEAPON_COUNT],
+    pub reserve: [u8; WEAPON_COUNT],
+}
+
+/// An ammo box (`gun` 255) or a weapon crate and the gun in it, lying where it is.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct Loot {
+    pub pos: V3,
+    pub gun: u8,
 }
 
 /// How the game is going.
@@ -361,6 +380,7 @@ pub struct Snapshot {
     pub nades: Vec<Nade>,
     pub booms: Vec<Boom>,
     pub shots: Vec<crate::sim::Shot>,
+    pub loot: Vec<Loot>,
 }
 
 const OWN: u8 = 1;
@@ -370,6 +390,7 @@ const ZOMBIE: u8 = 4;
 const NADE: u8 = 5;
 const BOOM: u8 = 6;
 const SHOT: u8 = 7;
+const LOOT: u8 = 8;
 
 /// A snapshot as datagrams of up to `DATAGRAM` bytes, each standing on its own. The player's own record and how
 /// the game is going come first, so they are in the first.
@@ -397,6 +418,10 @@ pub fn encode_snapshot(s: &Snapshot) -> Vec<Vec<u8>> {
             }
         }
         r.f32(o.stamina).f32(o.since_sprint).f32(o.yaw).f32(o.hp).u16(o.kills as u16).u16(o.deaths as u16).f32(o.respawn_t);
+        let k = &o.kit;
+        r.u8(k.loadout[0]).u8(k.loadout[1]).u8(k.weapon).u8(k.grenades);
+        r.0.extend_from_slice(&k.ammo);
+        r.0.extend_from_slice(&k.reserve);
         rec(&mut out, &mut w, r);
     }
     if let Some(g) = &s.world {
@@ -438,6 +463,11 @@ pub fn encode_snapshot(s: &Snapshot) -> Vec<Vec<u8>> {
         r.u8(SHOT).u8(s.by).pos(s.a).pos(s.b);
         rec(&mut out, &mut w, r);
     }
+    for l in &s.loot {
+        let mut r = W::default();
+        r.u8(LOOT).pos(l.pos).u8(l.gun);
+        rec(&mut out, &mut w, r);
+    }
     out.push(w.0);
     out
 }
@@ -464,7 +494,11 @@ pub fn decode_snapshot(b: &[u8]) -> Option<Snapshot> {
                 };
                 let (stamina, since_sprint, yaw, hp) = (r.f32()?, r.f32()?, r.f32()?, r.f32()?);
                 let (kills, deaths, respawn_t) = (r.u16()? as u32, r.u16()? as u32, r.f32()?);
-                s.own = Some(Own { ack, life, pos, vel, on_ground: flags & 1 != 0, winded: flags & 2 != 0, climb, stamina, since_sprint, yaw, hp, kills, deaths, respawn_t });
+                let mut kit = Kit { loadout: [r.u8()?, r.u8()?], weapon: r.u8()?, grenades: r.u8()?, ..Default::default() };
+                for x in kit.ammo.iter_mut().chain(kit.reserve.iter_mut()) {
+                    *x = r.u8()?;
+                }
+                s.own = Some(Own { ack, life, pos, vel, on_ground: flags & 1 != 0, winded: flags & 2 != 0, climb, stamina, since_sprint, yaw, hp, kills, deaths, respawn_t, kit });
             }
             WORLD => s.world = Some(World { wave: r.u16()? as u32, left: r.u16()? as u32, started: r.u8()? != 0 }),
             MATE => {
@@ -484,6 +518,7 @@ pub fn decode_snapshot(b: &[u8]) -> Option<Snapshot> {
             NADE => s.nades.push(Nade { id: r.u32()?, pos: r.pos()?, rot: [r.angle()?, r.angle()?, r.angle()?] }),
             BOOM => s.booms.push(Boom { id: r.u32()?, pos: r.pos()?, t: r.unit(2.0)? }),
             SHOT => s.shots.push(crate::sim::Shot { by: r.u8()?, a: r.pos()?, b: r.pos()? }),
+            LOOT => s.loot.push(Loot { pos: r.pos()?, gun: r.u8()? }),
             _ => return None,
         }
     }
@@ -524,7 +559,8 @@ mod tests {
 
     #[test]
     fn a_big_snapshot_is_split_into_datagrams_that_each_read_on_their_own() {
-        let own = Own { ack: 99, life: 2, pos: [1.5, 0.25, -30.125], vel: [0.5, -3.0, 1.0], climb: Some([0.5; 14]), stamina: 0.4, hp: 64.0, kills: 12, ..Default::default() };
+        let kit = Kit { loadout: [4, 9], weapon: 9, grenades: 3, ammo: [7; WEAPON_COUNT], reserve: [70; WEAPON_COUNT] };
+        let own = Own { ack: 99, life: 2, pos: [1.5, 0.25, -30.125], vel: [0.5, -3.0, 1.0], climb: Some([0.5; 14]), stamina: 0.4, hp: 64.0, kills: 12, kit, ..Default::default() };
         let zombie = |i: u32| Zombie { id: i, pos: [i as f32, 0.0, -2.0 * i as f32], face: 1.0, kind: (i % 3) as u8, alive: i % 2 == 0, speed: 3.0, pose: (i % 5 == 0).then_some((0.5, 1.0, 0.5, 0.25)), ..Default::default() };
         let s = Snapshot {
             tick: 5000,
@@ -535,6 +571,7 @@ mod tests {
             nades: vec![Nade { id: 77, pos: [1.0, 1.0, 1.0], rot: [0.1, 0.2, 0.3] }],
             booms: vec![Boom { id: 78, pos: [2.0, 0.1, 2.0], t: 0.5 }],
             shots: vec![crate::sim::Shot { by: 2, a: [0.0, 1.5, 0.0], b: [5.0, 1.0, -20.0] }],
+            loot: vec![Loot { pos: [12.5, 0.0, -3.25], gun: 255 }, Loot { pos: [-40.0, 2.5, 8.0], gun: 4 }],
         };
         let parts = encode_snapshot(&s);
         assert!(parts.len() > 1 && parts.iter().all(|p| p.len() <= DATAGRAM), "{:?}", parts.iter().map(Vec::len).collect::<Vec<_>>());
@@ -549,6 +586,7 @@ mod tests {
         }
         let last = back.last().unwrap();
         assert_eq!((last.nades.len(), last.booms.len(), last.shots.len()), (1, 1, 1));
+        assert_eq!(last.loot, s.loot, "boxes and crates come back where they lie");
         assert!((back[0].mates[0].yaw - 2.0).abs() < 0.001 && back[0].mates[0].ads);
     }
 }
