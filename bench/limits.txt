@@ -28,14 +28,15 @@ server_tick_ms_max 14
 # from run to run, within a percent; the times change with whatever else the machine is doing, so their limits
 # only catch a large step backwards.
 
-# draw calls and triangles a frame, for the picture: on average (267, 425k) and at most (461, 593k)
-draw_calls 310
-draw_calls_max 540
+# draw calls and triangles a frame, for the picture: on average (131, 423k) and at most (228, 594k). Lowered from
+# 310 and 540 when a zombie became one draw instead of seven (267 and 461 before)
+draw_calls 150
+draw_calls_max 265
 triangles 490000
 triangles_max 690000
-# and for the sun's shadow, on average (211, 213k)
-shadow_draw_calls 245
-shadow_triangles 250000
+# and for the sun's shadow, on average (74, 200k); lowered from 245 with the zombies (211 before)
+shadow_draw_calls 85
+shadow_triangles 230000
 # frames a second, at least (34 to 83 depending on how busy the machine is), and a frame's time: the slowest in
 # twenty (28 to 58 ms) and the game's own code's share on average (11 to 29 ms)
 fps 25

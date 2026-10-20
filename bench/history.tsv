@@ -1,3 +1,4 @@
 date	commit	net_down_kbps	net_down_peak_kbps	net_server_out_kbps	net_up_kbps	net_snapshot_bytes	net_snapshot_bytes_max	net_snapshot_datagrams_max	server_tick_ms	server_tick_ms_p99	server_tick_ms_max	fps	frame_ms	frame_ms_p95	code_ms	code_ms_p95	gpu_ms	gpu_ms_p95	draw_calls	draw_calls_max	triangles	triangles_max	shadow_draw_calls	shadow_triangles
 2026-10-20 21:18	0625779+	26.90	28.01	161.37	10.92	848.52	944.00	1.00	1.26	3.62	6.07	70.19	14.25	30.90	13.41	23.40	25.93	39.83	417.96	532.00	552798.86	742557.00	236.46	251290.96
 2026-10-20 21:21	0859b9f+	27.04	28.00	162.24	10.92	853.34	940.00	1.00	0.96	2.68	3.50	83.06	12.04	27.50	11.17	20.80	21.35	32.88	266.55	461.00	425287.21	593161.00	210.60	213045.88
+2026-10-20 23:14	c95287f	27.34	28.30	164.04	10.92	863.34	950.00	1.00	1.20	3.29	4.81	65.74	15.21	31.30	14.30	26.80	26.38	39.05	130.69	228.00	422760.38	593769.00	73.86	200103.15
