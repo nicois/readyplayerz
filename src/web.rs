@@ -17,6 +17,9 @@ struct Online {
     started: bool,
     /// who is in, the host first
     players: Vec<(u8, String)>,
+    /// found by quick match, and the seconds until it starts by itself (0 when it isn't counting down)
+    matched: bool,
+    starts_in: u8,
 }
 
 #[wasm_bindgen]
@@ -388,7 +391,8 @@ impl Client {
 
     // ---- online ----
 
-    /// The first message on a new connection: to make a room on map `map` (`room` empty) or join one.
+    /// The first message on a new connection: to make a room on map `map` (`room` empty), join one, or quick match
+    /// (`room` is `net::QUICK`).
     pub fn net_hello(&mut self, room: &str, name: &str, map: u8) -> Vec<u8> {
         self.frames = Frames::default();
         self.net_error.clear();
@@ -411,11 +415,11 @@ impl Client {
                     self.picks = picked.iter().map(|&w| w as u8).collect();
                     self.acc = 0.0;
                     self.queued = 0;
-                    self.online = Some(Online { mirror, room, map, started: false, players: Vec::new() });
+                    self.online = Some(Online { mirror, room, map, started: false, players: Vec::new(), matched: false, starts_in: 0 });
                 }
-                Msg::Roster { started, players } => {
+                Msg::Roster { started, players, matched, starts_in } => {
                     if let Some(o) = &mut self.online {
-                        (o.started, o.players) = (started, players);
+                        (o.started, o.players, o.matched, o.starts_in) = (started, players, matched, starts_in);
                     }
                 }
                 Msg::Refused { why } => (self.net_error, self.queued) = (why, 0),
@@ -473,14 +477,15 @@ impl Client {
     }
 
     /// How it is going online, as JSON: whether in a room, its code and map, this player's id, whether the waves
-    /// have started, who is in (host first), the last error, and the place in line for a room (0 when not waiting).
+    /// have started, who is in (host first), whether it was found by quick match and the seconds until it starts by
+    /// itself, the last error, and the place in line for a room (0 when not waiting).
     pub fn lobby(&self) -> String {
         // names and codes are only ever letters, digits, spaces and a few marks (see `sim::host::clean_name`)
         let q = |s: &str| format!("\"{}\"", s.replace(['"', '\\'], ""));
         match &self.online {
             Some(o) => {
                 let players: Vec<String> = o.players.iter().map(|(id, name)| format!("[{id},{}]", q(name))).collect();
-                format!("{{\"online\":true,\"room\":{},\"map\":{},\"id\":{},\"started\":{},\"players\":[{}],\"error\":{}}}", q(&o.room), o.map, o.mirror.id, o.started, players.join(","), q(&self.net_error))
+                format!("{{\"online\":true,\"room\":{},\"map\":{},\"id\":{},\"started\":{},\"players\":[{}],\"matched\":{},\"startsIn\":{},\"error\":{}}}", q(&o.room), o.map, o.mirror.id, o.started, players.join(","), o.matched, o.starts_in, q(&self.net_error))
             }
             None => format!("{{\"online\":false,\"error\":{},\"queued\":{}}}", q(&self.net_error), self.queued),
         }
