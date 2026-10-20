@@ -2,7 +2,7 @@
 
 ## 2026-10-20
 
-### An About page, real favicons and fuller search data
+### An About page, real favicons and fuller search data (`1f6d2c0`)
 - New `/about` page, linked from the main menu (it opens in a new tab, so a game in progress isn't lost): how the waves and ammo work, solo and online co-op, the two maps, the eleven guns, the controls and a short FAQ. It gives search engines text to index, which the game page itself barely has.
 - The favicon is now real files (`favicon.svg`, `favicon.ico`, `apple-touch-icon.png`), not an inline data URI, so Google can show it in search results.
 - The game's structured data adds the player count (1 to 6), screenshots, the maps, an author and a modified date; the About page carries FAQ data.
