@@ -16,6 +16,10 @@ web-sys = { version = "0.3", features = [
   "WebGlRenderbuffer",
 ] }
 
+[dev-dependencies]
+# the network bench's tick times, as the CPU time the test's own thread took (see `sim::load`)
+libc = "0.2"
+
 [workspace]
 # the game server, run natively; the wasm build only ever builds the game itself
 members = ["server"]

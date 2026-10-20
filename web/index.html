@@ -802,6 +802,61 @@ if (params.has("climb")) {
 }
 // ?dev hands the game to the console (and to test scripts) as `client`
 if (params.has("dev")) window.client = client;
+// ?bench[=players] plays the drawing bench: a full team (six, or `players`) against a full horde, all played by
+// script, the same game every time (see sim::bench), at the quality ?gfx says and no lower. After `warm` seconds it
+// measures for `secs` and logs one line, "bench" and the results as JSON, for ./bench.sh
+const bench = params.has("bench") ? { warm: 12, secs: 15, t0: 0, frames: [], code: [], gpu: [], calls: [], tris: [], shadowCalls: [], shadowTris: [], zombies: [], pending: [] } : null;
+if (bench) {
+  client.bench(Number(params.get("bench")) || 6);
+  menu.style.visibility = "hidden";
+  const gl = canvas.getContext("webgl2");
+  // the GPU's own time for each frame, where the browser tells it
+  bench.timer = gl.getExtension("EXT_disjoint_timer_query_webgl2");
+  const info = gl.getExtension("WEBGL_debug_renderer_info");
+  bench.gpuName = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+  bench.gl = gl;
+}
+// one frame of the bench: `draw` draws it, and what it took is kept once the warm-up is over
+function benchFrame(t, dt, draw) {
+  const { gl, timer } = bench;
+  if (bench.done) return draw();
+  const q = timer && !bench.pending.length ? gl.createQuery() : null;
+  if (q) gl.beginQuery(timer.TIME_ELAPSED_EXT, q);
+  const t0 = performance.now();
+  draw();
+  const code = performance.now() - t0;
+  if (q) { gl.endQuery(timer.TIME_ELAPSED_EXT); bench.pending.push(q); }
+  for (const p of bench.pending.splice(0)) {
+    if (!gl.getQueryParameter(p, gl.QUERY_RESULT_AVAILABLE)) { bench.pending.push(p); continue; }
+    if (!gl.getParameter(timer.GPU_DISJOINT_EXT) && bench.t0) bench.gpu.push(gl.getQueryParameter(p, gl.QUERY_RESULT) / 1e6);
+    gl.deleteQuery(p);
+  }
+  if (!bench.t0) {
+    if (t > bench.warm * 1000) bench.t0 = t;
+    return;
+  }
+  const [calls, tris, shadowCalls, shadowTris, zombies, players, kills] = client.draw_counts();
+  Object.entries({ frames: dt, code, calls, tris, shadowCalls, shadowTris, zombies }).forEach(([k, v]) => bench[k].push(v));
+  Object.assign(bench, { players, kills });
+  if (t - bench.t0 < bench.secs * 1000) return;
+  const avg = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
+  const p95 = a => a.length ? [...a].sort((x, y) => x - y)[Math.floor(a.length * 0.95)] : null;
+  const max = a => a.length ? Math.max(...a) : null;
+  const r = {
+    fps: bench.frames.length * 1000 / (t - bench.t0),
+    frame_ms: avg(bench.frames), frame_ms_p95: p95(bench.frames),
+    code_ms: avg(bench.code), code_ms_p95: p95(bench.code),
+    gpu_ms: avg(bench.gpu), gpu_ms_p95: p95(bench.gpu),
+    draw_calls: avg(bench.calls), draw_calls_max: max(bench.calls),
+    triangles: avg(bench.tris), triangles_max: max(bench.tris),
+    shadow_draw_calls: avg(bench.shadowCalls), shadow_triangles: avg(bench.shadowTris),
+    zombies: avg(bench.zombies), players: bench.players, kills: bench.kills,
+    width: canvas.width, height: canvas.height, gfx: quality, gpu: bench.gpuName,
+  };
+  console.log("bench " + JSON.stringify(r));
+  document.title = "bench done";
+  bench.done = true;
+}
 const locked = () => document.pointerLockElement === canvas;
 const play = () => { sound.start(); canvas.requestPointerLock(); };
 
@@ -1053,9 +1108,11 @@ let lastFrame = 0;
 let lobbyFrames = 0;
 function loop(t) {
   const t0 = performance.now();
-  if (lastFrame) autoFrame(t, t - lastFrame);
+  // the bench is drawn at the size it is asked for, whatever that costs
+  if (lastFrame && !bench) autoFrame(t, t - lastFrame);
+  if (bench) benchFrame(t, t - lastFrame, () => client.frame(t));
+  else client.frame(t);
   lastFrame = t;
-  client.frame(t);
   net?.flush();
   // the lobby, while the menu is up, and every so often in play for the score line
   if (!locked() || ++lobbyFrames % 30 === 0) drawRoom();

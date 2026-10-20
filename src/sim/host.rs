@@ -196,8 +196,13 @@ impl Room {
 
     /// The game as player `id` is to see it now, as datagrams.
     pub fn snapshot_for(&self, id: u8) -> Vec<Vec<u8>> {
+        self.snapshot_of(id).map_or_else(Vec::new, |s| net::encode_snapshot(&s))
+    }
+
+    /// The game as player `id` is to see it now, before it is put in datagrams; None if they aren't in.
+    pub(crate) fn snapshot_of(&self, id: u8) -> Option<Snapshot> {
         let g = &self.game;
-        let Some(seat) = self.seats.iter().find(|s| s.id == id) else { return Vec::new() };
+        let seat = self.seats.iter().find(|s| s.id == id)?;
         let own = g.players.iter().find(|p| p.id == id).map(|p| Own {
             ack: seat.ack,
             life: p.life,
@@ -258,7 +263,7 @@ impl Room {
                 pose: b.climbing(),
             })
             .collect();
-        let snap = Snapshot {
+        Some(Snapshot {
             tick: g.tick_n,
             own,
             world: Some(World { wave: g.wave, left: g.zombies_left(), started: g.waves_on() }),
@@ -269,8 +274,7 @@ impl Room {
             booms: g.blasts.iter().filter(|b| b.t < 0.5).map(|b| Boom { id: b.id, pos: b.pos, t: b.t }).collect(),
             shots: self.shots.clone(),
             loot: g.boxes.iter().map(|&pos| Loot { pos, gun: 255 }).chain(g.crates.iter().map(|&(pos, gun)| Loot { pos, gun: gun as u8 })).collect(),
-        };
-        net::encode_snapshot(&snap)
+        })
     }
 
     /// After the snapshots have gone out: the shots in them are not sent again.

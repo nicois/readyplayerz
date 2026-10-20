@@ -2,6 +2,12 @@
 
 ## 2026-10-20
 
+### A load bench: what six players against a full horde cost the network and the GPU
+- `./bench.sh` plays six players against the most zombies the game lets be up (24, wave 6's mix) on the Suburb, all by script and the same every run, and holds the results to the limits in `bench/limits.txt`; it fails if one is passed, and adds a line of the results to `bench/history.tsv` to compare changes by.
+- Network (`src/sim/load.rs`, a `cargo test` on the server's own room, a minute of play): the bytes each player is sent a second, on average and in the worst second, all six together, what each sends back, a snapshot's size and datagrams, and what it is spent on (zombies, mates, own record, shots, loot); and the server's tick times, as CPU time. `./bench.sh net` runs only this.
+- Drawing (`?bench` on the page, run by the script in headless Chrome on the real GPU at 1920x993, no vsync): frames a second, frame times, the game code's share, the GPU's time where the browser tells it, and the draw calls and triangles a frame for the picture and for the sun's shadow, which the renderer now counts.
+- First results: each player is sent 26.9 KB/s (161 KB/s out of the server for the room), 849 bytes a snapshot of which 601 are zombies, 944 at most: 56 bytes short of a second datagram. A frame draws 487 calls and 554k triangles, plus 234 calls and 246k triangles for the shadow; 34 fps on an M1 with the machine busy.
+
 ### One map: the Suburb
 - The Playground (the ruined town) is no longer played: solo and online both play the Suburb, and the map pickers show only its card. A map saved from before, or asked for by a page from before, is the Suburb too, on the server as well.
 - The town's code stays, for the tests built on it and to come back to (`map::played` picks the map a game is made on); its picture is gone.

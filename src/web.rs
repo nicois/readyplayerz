@@ -41,6 +41,8 @@ pub struct Client {
     queued: u16,
     /// guns picked for the loadout, still to be told to the server: one an input
     picks: Vec<u8>,
+    /// playing the drawing bench (see `bench`): the number of the next tick of it
+    bench: Option<u32>,
 }
 
 #[wasm_bindgen]
@@ -64,7 +66,7 @@ impl Client {
         let mut game = Game::on(map, seed);
         game.set_loot(true);
         renderer.upload_world(&game)?;
-        Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true, map, seed, online: None, frames: Frames::default(), net_error: String::new(), queued: 0, picks: Vec::new() })
+        Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true, map, seed, online: None, frames: Frames::default(), net_error: String::new(), queued: 0, picks: Vec::new(), bench: None })
     }
 
     /// The game being played: the room's, online.
@@ -108,6 +110,27 @@ impl Client {
         self.game = Game::on(self.map, seed);
         self.game.set_loot(true);
         Ok(self.renderer.upload_world(&self.game)?)
+    }
+
+    /// The drawing bench from now on: `players` in all against a full horde, everyone played by script, the same
+    /// game every time (see `sim::bench`).
+    pub fn bench(&mut self, players: usize) -> Result<(), JsValue> {
+        self.game = crate::sim::bench::solo(players.clamp(1, crate::net::MAX_PLAYERS));
+        (self.map, self.seed) = (crate::sim::bench::MAP, crate::sim::bench::SEED);
+        self.bench = Some(0);
+        self.paused = false;
+        Ok(self.renderer.upload_world(&self.game)?)
+    }
+
+    /// The last frame's draw calls and triangles, the picture's then the sun's shadow's; then, to see the bench is
+    /// being played as it should be, the zombies up, the players and their kills.
+    pub fn draw_counts(&self) -> Vec<u32> {
+        let g = self.game();
+        let mut out = self.renderer.counts().to_vec();
+        out.push(g.bots.iter().filter(|b| b.alive).count() as u32);
+        out.push(g.players.len() as u32);
+        out.push(g.players.iter().map(|p| p.kills).sum());
+        out
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -331,7 +354,13 @@ impl Client {
                     }
                     o.mirror.step();
                 }
-                None => self.game.tick(STEP),
+                None => match &mut self.bench {
+                    Some(n) => {
+                        crate::sim::bench::step_solo(&mut self.game, *n);
+                        *n += 1;
+                    }
+                    None => self.game.tick(STEP),
+                },
             }
             self.acc -= STEP;
             steps += 1;
