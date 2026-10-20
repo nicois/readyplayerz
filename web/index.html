@@ -218,7 +218,7 @@
   <div id="score"></div>
   <div id="dead"></div>
   <div id="stats"><span id="hp">100</span> HP<small id="kd"></small></div>
-  <div id="ammo"><span id="am">30</span> / <span id="mg">30</span><small id="rl"></small><small id="gr"></small></div>
+  <div id="ammo"><span id="rounds"><span id="am">30</span> / <span id="mg">30</span></span><small id="rl"></small><small id="gr"></small></div>
   <div id="stamina"><div id="sfill"></div></div>
   <div id="bar"></div>
 </div>
@@ -551,17 +551,19 @@ addEventListener("pointerdown", wake);
 addEventListener("keydown", wake);
 document.addEventListener("visibilitychange", () => (document.hidden ? music.stop() : music.on && music.start()));
 
-// the stat bars: how good a gun is at each (higher is better, drawn against the best of all guns) and how to print it
+// the stat bars: how good a gun is at each (higher is better, drawn against the best of all guns) and how to print
+// it. A melee weapon (no magazine) only has the ones marked for it, and isn't counted in the others' best
+const melee = g => g.mag === 0;
 const STATS = [
-  ["Damage", g => g.dmg, g => Math.round(g.dmg)],
-  ["Fire rate", g => g.rpm, g => `${Math.round(g.rpm)} rpm`],
+  ["Damage", g => g.dmg, g => Math.round(g.dmg), true],
+  ["Fire rate", g => g.rpm, g => melee(g) ? `${Math.round(g.rpm)}/min` : `${Math.round(g.rpm)} rpm`, true],
   ["Accuracy", g => g.acc, g => Math.round(g.acc * 100)],
-  ["Mobility", g => g.speed - 0.8, g => `${Math.round(g.speed * 100)}%`],
+  ["Mobility", g => g.speed - 0.8, g => `${Math.round(g.speed * 100)}%`, true],
   ["Reload", g => 1 / g.reload, g => `${g.reload.toFixed(1)}s`],
   ["Magazine", g => g.mag, g => g.mag],
   ["Reserve", g => 2 * g.mag, g => `${2 * g.mag} (+${g.mag} per box)`],
 ];
-const best = STATS.map(([, f]) => Math.max(...guns.map(f)));
+const best = STATS.map(([, f, , all]) => Math.max(...guns.filter(g => all || !melee(g)).map(f)));
 // each gun's picture, made from the game's own model (see `?showcase`) and named after it, e.g. guns/ak-47.webp
 const pic = g => `<div class="pic"><img src="guns/${g.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.webp" alt="${g.name}"></div>`;
 const frac = (k, g) => `${Math.max(0.04, STATS[k][1](g) / best[k]) * 100}%`;
@@ -669,9 +671,12 @@ function drawPicker() {
 function drawDetail(g) {
   const eq = guns[SLOTS[pickSlot].equipped()];
   const other = g.i !== eq.i;
-  const bars = STATS.map(([label, f, print], k) => {
-    const d = other ? Math.sign(f(g) - f(eq)) : 0;
-    const mark = other ? `<u style="left:${frac(k, eq)}"></u>` : "";
+  const bars = STATS.filter(([, , , all]) => all || !melee(g)).map(([label, f, print, all]) => {
+    const k = STATS.findIndex(s => s[0] === label);
+    // against a gun's equipped only where the equipped one has the stat too
+    const vs = other && (all || !melee(eq));
+    const d = vs ? Math.sign(f(g) - f(eq)) : 0;
+    const mark = vs ? `<u style="left:${frac(k, eq)}"></u>` : "";
     return `<div class="stat"><span>${label}</span><div class="bar"><div style="width:${frac(k, g)}"></div>${mark}</div><span class="${d > 0 ? "up" : d < 0 ? "down" : ""}">${print(g)}</span></div>`;
   });
   const hint = other ? `Click to equip &middot; the marks show your ${eq.name}` : "Equipped";
@@ -712,6 +717,9 @@ if (params.has("run")) { client.key("KeyW", true); client.key("ShiftLeft", true)
 if (params.has("fire")) client.mouse_button(0, true); // holds the trigger, to look at the actions cycling
 if (params.has("reload")) client.key("KeyR", true); // holds reload, so a gun reloads as soon as a shot is gone
 if (params.has("throw")) client.key("KeyG", true); // holds the grenade key, to look at the aiming arc
+// ?swing=u,n,gore holds the bat u (0 to 1) of the way through swing n (odd one way, even the other), as bloodied as
+// gore (0 to 1), with the game paused
+if (params.has("swing")) client.pose_swing(...params.get("swing").split(",").map(Number));
 // ?showcase=i&bg=0..1 draws gun i alone on a flat grey with nothing over it, to make the loadout's pictures from
 if (params.has("showcase")) {
   client.showcase(Number(params.get("showcase")), Number(params.get("bg") || 0));
@@ -1010,6 +1018,8 @@ function loop(t) {
   $("hp").textContent = Math.ceil(hp);
   $("am").textContent = ammo;
   $("mg").textContent = reserve;
+  // a melee weapon has no rounds to count
+  $("rounds").style.display = mag > 0 ? "" : "none";
   [carried, carried2].forEach((w, s) => {
     if (w !== shownCarried[s]) {
       shownCarried[s] = w;
