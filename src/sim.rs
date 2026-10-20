@@ -97,6 +97,10 @@ const HEAR_CHIME: f32 = 45.0;
 /// A weapon crate's gun can be taken (see `Input::take`) from this far off, along the ground and up or down.
 const TAKE_REACH: f32 = 1.6;
 const TAKE_RISE: f32 = 1.2;
+/// Once everyone is down the game starts over: alone when asked (see `Game::again`), but not before this long, so
+/// a key still held from the fight doesn't skip the score; online by itself after this long, the score read.
+const OVERRUN_SOLO: f32 = 1.2;
+pub const OVERRUN_ONLINE: f32 = 10.0;
 
 /// Things that happened this tick that a client may want to play a sound for.
 /// Each event is `[code, a, b]` in `Game::events`.
@@ -655,6 +659,8 @@ pub struct Game {
     pub loot: bool,
     /// until the weapon crates next chime
     chime_t: f32,
+    /// alone and everyone down: play again, this step (see `OVERRUN_SOLO`)
+    pub again: bool,
     spawns: Vec<V3>,
     nav: Nav,
     pub debris: Vec<Debris>,
@@ -1429,6 +1435,7 @@ impl Game {
             crates: Vec::new(),
             loot: false,
             chime_t: 0.0,
+            again: false,
             spawns,
             debris: Vec::new(),
             grenades: Vec::new(),
@@ -1641,7 +1648,7 @@ impl Game {
         self.events.push([ev::HURT, dmg, 0.0]);
         if p.hp <= 0.0 {
             p.deaths += 1;
-            p.respawn_t = 4.0;
+            p.respawn_t = if self.role == Role::Solo { OVERRUN_SOLO } else { OVERRUN_ONLINE };
             self.events.push([ev::DEATH, 0.0, 0.0]);
         }
     }
@@ -1991,16 +1998,21 @@ impl Game {
         for p in self.players.iter_mut().filter(|p| !p.alive()) {
             p.respawn_t -= dt;
         }
-        if !self.players.is_empty() && self.players.iter().all(|p| !p.alive() && p.respawn_t <= 0.0) {
+        // alone the game over card waits for `again`
+        let ready = self.role != Role::Solo || self.again;
+        if ready && !self.players.is_empty() && self.players.iter().all(|p| !p.alive() && p.respawn_t <= 0.0) {
             let lobby = !self.waves_on();
             self.reset_waves();
             if lobby {
                 self.hold_waves();
             }
             for i in 0..self.players.len() {
+                // a new game, a new score
+                (self.players[i].kills, self.players[i].deaths) = (0, 0);
                 self.respawn_player(i);
             }
         }
+        self.again = false;
     }
 
     /// One step of player `i` with input `inp`.
@@ -2530,6 +2542,13 @@ mod tests {
         }
     }
 
+    /// Overrun alone: past the score, and asked to play again.
+    fn play_again(g: &mut Game) {
+        idle(g, OVERRUN_SOLO + 0.1);
+        g.again = true;
+        idle(g, 0.1);
+    }
+
     #[test]
     fn ray_hits_and_misses_box() {
         let b = Aabb { min: [-1.0, -1.0, -1.0], max: [1.0, 1.0, 1.0] };
@@ -2909,7 +2928,7 @@ mod tests {
         g.wave = 4;
         g.hurt_player(0, 1e9);
         assert!(!g.players[0].alive());
-        idle(&mut g, 4.2);
+        play_again(&mut g);
         assert!(g.players[0].alive());
         assert_eq!(g.wave, 0);
         assert!(g.bots.is_empty());
@@ -2935,7 +2954,7 @@ mod tests {
         g.hurt_player(0, 1e9);
         assert!(g.pick(3));
         assert_eq!(g.players[0].loadout[0], 2, "the pick should wait for the respawn");
-        idle(&mut g, 4.2);
+        play_again(&mut g);
         assert!(g.players[0].alive());
         assert_eq!((g.players[0].weapon, g.players[0].loadout), (3, [3, PISTOL]));
     }
@@ -3639,7 +3658,7 @@ mod tests {
         assert!(!g.boxes.is_empty());
         g.hurt_player(0, 1e9);
         assert!(!g.players[0].alive());
-        idle(&mut g, 4.2);
+        play_again(&mut g);
         assert!(g.players[0].alive());
         assert_eq!(g.wave, 0);
         assert!(g.boxes.is_empty(), "the boxes of the old life are gone");
@@ -3657,7 +3676,7 @@ mod tests {
         g.select_slot(0);
         assert_eq!(g.players[0].weapon, PISTOL, "nothing to switch to in the empty slot");
         g.hurt_player(0, 1e9);
-        idle(&mut g, 4.2);
+        play_again(&mut g);
         assert!(g.players[0].alive());
         assert_eq!(g.players[0].loadout, [NO_GUN, PISTOL], "the next life starts with the pistol again");
     }
@@ -3702,6 +3721,27 @@ mod tests {
         g.crates.push(([p[0] + 0.5, p[1], p[2]], 9));
         take(&mut g);
         assert_eq!(g.crates.len(), 1, "a Revolver already carried is left");
+    }
+
+    /// Overrun alone, the game waits on the score until asked to go again, not before `OVERRUN_SOLO`; then it starts
+    /// over from wave one with a new score.
+    #[test]
+    fn alone_the_game_starts_over_when_asked() {
+        let mut g = arena();
+        g.bots.clear();
+        g.wave = 3;
+        g.players[0].kills = 7;
+        g.hurt_player(0, 1000.0);
+        g.again = true;
+        idle(&mut g, 0.5);
+        assert!(!g.players[0].alive(), "too soon: the score is still being read");
+        idle(&mut g, 5.0);
+        assert!(!g.players[0].alive(), "waits to be asked");
+        assert_eq!(g.players[0].kills, 7, "the score is kept for the card");
+        g.again = true;
+        idle(&mut g, 0.1);
+        assert!(g.players[0].alive(), "a new life");
+        assert_eq!((g.wave, g.players[0].kills, g.players[0].deaths), (0, 0, 0), "from wave one, with a new score");
     }
 
     /// Each wave tops up the weapon crates playing for loot, and only then; none holds the pistol.

@@ -583,6 +583,11 @@ const FOG_END: f32 = 150.0;
 /// A weapon crate's gun is drawn turning over it from this close: further off it is a few pixels, and its beam says
 /// where it is.
 const CRATE_GUN_FAR: f32 = 40.0;
+/// Watching a teammate over the shoulder (see `Renderer::chase`): this far right of their eye, this far above it,
+/// and this far back along where they look.
+const CHASE_SIDE: f32 = 0.55;
+const CHASE_UP: f32 = 0.3;
+const CHASE_BACK: f32 = 2.4;
 /// Overcast sky and the colour the fog fades to, so the horizon melts into it.
 const HAZE: [f32; 3] = [0.52, 0.56, 0.62];
 /// Shadow map: its side in texels, and half the width of the area it covers around the player, in metres.
@@ -762,6 +767,8 @@ pub struct Renderer {
     pub showcase: Cell<Option<(usize, f32)>>,
     /// Dev view: draws only this gun, flat and to scale, for working on its shape (see `draw_bench`).
     pub bench: Cell<Option<Bench>>,
+    /// down online: the player in `Game::players` watched over the shoulder instead of the view from where we lie
+    pub watch: Cell<Option<usize>>,
     guns: Vec<GpuGun>,
     hands: GpuHands,
     grenade: GpuGrenade,
@@ -1596,6 +1603,7 @@ impl Renderer {
             brass: RefCell::new(Vec::new()),
             brass_t: Cell::new(0.0),
             last_reload: Cell::new((0, 0.0)),
+            watch: Cell::new(None),
             width,
             height,
         })
@@ -2314,17 +2322,23 @@ impl Renderer {
     pub fn render(&self, g: &Game) {
         self.counted.set([0; 4]);
         let gl = &self.gl;
-        let eye = g.me().eye();
         let aspect = self.width as f32 / self.height.max(1) as f32;
         let p = g.me();
         let fov = p.fov();
-        let fwd = p.forward();
+        // down online, from over the shoulder of someone still standing
+        let watched = self.watch.get().and_then(|i| g.players.get(i)).filter(|m| m.alive());
+        let (eye, fwd, foot) = match watched {
+            Some(m) => {
+                let (eye, fwd) = self.chase(g, m);
+                (eye, fwd, m.body.pos)
+            }
+            None => (p.eye(), p.forward(), p.body.pos),
+        };
 
         let q = &QUALITY[(self.quality as usize).min(QUALITY.len() - 1)];
         // zombies are queued once and drawn twice: into the sun's shadow map, then into the picture
         self.list_e.borrow_mut().clear();
         self.jobs.borrow_mut().clear();
-        let foot = p.body.pos;
         let centre = [foot[0] + fwd[0] * 18.0, foot[1], foot[2] + fwd[2] * 18.0];
         // nearest first, so a zombie behind another is mostly turned away by the depth test
         let mut near: Vec<(f32, usize)> = g
@@ -2393,9 +2407,9 @@ impl Renderer {
         gl.uniform3f(self.u_fdir.as_ref(), fwd[0], fwd[1], fwd[2]);
         // the head bobs with the stride; shots still go from the true eye, and rolling around the line of sight
         // leaves the crosshair on it
-        let (side, up, roll) = head_bob(p);
+        let (side, up, roll) = if watched.is_some() { (0.0, 0.0, 0.0) } else { head_bob(p) };
         // a swing leans the view into it and back
-        let roll = roll + if p.gun().melee && p.cooldown > 0.0 {
+        let roll = roll + if watched.is_none() && p.gun().melee && p.cooldown > 0.0 {
             let u = 1.0 - p.cooldown / p.gun().delay;
             let way = if p.swings % 2 == 1 { 1.0 } else { -1.0 };
             way * 0.04 * (ease(0.08, 0.26, u) - ease(0.3, 0.75, u))
@@ -2485,13 +2499,32 @@ impl Renderer {
         gl.uniform3f(self.u_eyew.as_ref(), eye[0], eye[1], eye[2]);
         // the grenade in hand instead of the gun; just after a throw the gun is still down out of sight while the
         // hand follows through
-        self.draw_grenade_view(g);
-        self.draw_brass(Some(&cam));
-        if !p.aiming && !(p.gun().scope && p.ads > 0.6) {
-            self.draw_viewmodel(g, &cam);
+        // watching someone else, their gun is the one seen in their hands
+        if watched.is_none() {
+            self.draw_grenade_view(g);
+            self.draw_brass(Some(&cam));
+            if !p.aiming && !(p.gun().scope && p.ads > 0.6) {
+                self.draw_viewmodel(g, &cam);
+            }
         }
         gl.uniform1f(self.u_view.as_ref(), 0.0);
         self.present(t);
+    }
+
+    /// Where to look from watching `m` over the shoulder: behind and a little above their right shoulder, looking
+    /// where they look, pulled in short of any wall in between. They are already drawn smoothly between the
+    /// server's snapshots, so the camera is too.
+    fn chase(&self, g: &Game, m: &crate::sim::Player) -> (V3, V3) {
+        let (sy, cy) = m.yaw.sin_cos();
+        let (sp, cp) = m.pitch.clamp(-1.0, 1.0).sin_cos();
+        let fwd = [sy * cp, sp, -cy * cp];
+        let right = [cy, 0.0, sy];
+        let head = m.eye();
+        let side = (g.world.raycast(head, right, CHASE_SIDE + 0.2) - 0.2).clamp(0.0, CHASE_SIDE);
+        let pivot = [head[0] + right[0] * side, head[1] + CHASE_UP, head[2] + right[2] * side];
+        let back = [-fwd[0], -fwd[1], -fwd[2]];
+        let reach = (g.world.raycast(pivot, back, CHASE_BACK + 0.3) - 0.3).clamp(0.3, CHASE_BACK);
+        ([pivot[0] + back[0] * reach, pivot[1] + back[1] * reach, pivot[2] + back[2] * reach], fwd)
     }
 
     /// Grenades out in the world: flying ones, the ones going off, and where the one in hand would fly.

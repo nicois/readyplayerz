@@ -2,6 +2,12 @@
 
 ## 2026-10-20
 
+### A score when the game is over, and watching a teammate while down
+- Everyone down, a card slams on over a darkened red view: YOU DIED alone, OVERRUN online, with the wave reached, the kills and the time survived. Online it lists everyone's kills, most first.
+- Alone the game waits on the card: a click or Space plays again, from 1.2 s after dying so a shot still held doesn't skip it. Online the next game starts by itself 10 s after the last player goes down (was 4), counted down on the card.
+- Kills and deaths count for the game now, starting from 0 when it starts over, instead of for the whole visit. Teammates' kills are sent with them (protocol version 6).
+- Down online with others still standing, a DOWN banner says when you're back ("Back next wave · wave 5 has 7 left") and the view goes over the shoulder of a teammate still standing: behind and above their right shoulder, looking where they look, pulled in short of walls. The banner says who and their health; a click watches the next one. The crosshair and the ammo count are hidden while down.
+
 ### Low drops the sun's shadows, and draws at fewer pixels when it must
 - Low no longer draws the sun's shadow map: on Low the pass was a fifth to a quarter of the frame, nearly all of it draw calls (about 210 a frame), which a slow laptop pays for on both its CPU and its GPU. Zombies behind the view, wanted only for their shadows, aren't drawn either. In the horde bench on an M1 at Low, a frame went from 8.7 ms to 6.0, and the slowest in twenty from 17–20 ms to 13–14. Medium and High keep their shadows.
 - The automatic resolution can now step down to 60% of the setting's on every quality; Low used to stop at 80% (40% of the screen). A weak GPU pays most for its pixels, so this is the safety net for one that still can't keep up.

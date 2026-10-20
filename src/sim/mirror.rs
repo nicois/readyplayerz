@@ -450,7 +450,7 @@ impl Mirror {
             p.sprint_t = m.sprint;
             p.body = Body { pos: m.pos, vel: [(m.pos[0] - was[0]) / STEP, (m.pos[1] - was[1]) / STEP, (m.pos[2] - was[2]) / STEP], on_ground: m.on_ground };
             (p.yaw, p.pitch, p.weapon, p.hp) = (m.yaw, m.pitch, (m.weapon as usize).min(WEAPON_COUNT - 1), if m.alive { m.hp.max(1.0) } else { 0.0 });
-            (p.aiming, p.ads) = (m.aiming, if m.ads { 1.0 } else { 0.0 });
+            (p.aiming, p.ads, p.kills) = (m.aiming, if m.ads { 1.0 } else { 0.0 }, m.kills);
             p.reload_t = if m.reloading { 1.0 } else { 0.0 };
         }
 
