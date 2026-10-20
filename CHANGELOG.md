@@ -13,6 +13,13 @@
 - Playing for loot, weapon crates can hold the bat; picking one up replaces the Pistol, as a Revolver or Desert Eagle does.
 - Dev: `?swing=u,n,gore` holds the bat partway through a swing, bloodied as much as `gore`, with the game paused.
 
+### An About page, real favicons and fuller search data (`1f6d2c0`)
+- New `/about` page, linked from the main menu (it opens in a new tab, so a game in progress isn't lost): how the waves and ammo work, solo and online co-op, the two maps, the eleven guns, the controls and a short FAQ. It gives search engines text to index, which the game page itself barely has.
+- The favicon is now real files (`favicon.svg`, `favicon.ico`, `apple-touch-icon.png`), not an inline data URI, so Google can show it in search results.
+- The game's structured data adds the player count (1 to 6), screenshots, the maps, an author and a modified date; the About page carries FAQ data.
+- `llms.txt` describes the game for AI search; the sitemap lists `/about` and has modified dates.
+- Link previews use `og.jpg` (60 KB) in place of `og.png` (600 KB). The loading screen's title is no longer a second `<h1>`.
+
 ### Solo is played for loot: a pistol to start, the other guns in weapon crates
 - Alone, each life starts with only the Pistol; the primary slot is empty until a gun is found. Online keeps the picked loadout.
 - Each wave tops up weapon crates to two, plus one every third wave, up to five, placed like the ammo boxes: reachable open ground at least 10 m away.
