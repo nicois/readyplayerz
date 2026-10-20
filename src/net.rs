@@ -11,7 +11,9 @@
 use crate::sim::{Input, Pose, V3, WEAPON_COUNT};
 
 /// Bumped whenever the format changes, so an old page is told to reload instead of misreading.
-pub const VERSION: u8 = 3;
+pub const VERSION: u8 = 4;
+/// The room asked for in a `Hello` to quick match: never a room's code, which is only letters.
+pub const QUICK: &str = "*";
 /// Most players in a room.
 pub const MAX_PLAYERS: usize = 6;
 /// How many of its latest inputs a client sends each time, so a lost datagram or two loses none of them.
@@ -131,7 +133,8 @@ impl<'a> R<'a> {
 /// A message on a player's reliable stream.
 #[derive(Debug, PartialEq, Clone)]
 pub enum Msg {
-    /// client: to make a room on map `map` (`room` empty) or to join room `room`
+    /// client: to make a room on map `map` (`room` empty), to join room `room`, or (`room` is `QUICK`) to be put in
+    /// any quick-match room that hasn't started, or a new one on any map
     Hello { version: u8, room: String, map: u8, name: String },
     /// client, the room's host: let the waves come
     Start,
@@ -139,8 +142,9 @@ pub enum Msg {
     Name { name: String },
     /// server: you are in, as player `id`, in a game on map `map` made from `seed`
     Welcome { id: u8, room: String, map: u8, seed: u32 },
-    /// server: who is in the room, the host first
-    Roster { started: bool, players: Vec<(u8, String)> },
+    /// server: who is in the room, the host first; whether it was found by quick match, and the seconds until it
+    /// starts by itself (0 when it isn't counting down)
+    Roster { started: bool, players: Vec<(u8, String)>, matched: bool, starts_in: u8 },
     /// server: no way in, and why
     Refused { why: String },
     /// server: every room is taken; you are `place` in line for the next (1 is next)
@@ -156,12 +160,12 @@ impl Msg {
             Msg::Start => w.u8(2),
             Msg::Name { name } => w.u8(3).str(name),
             Msg::Welcome { id, room, map, seed } => w.u8(10).u8(*id).str(room).u8(*map).u32(*seed),
-            Msg::Roster { started, players } => {
+            Msg::Roster { started, players, matched, starts_in } => {
                 w.u8(11).u8(*started as u8).u8(players.len() as u8);
                 for (id, name) in players {
                     w.u8(*id).str(name);
                 }
-                &mut w
+                w.u8(*matched as u8).u8(*starts_in)
             }
             Msg::Refused { why } => w.u8(12).str(why),
             Msg::Queued { place } => w.u8(13).u16(*place),
@@ -182,7 +186,7 @@ impl Msg {
                 let started = r.u8()? != 0;
                 let n = r.u8()?;
                 let players = (0..n).map(|_| Some((r.u8()?, r.str()?))).collect::<Option<_>>()?;
-                Msg::Roster { started, players }
+                Msg::Roster { started, players, matched: r.u8()? != 0, starts_in: r.u8()? }
             }
             12 => Msg::Refused { why: r.str()? },
             13 => Msg::Queued { place: r.u16()? },
@@ -536,7 +540,8 @@ mod tests {
             Msg::Start,
             Msg::Name { name: "Friend".into() },
             Msg::Welcome { id: 3, room: "ABCD".into(), map: 1, seed: 1234567 },
-            Msg::Roster { started: true, players: vec![(0, "Val".into()), (3, "Friend".into())] },
+            Msg::Hello { version: VERSION, room: QUICK.into(), map: 0, name: "".into() },
+            Msg::Roster { started: true, players: vec![(0, "Val".into()), (3, "Friend".into())], matched: true, starts_in: 27 },
             Msg::Refused { why: "No such room".into() },
             Msg::Queued { place: 300 },
         ];

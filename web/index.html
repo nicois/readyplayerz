@@ -172,6 +172,12 @@
   .or { align-self: center; font-size: 13px; letter-spacing: .1em; text-transform: uppercase; opacity: .45; }
   .panel > .lbl { margin-bottom: 8px; }
   .actions.tight { margin-top: 0; }
+  /* quick match, across the top, above making or joining a room */
+  .quick { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 24px; padding: 14px 20px; border-color: rgba(255,211,106,.4); }
+  #mp-maps .mapcard img { aspect-ratio: 21 / 9; }
+  .quick .hint { margin: 6px 0 0; }
+  .quick .btn { padding: 12px 26px; font-size: 16px; }
+  p.or { margin: 14px 0 10px; }
   .you { margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,.12); }
   .you .lbl { margin-bottom: 8px; }
   .you span { display: block; margin-top: 6px; font-size: 12px; opacity: .5; }
@@ -279,7 +285,14 @@
   <section class="screen" id="s-mp">
     <header><button class="back">&lsaquo; Back</button><h2>Online</h2></header>
     <div id="mp-out">
-      <p class="sub">Team up with up to five friends against the same waves. No sign-up: make a room and send the link, or join a friend's.</p>
+      <div class="panel quick">
+        <div>
+          <h3>Quick match</h3>
+          <p class="hint">Team up with up to five others, no sign-up: into a game about to start, or a new one for the next players to find. It starts by itself once two of you are in.</p>
+        </div>
+        <button class="btn main" id="mp-quick">Find a game</button>
+      </div>
+      <p class="or">or play with friends</p>
       <div class="panels">
         <div class="panel">
           <h3>Make a room</h3>
@@ -894,12 +907,14 @@ const markRoomMap = mapCards($("mp-maps"), i => {
   roomMap = i;
   try { localStorage.setItem("roomMap", i); } catch {}
 });
-// `via` is how, for the analytics: "create", "code" or "link"
+// the room asked for to quick match (see net.rs `QUICK`)
+const QUICK = "*";
+// `via` is how, for the analytics: "quick", "create", "code" or "link"
 async function joinRoom(code, via) {
   net?.close();
   client.net_leave("");
   $("mp-error").textContent = "";
-  mpStatus(code ? `Joining room ${code}...` : "Making a room...");
+  mpStatus(code === QUICK ? "Finding a game..." : code ? `Joining room ${code}...` : "Making a room...");
   joining = via;
   gameOver("switched");
   const n = new Net(client, why => {
@@ -938,11 +953,12 @@ function drawRoom() {
   $("mp-out").style.display = inRoom ? "none" : "block";
   $("mp-in").style.display = inRoom ? "block" : "none";
   $("mp-error").textContent = lobby.error;
-  $("mp-sum").textContent = inRoom ? `Room ${lobby.room} · ${lobby.players.length} of ${SEATS} in` : "Play with friends";
+  $("mp-sum").textContent = inRoom ? `Room ${lobby.room} · ${lobby.players.length} of ${SEATS} in` : "Quick match, or play with friends";
   if (!inRoom) {
     // every room on the server taken: waiting in line for one, and the button to stop waiting
     const q = lobby.queued;
     $("mp-create").textContent = q ? "Stop waiting" : `Make a room on ${MAPS[roomMap].name}`;
+    $("mp-quick").textContent = q ? "Stop waiting" : "Find a game";
     markRoomMap(roomMap, q > 0);
     if (q) mpStatus(`All games are taken right now. You're ${q === 1 ? "next" : ordinal(q)} in line, and the room is made as soon as one is free.`);
     else if (!net) mpStatus("");
@@ -970,7 +986,13 @@ function drawRoom() {
     drawn.map = lobby.map;
   }
   $("mp-start").style.display = host && !lobby.started ? "" : "none";
-  mpStatus(lobby.started ? "The game is under way: jump in." : host ? "Start the game when everyone is in. You can jump in and look around until then." : "Waiting for the host to start the game. You can jump in and look around until then.");
+  $("mp-start").textContent = lobby.matched ? "Start now" : "Start the game";
+  // a quick-match room starts by itself (see sim::host `MATCH_WAIT`); a friends' room when its host says
+  const meanwhile = "You can jump in and look around until then.";
+  mpStatus(lobby.started ? "The game is under way: jump in."
+    : lobby.startsIn ? `The game starts in ${lobby.startsIn}s. ${meanwhile}`
+    : lobby.matched ? `Waiting for another player: the game starts half a minute after a second one is in${host ? ", or start it now" : ""}. ${meanwhile}`
+    : host ? `Start the game when everyone is in. ${meanwhile}` : `Waiting for the host to start the game. ${meanwhile}`);
 }
 // for the analytics, what changed in the room: getting in, waiting in line for one, the game starting in it
 let joining = "";
@@ -984,6 +1006,7 @@ function roomEvents(was, now) {
 }
 const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
 $("mp-create").addEventListener("click", () => (lobby.queued ? leaveRoom() : joinRoom("", "create")));
+$("mp-quick").addEventListener("click", () => (lobby.queued ? leaveRoom() : joinRoom(QUICK, "quick")));
 $("mp-join").addEventListener("click", () => { const c = $("mp-code").value; if (c.length === 4) joinRoom(c, "code"); });
 // a code is four letters: anything else typed or pasted is dropped, and Join waits for all four
 $("mp-code").addEventListener("input", () => {
@@ -1096,7 +1119,7 @@ function loop(t) {
   $("rl").textContent = reloading ? "reloading..." : "";
   $("gr").textContent = `${grenades} grenade${grenades === 1 ? "" : "s"} [G]`;
   $("kd").textContent = `${kills} kills / ${deaths} deaths`;
-  const waiting = lobby.online && !lobby.started ? "Waiting for the host to start" : "Get ready...";
+  const waiting = !lobby.online || lobby.started ? "Get ready..." : lobby.startsIn ? `Starting in ${lobby.startsIn}` : lobby.matched ? "Waiting for another player" : "Waiting for the host to start";
   const squad = team > 1 ? ` \u00b7 ${standing} of ${team} standing` : "";
   $("score").textContent = (left > 0 ? `Wave ${wave} \u00b7 ${left} left` : wave === 0 ? waiting : `Wave ${wave} cleared`) + squad;
   $("flash").style.opacity = flash;
