@@ -6,6 +6,16 @@
 - A body's shirt, hair, trousers, skin, head and hands are put together into one mesh, each vertex marked with its part, and drawn in one call; the shader takes each part's colour and material from the zombie's own, and leaves out the hair of one with none. The same goes for the other players. They look the same.
 - In the horde bench at Low on an M1, a frame's draw calls went from about 270 to 130 for the picture and 215 to 75 for the sun's shadow, and a frame from 5.6 ms to 5.3 (the machine was busy; the calls are what a slow laptop pays for most).
 
+### A score when the game is over, and watching a teammate while down
+- Everyone down, a card slams on over a darkened red view: YOU DIED alone, OVERRUN online, with the wave reached, the kills and the time survived. Online it lists everyone's kills, most first.
+- Alone the game waits on the card: a click or Space plays again, from 1.2 s after dying so a shot still held doesn't skip it. Online the next game starts by itself 10 s after the last player goes down (was 4), counted down on the card.
+- Kills and deaths count for the game now, starting from 0 when it starts over, instead of for the whole visit. Teammates' kills are sent with them (protocol version 6).
+- Down online with others still standing, a DOWN banner says when you're back ("Back next wave · wave 5 has 7 left") and the view goes over the shoulder of a teammate still standing: behind and above their right shoulder, looking where they look, pulled in short of walls. The banner says who and their health; a click watches the next one. The crosshair and the ammo count are hidden while down.
+
+### Low drops the sun's shadows, and draws at fewer pixels when it must
+- Low no longer draws the sun's shadow map: on Low the pass was a fifth to a quarter of the frame, nearly all of it draw calls (about 210 a frame), which a slow laptop pays for on both its CPU and its GPU. Zombies behind the view, wanted only for their shadows, aren't drawn either. In the horde bench on an M1 at Low, a frame went from 8.7 ms to 6.0, and the slowest in twenty from 17–20 ms to 13–14. Medium and High keep their shadows.
+- The automatic resolution can now step down to 60% of the setting's on every quality; Low used to stop at 80% (40% of the screen). A weak GPU pays most for its pixels, so this is the safety net for one that still can't keep up.
+
 ### Cheaper pixels: noise from tables, and sharp screens drawn at 1.5
 - The surface patterns (skin, cloth, hair, wood, metal, brick, plaster) read their noise from two small tiling tables, a 256×256 and a 64×64×64, instead of working out four or eight random corners per lookup; a zombie's skin takes about twenty lookups a pixel. They look the same, with the speckles in other places. On an M1 at 1920×993 on High, a frame of the horde bench went from about 10.1 ms to 8.9.
 - A sharp (Retina) screen is drawn at most 1.5 pixels to the CSS pixel (was 2), so about half the pixels. On High it went from 34 to about 60 fps in the horde bench.
