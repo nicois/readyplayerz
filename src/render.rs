@@ -859,10 +859,17 @@ pub struct Renderer {
 /// are smoothed by FXAA at every quality: multisampling them cost High a quarter of its frame, for no difference
 /// that could be seen over FXAA.
 struct Quality {
+    /// the sun casts shadows at all: on low it doesn't, as its pass is a fifth of the frame there, nearly all of it
+    /// in draw calls, which a slow laptop pays for twice over
+    sun_shadows: bool,
     soft_shadows: bool,
 }
 
-const QUALITY: [Quality; 3] = [Quality { soft_shadows: false }, Quality { soft_shadows: true }, Quality { soft_shadows: true }];
+const QUALITY: [Quality; 3] = [
+    Quality { sun_shadows: false, soft_shadows: false },
+    Quality { sun_shadows: true, soft_shadows: true },
+    Quality { sun_shadows: true, soft_shadows: true },
+];
 
 fn compile(gl: &GL, kind: u32, src: &str) -> Result<WebGlShader, String> {
     let s = gl.create_shader(kind).ok_or("create_shader failed")?;
@@ -2328,6 +2335,7 @@ impl Renderer {
             None => (p.eye(), p.forward(), p.body.pos),
         };
 
+        let q = &QUALITY[(self.quality as usize).min(QUALITY.len() - 1)];
         // zombies are queued once and drawn twice: into the sun's shadow map, then into the picture
         self.list_e.borrow_mut().clear();
         self.jobs.borrow_mut().clear();
@@ -2343,7 +2351,8 @@ impl Renderer {
         near.sort_by(|a, b| a.0.total_cmp(&b.0));
         for (i, b) in near.into_iter().map(|(_, i)| (i, &g.bots[i])) {
             let to = [b.body.pos[0] - eye[0], b.body.pos[1] - eye[1], b.body.pos[2] - eye[2]];
-            let near_light = (b.body.pos[0] - centre[0]).hypot(b.body.pos[2] - centre[2]) < SHADOW_HALF * 1.4;
+            // one behind the view is only wanted for its shadow
+            let near_light = q.sun_shadows && (b.body.pos[0] - centre[0]).hypot(b.body.pos[2] - centre[2]) < SHADOW_HALF * 1.4;
             if dot(to, fwd) >= -3.0 || near_light {
                 self.draw_zombie(g, i, b);
             }
@@ -2353,11 +2362,12 @@ impl Renderer {
             self.draw_mate(g, m);
         }
         gl.use_program(Some(&self.prog));
-        let lvp = self.light_vp(centre);
-        gl.uniform_matrix4fv_with_f32_array(self.u_lvp.as_ref(), false, &lvp);
-        self.shadow_pass(centre, &lvp);
+        if q.sun_shadows {
+            let lvp = self.light_vp(centre);
+            gl.uniform_matrix4fv_with_f32_array(self.u_lvp.as_ref(), false, &lvp);
+            self.shadow_pass(centre, &lvp);
+        }
 
-        let q = &QUALITY[(self.quality as usize).min(QUALITY.len() - 1)];
         let (w, h) = (self.width.max(1), self.height.max(1));
         if self.targets.borrow().as_ref().is_none_or(|t| t.w != w || t.h != h) {
             if let Some(old) = self.targets.borrow_mut().take() {
@@ -2390,7 +2400,7 @@ impl Renderer {
         gl.active_texture(GL::TEXTURE0);
         gl.bind_texture(GL::TEXTURE_2D, Some(&self.shadow_tex));
         gl.uniform1i(self.u_shadow.as_ref(), 0);
-        gl.uniform1f(self.u_shon.as_ref(), 1.0);
+        gl.uniform1f(self.u_shon.as_ref(), if q.sun_shadows { 1.0 } else { 0.0 });
         gl.uniform1f(self.u_soft.as_ref(), if q.soft_shadows { 1.0 } else { 0.0 });
         gl.uniform1f(self.u_dark.as_ref(), self.dark);
         gl.uniform1f(self.u_flash.as_ref(), if self.dark > 0.0 { 1.0 } else { 0.0 });

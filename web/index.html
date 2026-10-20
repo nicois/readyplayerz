@@ -430,22 +430,22 @@ const err = document.getElementById("err");
 const $ = id => document.getElementById(id);
 
 // graphics quality, low / medium / high: how much of the screen's resolution to draw at (the renderer turns
-// soft shadows on with it). Starts on medium.
+// the sun's shadows, and their soft edges, on with it). Starts on medium.
 const QUALITY = ["Low", "Medium", "High"];
 const RES_SCALE = [0.5, 0.75, 1];
 let quality = 0;
 
 // automatic resolution: while frames come slower than 60 a second, the picture is drawn at fewer pixels, a step
-// at a time down to 60% of the setting's (never below 40% of the screen's), and stepped back up when there is
-// room again. A screen that shows 60 a second can't say how much room there is, so stepping up is a try: one
-// that goes slow again steps back down and waits twice as long before the next
+// at a time down to 60% of the setting's (on low, 30% of the screen's: a weak GPU pays most for its pixels), and
+// stepped back up when there is room again. A screen that shows 60 a second can't say how much room there is, so
+// stepping up is a try: one that goes slow again steps back down and waits twice as long before the next
 const auto = {
   scale: 1,
   // the shortest time between frames seen, which is the screen's refresh
   refresh: Infinity,
   n: 0, slow: 0, quick: 0, since: 0, changed: 0, rose: 0, wait: 4000,
 };
-const autoMin = () => Math.max(0.6, 0.4 / RES_SCALE[quality]);
+const AUTO_MIN = 0.6;
 function autoFrame(t, dt) {
   if (dt > 4) auto.refresh = Math.min(auto.refresh, dt);
   // a long gap is the tab hidden or a one-off stall, not the drawing
@@ -460,8 +460,8 @@ function autoFrame(t, dt) {
   // the second after a change has the canvas being remade in it
   if (t - auto.changed < 1000) return;
   let next = auto.scale;
-  if (slow > 0.25 && auto.scale > autoMin()) {
-    next = Math.max(autoMin(), auto.scale * 0.85);
+  if (slow > 0.25 && auto.scale > AUTO_MIN) {
+    next = Math.max(AUTO_MIN, auto.scale * 0.85);
     if (t - auto.rose < 4000) auto.wait = Math.min(auto.wait * 2, 60000);
   } else if (auto.scale < 1 && slow < 0.02 && (quick > 0.9 || t - auto.changed > auto.wait)) {
     // a faster screen shows when there is room to spare; otherwise it's a try
