@@ -38,9 +38,8 @@
   "inLanguage": "en",
   "isAccessibleForFree": true,
   "image": "https://readyplayerz.com/og.jpg",
-  "screenshot": ["https://readyplayerz.com/og.jpg", "https://readyplayerz.com/maps/playground.webp", "https://readyplayerz.com/maps/suburb.webp"],
+  "screenshot": ["https://readyplayerz.com/og.jpg", "https://readyplayerz.com/maps/suburb.webp"],
   "gameLocation": [
-    { "@type": "Place", "name": "Playground", "description": "A ruined town round a clock tower, with a yard, trenches and a hill." },
     { "@type": "Place", "name": "Suburb", "description": "Streets of houses, a school and a strip mall in a ring of wooded hills." }
   ],
   "author": { "@type": "Organization", "name": "readyplayerz", "url": "https://readyplayerz.com/" },
@@ -111,6 +110,9 @@
   .slots .lslot h3 { font-size: 20px; }
   .slots .lslot em { grid-column: 1 / -1; }
   .note.pending:empty { display: none; }
+  /* the loadout cards are hidden for now: every game is played for loot. Kept, with the picker, to bring back
+     later */
+  .loadout { display: none; }
   .room-map .mapcard span { display: none; }
   .room-map .mapcard img { aspect-ratio: 21 / 9; }
   .lslot { width: 300px; max-width: 100%; padding: 16px 18px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.16); border-radius: 6px; }
@@ -170,6 +172,12 @@
   .or { align-self: center; font-size: 13px; letter-spacing: .1em; text-transform: uppercase; opacity: .45; }
   .panel > .lbl { margin-bottom: 8px; }
   .actions.tight { margin-top: 0; }
+  /* quick match, across the top, above making or joining a room */
+  .quick { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 24px; padding: 14px 20px; border-color: rgba(255,211,106,.4); }
+  #mp-maps .mapcard img { aspect-ratio: 21 / 9; }
+  .quick .hint { margin: 6px 0 0; }
+  .quick .btn { padding: 12px 26px; font-size: 16px; }
+  p.or { margin: 14px 0 10px; }
   .you { margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,.12); }
   .you .lbl { margin-bottom: 8px; }
   .you span { display: block; margin-top: 6px; font-size: 12px; opacity: .5; }
@@ -266,10 +274,10 @@
   </section>
   <section class="screen" id="s-solo">
     <header><button class="back">&lsaquo; Back</button><h2>Solo</h2></header>
-    <p class="sub">Just you against the waves. Pick where to make your stand, and what to carry.</p>
+    <p class="sub">Just you against the waves. You start with a pistol, and find the rest in weapon crates.</p>
     <div class="setup">
       <div><b class="lbl">Map</b><div class="maps small" id="solo-maps"></div></div>
-      <div><b class="lbl">Loadout</b><div class="slots" id="solo-slots"></div><p class="note pending"></p></div>
+      <div class="loadout"><b class="lbl">Loadout</b><div class="slots" id="solo-slots"></div><p class="note pending"></p></div>
     </div>
     <div class="actions"><button class="btn main" id="solo-play">Play</button><button class="btn danger" id="solo-end">End game</button><button class="btn to-settings">Settings</button></div>
     <p class="note" id="solo-note"></p>
@@ -277,7 +285,14 @@
   <section class="screen" id="s-mp">
     <header><button class="back">&lsaquo; Back</button><h2>Online</h2></header>
     <div id="mp-out">
-      <p class="sub">Team up with up to five friends against the same waves. No sign-up: make a room and send the link, or join a friend's.</p>
+      <div class="panel quick">
+        <div>
+          <h3>Quick match</h3>
+          <p class="hint">Team up with up to five others, no sign-up: into a game about to start, or a new one for the next players to find. It starts by itself once two of you are in.</p>
+        </div>
+        <button class="btn main" id="mp-quick">Find a game</button>
+      </div>
+      <p class="or">or play with friends</p>
       <div class="panels">
         <div class="panel">
           <h3>Make a room</h3>
@@ -307,9 +322,11 @@
         </div>
         <div>
           <div class="panel room-map"><div id="mp-room-map"></div></div>
-          <b class="lbl step">Your loadout</b>
-          <div class="slots" id="mp-slots"></div>
-          <p class="note pending"></p>
+          <div class="loadout">
+            <b class="lbl step">Your loadout</b>
+            <div class="slots" id="mp-slots"></div>
+            <p class="note pending"></p>
+          </div>
         </div>
       </div>
       <div class="actions"><button class="btn main" id="mp-start">Start the game</button><button class="btn main" id="mp-play">Jump in</button><button class="btn danger" id="mp-leave">Leave room</button><button class="btn to-settings">Settings</button></div>
@@ -623,21 +640,25 @@ const pendingText = () => {
   return later.length ? `${later.join(" and ")} from your next life` : inPlay ? "Loadout changes are carried from your next life" : "";
 };
 
-// the maps, by number (see src/map.rs), each with a picture for its card
+// the maps, by number (see src/map.rs), each with a picture for its card. Only the suburb is played for now: the
+// town is named, for a room a server from before made on it, but has no card (see map.rs `played`)
 const MAPS = [
-  { name: "Playground", pic: "maps/playground.webp", about: "A ruined town round a clock tower, with a yard, trenches and a hill. Close and quick." },
+  { name: "Playground", hidden: true },
   { name: "Suburb", pic: "maps/suburb.webp", about: "Streets of houses, a school and a strip mall in a ring of wooded hills. Wide open." },
 ];
+const PLAYED = 1;
 // a row of map cards, picking one calls `pick` with its number; returns a function that marks map `on` and, with
 // `locked`, makes the others unpickable
 function mapCards(parent, pick) {
   const cards = MAPS.map((m, i) => {
+    if (m.hidden) return null;
     const b = el("button", "mapcard", `<img src="${m.pic}" alt=""><div><h3>${m.name}</h3><span>${m.about}</span></div>`);
     b.addEventListener("click", () => pick(i));
     parent.appendChild(b);
     return b;
   });
   return (on, locked = false) => cards.forEach((b, i) => {
+    if (!b) return;
     b.classList.toggle("on", i === on);
     b.disabled = locked && i !== on;
   });
@@ -732,11 +753,12 @@ const shownCarried = [0, primaries];
 // opens a menu screen (pick2 is the sidearm's picker)
 const params = new URLSearchParams(location.search);
 if (params.has("gfx")) setQuality(Number(params.get("gfx"))); // 0 low, 1 medium, 2 high
-// the map played alone is the one picked last time, unless ?map says
-let savedMap = 0;
-try { savedMap = Number(localStorage.getItem("map")) || 0; } catch {}
+// the map played alone is the one picked last time, unless ?map says (while only the suburb is played, the game
+// starts on it anyway)
+let savedMap = PLAYED;
+try { savedMap = Number(localStorage.getItem("map")) || PLAYED; } catch {}
 if (params.has("map")) client.set_map(Number(params.get("map")));
-else if (savedMap > 0 && savedMap < MAPS.length) client.set_map(savedMap);
+else if (savedMap !== client.map() && MAPS[savedMap] && !MAPS[savedMap].hidden) client.set_map(savedMap);
 if (params.has("seed")) client.set_seed(Number(params.get("seed")));
 if (params.has("demo")) client.set_paused(false);
 if (params.has("calm")) client.remove_bots();
@@ -925,19 +947,21 @@ const mpStatus = t => ($("mp-status").textContent = t);
 const SEATS = client.seats();
 const SHIRTS = ["#2a4d9e", "#bf611a", "#387333", "#80338c", "#b39e26", "#1f808c", "#9e292e", "#d9d9d9"];
 // the map a room is made on: picked apart from the one played alone, and remembered too
-let roomMap = 0;
-try { roomMap = Math.min(MAPS.length - 1, Number(localStorage.getItem("roomMap")) || 0); } catch {}
+let roomMap = PLAYED;
+try { const m = Number(localStorage.getItem("roomMap")); if (MAPS[m] && !MAPS[m].hidden) roomMap = m; } catch {}
 const markRoomMap = mapCards($("mp-maps"), i => {
   if (lobby.queued) return;
   roomMap = i;
   try { localStorage.setItem("roomMap", i); } catch {}
 });
-// `via` is how, for the analytics: "create", "code" or "link"
+// the room asked for to quick match (see net.rs `QUICK`)
+const QUICK = "*";
+// `via` is how, for the analytics: "quick", "create", "code" or "link"
 async function joinRoom(code, via) {
   net?.close();
   client.net_leave("");
   $("mp-error").textContent = "";
-  mpStatus(code ? `Joining room ${code}...` : "Making a room...");
+  mpStatus(code === QUICK ? "Finding a game..." : code ? `Joining room ${code}...` : "Making a room...");
   joining = via;
   gameOver("switched");
   const n = new Net(client, why => {
@@ -976,11 +1000,12 @@ function drawRoom() {
   $("mp-out").style.display = inRoom ? "none" : "block";
   $("mp-in").style.display = inRoom ? "block" : "none";
   $("mp-error").textContent = lobby.error;
-  $("mp-sum").textContent = inRoom ? `Room ${lobby.room} · ${lobby.players.length} of ${SEATS} in` : "Play with friends";
+  $("mp-sum").textContent = inRoom ? `Room ${lobby.room} · ${lobby.players.length} of ${SEATS} in` : "Quick match, or play with friends";
   if (!inRoom) {
     // every room on the server taken: waiting in line for one, and the button to stop waiting
     const q = lobby.queued;
     $("mp-create").textContent = q ? "Stop waiting" : `Make a room on ${MAPS[roomMap].name}`;
+    $("mp-quick").textContent = q ? "Stop waiting" : "Find a game";
     markRoomMap(roomMap, q > 0);
     if (q) mpStatus(`All games are taken right now. You're ${q === 1 ? "next" : ordinal(q)} in line, and the room is made as soon as one is free.`);
     else if (!net) mpStatus("");
@@ -1008,7 +1033,13 @@ function drawRoom() {
     drawn.map = lobby.map;
   }
   $("mp-start").style.display = host && !lobby.started ? "" : "none";
-  mpStatus(lobby.started ? "The game is under way: jump in." : host ? "Start the game when everyone is in. You can jump in and look around until then." : "Waiting for the host to start the game. You can jump in and look around until then.");
+  $("mp-start").textContent = lobby.matched ? "Start now" : "Start the game";
+  // a quick-match room starts by itself (see sim::host `MATCH_WAIT`); a friends' room when its host says
+  const meanwhile = "You can jump in and look around until then.";
+  mpStatus(lobby.started ? "The game is under way: jump in."
+    : lobby.startsIn ? `The game starts in ${lobby.startsIn}s. ${meanwhile}`
+    : lobby.matched ? `Waiting for another player: the game starts half a minute after a second one is in${host ? ", or start it now" : ""}. ${meanwhile}`
+    : host ? `Start the game when everyone is in. ${meanwhile}` : `Waiting for the host to start the game. ${meanwhile}`);
 }
 // for the analytics, what changed in the room: getting in, waiting in line for one, the game starting in it
 let joining = "";
@@ -1022,6 +1053,7 @@ function roomEvents(was, now) {
 }
 const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
 $("mp-create").addEventListener("click", () => (lobby.queued ? leaveRoom() : joinRoom("", "create")));
+$("mp-quick").addEventListener("click", () => (lobby.queued ? leaveRoom() : joinRoom(QUICK, "quick")));
 $("mp-join").addEventListener("click", () => { const c = $("mp-code").value; if (c.length === 4) joinRoom(c, "code"); });
 // a code is four letters: anything else typed or pasted is dropped, and Join waits for all four
 $("mp-code").addEventListener("input", () => {
@@ -1064,6 +1096,14 @@ addEventListener("wheel", e => { if (locked() && e.deltaY) client.cycle_weapon(e
 // isn't in it)
 const perf = params.has("perf") ? { n: 0, cpu: 0, worst: 0, since: 0 } : null;
 
+// the HUD's writes to the page, each made only when it changes: a frame that rewrites text or styles that are
+// already so still costs the browser a style pass
+const wrote = new Map();
+const changed = (k, v) => wrote.get(k) !== v && (wrote.set(k, v), true);
+const text = (id, v) => { if (changed(id, v)) $(id).textContent = v; };
+const html = (id, v) => { if (changed(id + "<", v)) $(id).innerHTML = v; };
+const css = (id, key, v) => { if (changed(id + "." + key, v)) $(id).style.setProperty(key, v); };
+
 let lastFrame = 0;
 let lobbyFrames = 0;
 function loop(t) {
@@ -1098,11 +1138,11 @@ function loop(t) {
     }
   }
   const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped, killt, px, pz, pyaw, wave, left, carried, picked, inPlay, spread, stamina, winded, carried2, picked2, grenades, down, standing, team, reserve] = client.hud();
-  $("hp").textContent = Math.ceil(hp);
-  $("am").textContent = ammo;
-  $("mg").textContent = reserve;
+  text("hp", Math.ceil(hp));
+  text("am", ammo);
+  text("mg", reserve);
   // a melee weapon has no rounds to count
-  $("rounds").style.display = mag > 0 ? "" : "none";
+  css("rounds", "display", mag > 0 ? "" : "none");
   [carried, carried2].forEach((w, s) => {
     if (w !== shownCarried[s]) {
       shownCarried[s] = w;
@@ -1114,43 +1154,40 @@ function loop(t) {
   // the main menu and the solo screen: a game alone under way can be resumed or ended, a room jumped back into
   const soloOn = inPlay && !lobby.online;
   const soloMap = MAPS[client.map()].name;
-  $("end").style.display = soloOn ? "block" : "none";
-  $("resume").style.display = soloOn || lobby.online ? "" : "none";
-  $("resume").firstChild.textContent = lobby.online ? "Jump in" : "Resume";
-  $("resume-sum").textContent = lobby.online ? `Room ${lobby.room} · ${MAPS[lobby.map].name}` : `${wave ? `Wave ${wave} · ` : ""}${soloMap}`;
-  $("solo-sum").textContent = soloMap;
-  $("solo-play").textContent = lobby.online ? "Leave the room and play" : soloOn ? "Resume" : "Play";
-  $("solo-end").style.display = soloOn ? "" : "none";
-  $("solo-note").textContent = soloOn ? `Your game on ${soloMap} is paused. End it to play another map.` : lobby.online ? "You're in an online room: playing solo leaves it." : "";
-  markSolo(client.map(), soloOn);
+  css("end", "display", soloOn ? "block" : "none");
+  css("resume", "display", soloOn || lobby.online ? "" : "none");
+  if (changed("resume^", lobby.online)) $("resume").firstChild.textContent = lobby.online ? "Jump in" : "Resume";
+  text("resume-sum", lobby.online ? `Room ${lobby.room} · ${MAPS[lobby.map].name}` : `${wave ? `Wave ${wave} · ` : ""}${soloMap}`);
+  text("solo-sum", soloMap);
+  text("solo-play", lobby.online ? "Leave the room and play" : soloOn ? "Resume" : "Play");
+  css("solo-end", "display", soloOn ? "" : "none");
+  text("solo-note", soloOn ? `Your game on ${soloMap} is paused. End it to play another map.` : lobby.online ? "You're in an online room: playing solo leaves it." : "");
+  if (changed("solo-maps", `${client.map()} ${soloOn}`)) markSolo(client.map(), soloOn);
   const scopeOn = scoped && ads > 0.85;
-  $("scope").style.display = scopeOn ? "block" : "none";
-  $("cross").style.display = scopeOn || ads > 0.5 ? "none" : "block";
-  // the spread is a fraction of half the screen's height, so the ring's diameter is that times the height
-  $("sfill").style.width = `${stamina * 100}%`;
+  css("scope", "display", scopeOn ? "block" : "none");
+  css("cross", "display", scopeOn || ads > 0.5 ? "none" : "block");
+  css("sfill", "width", `${Math.round(stamina * 1000) / 10}%`);
   $("stamina").classList.toggle("show", stamina < 1 && respawn <= 0);
   $("stamina").classList.toggle("winded", winded > 0);
-  $("ring").style.setProperty("--d", `${Math.max(14, spread * innerHeight)}px`);
-  $("rl").textContent = reloading ? "reloading..." : "";
-  $("gr").textContent = `${grenades} grenade${grenades === 1 ? "" : "s"} [G]`;
-  $("kd").textContent = `${kills} kills / ${deaths} deaths`;
-  const waiting = lobby.online && !lobby.started ? "Waiting for the host to start" : "Get ready...";
+  // the spread is a fraction of half the screen's height, so the ring's diameter is that times the height
+  css("ring", "--d", `${Math.round(Math.max(14, spread * innerHeight))}px`);
+  text("rl", reloading ? "reloading..." : "");
+  text("gr", `${grenades} grenade${grenades === 1 ? "" : "s"} [G]`);
+  text("kd", `${kills} kills / ${deaths} deaths`);
+  const waiting = !lobby.online || lobby.started ? "Get ready..." : lobby.startsIn ? `Starting in ${lobby.startsIn}` : lobby.matched ? "Waiting for another player" : "Waiting for the host to start";
   const squad = team > 1 ? ` \u00b7 ${standing} of ${team} standing` : "";
-  $("score").textContent = (left > 0 ? `Wave ${wave} \u00b7 ${left} left` : wave === 0 ? waiting : `Wave ${wave} cleared`) + squad;
-  $("flash").style.opacity = flash;
-  const dead = $("dead");
+  text("score", (left > 0 ? `Wave ${wave} \u00b7 ${left} left` : wave === 0 ? waiting : `Wave ${wave} cleared`) + squad);
+  css("flash", "opacity", String(Math.round(flash * 100) / 100));
   // down with others still standing: back for the next wave; everyone down: the game starts over
   const benched = down > 0 && standing > 0;
   watchGame(t, wave, kills, deaths, inPlay > 0, respawn > 0 && !benched, team);
-  dead.style.display = respawn > 0 || benched ? "block" : "none";
-  // alone it is played for loot: every life starts with only the pistol
-  const next = lobby.online
-    ? `<small>Next life: ${names[picked]} and ${names[picked2]} &middot; Esc to change your loadout</small>`
-    : `<small>Next life: the ${names[primaries]} &middot; find the rest in weapon crates</small>`;
+  css("dead", "display", respawn > 0 || benched ? "block" : "none");
+  // it is played for loot: every life starts with only the pistol
+  const next = `<small>Next life: the ${names[primaries]} &middot; find the rest in weapon crates</small>`;
   if (benched) {
-    dead.innerHTML = `You're down. Back when the next wave starts` + next;
+    html("dead", `You're down. Back when the next wave starts` + next);
   } else if (respawn > 0) {
-    dead.innerHTML = `Overrun on wave ${wave}. Restarting in ${respawn.toFixed(1)}` + next;
+    html("dead", `Overrun on wave ${wave}. Restarting in ${respawn.toFixed(1)}` + next);
   }
   if (!loaded) {
     // the first frame has been drawn: show it on the next one

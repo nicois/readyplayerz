@@ -550,6 +550,9 @@ fn grade_rgb(c: [f32; 3]) -> [f32; 3] {
 /// The fog starts here and is fully opaque at FOG_END; past that there is only haze, so nothing is drawn.
 const FOG_START: f32 = 45.0;
 const FOG_END: f32 = 150.0;
+/// A weapon crate's gun is drawn turning over it from this close: further off it is a few pixels, and its beam says
+/// where it is.
+const CRATE_GUN_FAR: f32 = 40.0;
 /// Overcast sky and the colour the fog fades to, so the horizon melts into it.
 const HAZE: [f32; 3] = [0.52, 0.56, 0.62];
 /// Shadow map: its side in texels, and half the width of the area it covers around the player, in metres.
@@ -749,6 +752,8 @@ pub struct Renderer {
     world: Option<WorldMesh>,
     inst_e: (WebGlVertexArrayObject, WebGlBuffer),
     list_e: RefCell<Vec<f32>>,
+    /// the debris, laid out as `list_e` is, refilled every frame
+    list_d: RefCell<Vec<f32>>,
     seed: Cell<f32>,
     u_inst: Option<WebGlUniformLocation>,
     u_lvp: Option<WebGlUniformLocation>,
@@ -1417,6 +1422,7 @@ impl Renderer {
             quality: 0,
             inst_e,
             list_e: RefCell::new(Vec::new()),
+            list_d: RefCell::new(Vec::new()),
             seed: Cell::new(0.0),
             shadow_fbo,
             shadow_tex,
@@ -1560,22 +1566,25 @@ impl Renderer {
     /// Draws everything queued by `ell`, and empties nothing: the same lists are drawn once for the
     /// sun's shadow and once for the picture.
     fn flush(&self) {
+        self.draw_ellipsoids(&self.list_e.borrow());
+        self.flush_bodies();
+    }
+
+    /// Ellipsoids laid out as `queue` lays them out, all in one draw.
+    fn draw_ellipsoids(&self, l: &[f32]) {
+        if l.is_empty() {
+            return;
+        }
         let gl = &self.gl;
         gl.uniform1f(self.u_inst.as_ref(), 1.0);
-        {
-            let l = self.list_e.borrow();
-            if !l.is_empty() {
-                let (vao, buf) = &self.inst_e;
-                gl.bind_vertex_array(Some(vao));
-                gl.bind_buffer(GL::ARRAY_BUFFER, Some(buf));
-                unsafe {
-                    gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(&l), GL::DYNAMIC_DRAW);
-                }
-                gl.draw_arrays_instanced(GL::TRIANGLES, 0, self.sphere_count, (l.len() / 24) as i32);
-            }
+        let (vao, buf) = &self.inst_e;
+        gl.bind_vertex_array(Some(vao));
+        gl.bind_buffer(GL::ARRAY_BUFFER, Some(buf));
+        unsafe {
+            gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(l), GL::DYNAMIC_DRAW);
         }
+        gl.draw_arrays_instanced(GL::TRIANGLES, 0, self.sphere_count, (l.len() / 24) as i32);
         gl.uniform1f(self.u_inst.as_ref(), 0.0);
-        self.flush_bodies();
     }
 
     /// Draws the queued zombie bodies: skin, hands, head, then clothes and hair, each posed by the zombie's bones.
@@ -1827,6 +1836,33 @@ impl Renderer {
         gl.color_mask(true, true, true, true);
         gl.uniform1f(self.u_pass.as_ref(), 0.0);
         gl.uniform1f(self.u_batch.as_ref(), 0.0);
+    }
+
+    /// A column of red light rising out of each weapon crate, so one can be seen from across the map. It is added
+    /// onto what is behind it and writes no depth, so it goes in after the sky; the fog fades it to nothing rather
+    /// than to haze, and it thins out in steps as it rises.
+    fn draw_beams(&self, g: &Game) {
+        if g.crates.is_empty() {
+            return;
+        }
+        let gl = &self.gl;
+        gl.enable(GL::BLEND);
+        gl.blend_func(GL::ONE, GL::ONE);
+        gl.depth_mask(false);
+        gl.uniform3f(self.u_fogc.as_ref(), 0.0, 0.0, 0.0);
+        for &(at, _) in &g.crates {
+            let pulse = 0.8 + 0.2 * (g.time * 3.0 + at[0]).sin();
+            for (lo, hi, k) in [(0.5, 8.0, 1.0), (8.0, 18.0, 0.55), (18.0, 32.0, 0.25)] {
+                let k = k * pulse;
+                for (w, c) in [(0.07, [0.9, 0.3, 0.15]), (0.3, [0.3, 0.06, 0.03])] {
+                    let m = box_model([at[0] - w, at[1] + lo, at[2] - w], [at[0] + w, at[1] + hi, at[2] + w]);
+                    self.draw_model(&m, [c[0] * k, c[1] * k, c[2] * k], 1.0, 0.0);
+                }
+            }
+        }
+        gl.uniform3f(self.u_fogc.as_ref(), self.haze[0], self.haze[1], self.haze[2]);
+        gl.depth_mask(true);
+        gl.disable(GL::BLEND);
     }
 
     fn draw_sky(&self, fwd: V3, fov: f32, aspect: f32, time: f32) {
@@ -2111,32 +2147,46 @@ impl Renderer {
 
         self.draw_world(eye, &vp);
         self.flush();
-        for d in &g.debris {
-            // drops shrink away at the end of their life
-            let k = (d.life / 0.6).min(1.0);
-            let h = [d.half[0] * k, d.half[1] * k, d.half[2] * k];
-            let spin = mul(&rot_y(d.rot[1]), &mul(&rot_x(d.rot[0]), &rot_z(d.rot[2])));
-            let model = mul(&translate(d.pos[0], d.pos[1], d.pos[2]), &mul(&spin, &scale(h[0], h[1], h[2])));
-            self.draw_mesh(&self.sphere_vao, self.sphere_count, &model, d.color, d.glow, 0.3, 0.0);
+        // the debris, up to `sim::MAX_DEBRIS` of it, in one draw; it casts no shadow, so it isn't in `list_e`
+        {
+            let mut l = self.list_d.borrow_mut();
+            l.clear();
+            for d in &g.debris {
+                // drops shrink away at the end of their life
+                let k = (d.life / 0.6).min(1.0);
+                let h = [d.half[0] * k, d.half[1] * k, d.half[2] * k];
+                let spin = mul(&rot_y(d.rot[1]), &mul(&rot_x(d.rot[0]), &rot_z(d.rot[2])));
+                let model = mul(&translate(d.pos[0], d.pos[1], d.pos[2]), &mul(&spin, &scale(h[0], h[1], h[2])));
+                l.extend_from_slice(&model);
+                l.extend_from_slice(&[d.color[0], d.color[1], d.color[2], 0.0, 0.3, d.glow, 0.0, 0.0]);
+            }
         }
+        self.draw_ellipsoids(&self.list_d.borrow());
         self.draw_grenades(g);
         for (_, m) in g.players.iter().enumerate().filter(|(i, _)| *i != g.local) {
             self.draw_mate_gun(m);
         }
         self.draw_brass(None);
+        // boxes and crates behind the view or lost in the haze aren't drawn, and a crate's gun only near enough to make
+        // out: each of its pieces is a draw of its own
+        let off = |at: V3| [at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]];
+        let shown = |at: V3, far: f32| dot(off(at), fwd) > -1.0 && dot(off(at), off(at)) < far * far;
         // the ammo crates: a drab box with a yellow band
-        for at in &g.boxes {
+        for &at in g.boxes.iter().filter(|&&at| shown(at, self.fog_end)) {
             let m = box_model([at[0] - 0.35, at[1], at[2] - 0.35], [at[0] + 0.35, at[1] + 0.7, at[2] + 0.35]);
             self.draw_model(&m, [0.38, 0.36, 0.22], 0.0, 0.1);
             let m = box_model([at[0] - 0.40, at[1] + 0.28, at[2] - 0.40], [at[0] + 0.40, at[1] + 0.42, at[2] + 0.40]);
             self.draw_model(&m, [0.98, 0.75, 0.2], 0.0, 0.2);
         }
         // the weapon crates: a dark case with a red band, and its gun turning over it to show what is inside
-        for &(at, gun) in &g.crates {
+        for &(at, gun) in g.crates.iter().filter(|&&(at, _)| shown(at, self.fog_end)) {
             let m = box_model([at[0] - 0.45, at[1], at[2] - 0.45], [at[0] + 0.45, at[1] + 0.5, at[2] + 0.45]);
             self.draw_model(&m, [0.16, 0.18, 0.2], 0.0, 0.25);
             let m = box_model([at[0] - 0.5, at[1] + 0.18, at[2] - 0.5], [at[0] + 0.5, at[1] + 0.3, at[2] + 0.5]);
             self.draw_model(&m, [0.85, 0.12, 0.1], 0.3, 0.2);
+            if !shown(at, CRATE_GUN_FAR) {
+                continue;
+            }
             let (lo, hi) = self.guns[gun].bounds;
             let mid = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0];
             let bob = 1.1 + 0.08 * (g.time * 2.0 + at[0]).sin();
@@ -2153,6 +2203,7 @@ impl Renderer {
         self.ground_depth();
         self.draw_sky(fwd, fov, aspect, g.time);
         gl.use_program(Some(&self.prog));
+        self.draw_beams(g);
 
         // viewmodel: drawn in view space on a cleared depth buffer so it never clips into walls
         gl.clear(GL::DEPTH_BUFFER_BIT);

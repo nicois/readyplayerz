@@ -8,10 +8,12 @@
 //! own: a client's last few inputs (`Inputs`), and the server's snapshots of the game, each split into as many
 //! datagrams as it takes (see `encode_snapshot`), every one of them a list of records about one thing each.
 
-use crate::sim::{Input, Pose, V3};
+use crate::sim::{Input, Pose, V3, WEAPON_COUNT};
 
 /// Bumped whenever the format changes, so an old page is told to reload instead of misreading.
-pub const VERSION: u8 = 2;
+pub const VERSION: u8 = 4;
+/// The room asked for in a `Hello` to quick match: never a room's code, which is only letters.
+pub const QUICK: &str = "*";
 /// Most players in a room.
 pub const MAX_PLAYERS: usize = 6;
 /// How many of its latest inputs a client sends each time, so a lost datagram or two loses none of them.
@@ -131,7 +133,8 @@ impl<'a> R<'a> {
 /// A message on a player's reliable stream.
 #[derive(Debug, PartialEq, Clone)]
 pub enum Msg {
-    /// client: to make a room on map `map` (`room` empty) or to join room `room`
+    /// client: to make a room on map `map` (`room` empty), to join room `room`, or (`room` is `QUICK`) to be put in
+    /// any quick-match room that hasn't started, or a new one on any map
     Hello { version: u8, room: String, map: u8, name: String },
     /// client, the room's host: let the waves come
     Start,
@@ -139,8 +142,9 @@ pub enum Msg {
     Name { name: String },
     /// server: you are in, as player `id`, in a game on map `map` made from `seed`
     Welcome { id: u8, room: String, map: u8, seed: u32 },
-    /// server: who is in the room, the host first
-    Roster { started: bool, players: Vec<(u8, String)> },
+    /// server: who is in the room, the host first; whether it was found by quick match, and the seconds until it
+    /// starts by itself (0 when it isn't counting down)
+    Roster { started: bool, players: Vec<(u8, String)>, matched: bool, starts_in: u8 },
     /// server: no way in, and why
     Refused { why: String },
     /// server: every room is taken; you are `place` in line for the next (1 is next)
@@ -156,12 +160,12 @@ impl Msg {
             Msg::Start => w.u8(2),
             Msg::Name { name } => w.u8(3).str(name),
             Msg::Welcome { id, room, map, seed } => w.u8(10).u8(*id).str(room).u8(*map).u32(*seed),
-            Msg::Roster { started, players } => {
+            Msg::Roster { started, players, matched, starts_in } => {
                 w.u8(11).u8(*started as u8).u8(players.len() as u8);
                 for (id, name) in players {
                     w.u8(*id).str(name);
                 }
-                &mut w
+                w.u8(*matched as u8).u8(*starts_in)
             }
             Msg::Refused { why } => w.u8(12).str(why),
             Msg::Queued { place } => w.u8(13).u16(*place),
@@ -182,7 +186,7 @@ impl Msg {
                 let started = r.u8()? != 0;
                 let n = r.u8()?;
                 let players = (0..n).map(|_| Some((r.u8()?, r.str()?))).collect::<Option<_>>()?;
-                Msg::Roster { started, players }
+                Msg::Roster { started, players, matched: r.u8()? != 0, starts_in: r.u8()? }
             }
             12 => Msg::Refused { why: r.str()? },
             13 => Msg::Queued { place: r.u16()? },
@@ -285,6 +289,25 @@ pub struct Own {
     pub kills: u32,
     pub deaths: u32,
     pub respawn_t: f32,
+    pub kit: Kit,
+}
+
+/// What a player carries. A client works it out from its own inputs as the server does, so the two only part
+/// where the server knew better: a crate a teammate got to first. Then the client is put right.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct Kit {
+    pub loadout: [u8; 2],
+    pub weapon: u8,
+    pub grenades: u8,
+    pub ammo: [u8; WEAPON_COUNT],
+    pub reserve: [u8; WEAPON_COUNT],
+}
+
+/// An ammo box (`gun` 255) or a weapon crate and the gun in it, lying where it is.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct Loot {
+    pub pos: V3,
+    pub gun: u8,
 }
 
 /// How the game is going.
@@ -361,6 +384,7 @@ pub struct Snapshot {
     pub nades: Vec<Nade>,
     pub booms: Vec<Boom>,
     pub shots: Vec<crate::sim::Shot>,
+    pub loot: Vec<Loot>,
 }
 
 const OWN: u8 = 1;
@@ -370,23 +394,38 @@ const ZOMBIE: u8 = 4;
 const NADE: u8 = 5;
 const BOOM: u8 = 6;
 const SHOT: u8 = 7;
+const LOOT: u8 = 8;
 
 /// A snapshot as datagrams of up to `DATAGRAM` bytes, each standing on its own. The player's own record and how
 /// the game is going come first, so they are in the first.
 pub fn encode_snapshot(s: &Snapshot) -> Vec<Vec<u8>> {
+    pack(s.tick, encode_records(s).iter().map(Vec::as_slice))
+}
+
+/// Records, in order, as datagrams of a snapshot taken at `tick`: as many to a datagram as fit in `DATAGRAM` bytes.
+/// A server encodes the records everyone is sent once (see `encode_records`) and packs them into each player's.
+pub fn pack<'a>(tick: u32, records: impl IntoIterator<Item = &'a [u8]>) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
-    let mut w = W::default();
-    let start = |w: &mut W| {
-        w.u8(SNAPSHOT).u32(s.tick);
+    let start = || {
+        let mut w = W::default();
+        w.u8(SNAPSHOT).u32(tick);
+        w.0
     };
-    start(&mut w);
-    let rec = |out: &mut Vec<Vec<u8>>, w: &mut W, r: W| {
-        if w.0.len() + r.0.len() > DATAGRAM {
-            out.push(std::mem::take(&mut w.0));
-            start(w);
+    let mut d = start();
+    for r in records {
+        if d.len() + r.len() > DATAGRAM {
+            out.push(std::mem::replace(&mut d, start()));
         }
-        w.0.extend_from_slice(&r.0);
-    };
+        d.extend_from_slice(r);
+    }
+    out.push(d);
+    out
+}
+
+/// The records of a snapshot, each encoded on its own, in the order they go out: the player's own, how the game
+/// is going, the other players, the zombies, grenades, blasts, shots and loot.
+pub fn encode_records(s: &Snapshot) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
     if let Some(o) = &s.own {
         let mut r = W::default();
         r.u8(OWN).u32(o.ack).u32(o.life).v3(o.pos).v3(o.vel);
@@ -397,19 +436,23 @@ pub fn encode_snapshot(s: &Snapshot) -> Vec<Vec<u8>> {
             }
         }
         r.f32(o.stamina).f32(o.since_sprint).f32(o.yaw).f32(o.hp).u16(o.kills as u16).u16(o.deaths as u16).f32(o.respawn_t);
-        rec(&mut out, &mut w, r);
+        let k = &o.kit;
+        r.u8(k.loadout[0]).u8(k.loadout[1]).u8(k.weapon).u8(k.grenades);
+        r.0.extend_from_slice(&k.ammo);
+        r.0.extend_from_slice(&k.reserve);
+        out.push(r.0);
     }
     if let Some(g) = &s.world {
         let mut r = W::default();
         r.u8(WORLD).u16(g.wave as u16).u16(g.left as u16).u8(g.started as u8);
-        rec(&mut out, &mut w, r);
+        out.push(r.0);
     }
     for m in &s.mates {
         let mut r = W::default();
         let flags = [m.alive, m.on_ground, m.aiming, m.reloading, m.ads, m.climbing];
         r.u8(MATE).u8(m.id).pos(m.pos).angle(m.yaw).signed(m.pitch, 1.6).u8(m.weapon);
         r.u8(flags.iter().enumerate().map(|(k, &on)| (on as u8) << k).sum()).unit(m.hp, 100.0).unit(m.sprint, 1.0);
-        rec(&mut out, &mut w, r);
+        out.push(r.0);
     }
     for z in &s.zombies {
         let mut r = W::default();
@@ -421,24 +464,28 @@ pub fn encode_snapshot(s: &Snapshot) -> Vec<Vec<u8>> {
         if let Some((s, up, ahead, duck)) = z.pose {
             r.unit(s, 1.0).signed(up, 4.0).signed(ahead, 3.0).unit(duck, 1.0);
         }
-        rec(&mut out, &mut w, r);
+        out.push(r.0);
     }
     for n in &s.nades {
         let mut r = W::default();
         r.u8(NADE).u32(n.id).pos(n.pos).angle(n.rot[0]).angle(n.rot[1]).angle(n.rot[2]);
-        rec(&mut out, &mut w, r);
+        out.push(r.0);
     }
     for b in &s.booms {
         let mut r = W::default();
         r.u8(BOOM).u32(b.id).pos(b.pos).unit(b.t, 2.0);
-        rec(&mut out, &mut w, r);
+        out.push(r.0);
     }
     for s in &s.shots {
         let mut r = W::default();
         r.u8(SHOT).u8(s.by).pos(s.a).pos(s.b);
-        rec(&mut out, &mut w, r);
+        out.push(r.0);
     }
-    out.push(w.0);
+    for l in &s.loot {
+        let mut r = W::default();
+        r.u8(LOOT).pos(l.pos).u8(l.gun);
+        out.push(r.0);
+    }
     out
 }
 
@@ -464,7 +511,11 @@ pub fn decode_snapshot(b: &[u8]) -> Option<Snapshot> {
                 };
                 let (stamina, since_sprint, yaw, hp) = (r.f32()?, r.f32()?, r.f32()?, r.f32()?);
                 let (kills, deaths, respawn_t) = (r.u16()? as u32, r.u16()? as u32, r.f32()?);
-                s.own = Some(Own { ack, life, pos, vel, on_ground: flags & 1 != 0, winded: flags & 2 != 0, climb, stamina, since_sprint, yaw, hp, kills, deaths, respawn_t });
+                let mut kit = Kit { loadout: [r.u8()?, r.u8()?], weapon: r.u8()?, grenades: r.u8()?, ..Default::default() };
+                for x in kit.ammo.iter_mut().chain(kit.reserve.iter_mut()) {
+                    *x = r.u8()?;
+                }
+                s.own = Some(Own { ack, life, pos, vel, on_ground: flags & 1 != 0, winded: flags & 2 != 0, climb, stamina, since_sprint, yaw, hp, kills, deaths, respawn_t, kit });
             }
             WORLD => s.world = Some(World { wave: r.u16()? as u32, left: r.u16()? as u32, started: r.u8()? != 0 }),
             MATE => {
@@ -484,6 +535,7 @@ pub fn decode_snapshot(b: &[u8]) -> Option<Snapshot> {
             NADE => s.nades.push(Nade { id: r.u32()?, pos: r.pos()?, rot: [r.angle()?, r.angle()?, r.angle()?] }),
             BOOM => s.booms.push(Boom { id: r.u32()?, pos: r.pos()?, t: r.unit(2.0)? }),
             SHOT => s.shots.push(crate::sim::Shot { by: r.u8()?, a: r.pos()?, b: r.pos()? }),
+            LOOT => s.loot.push(Loot { pos: r.pos()?, gun: r.u8()? }),
             _ => return None,
         }
     }
@@ -501,7 +553,8 @@ mod tests {
             Msg::Start,
             Msg::Name { name: "Friend".into() },
             Msg::Welcome { id: 3, room: "ABCD".into(), map: 1, seed: 1234567 },
-            Msg::Roster { started: true, players: vec![(0, "Val".into()), (3, "Friend".into())] },
+            Msg::Hello { version: VERSION, room: QUICK.into(), map: 0, name: "".into() },
+            Msg::Roster { started: true, players: vec![(0, "Val".into()), (3, "Friend".into())], matched: true, starts_in: 27 },
             Msg::Refused { why: "No such room".into() },
             Msg::Queued { place: 300 },
         ];
@@ -524,7 +577,8 @@ mod tests {
 
     #[test]
     fn a_big_snapshot_is_split_into_datagrams_that_each_read_on_their_own() {
-        let own = Own { ack: 99, life: 2, pos: [1.5, 0.25, -30.125], vel: [0.5, -3.0, 1.0], climb: Some([0.5; 14]), stamina: 0.4, hp: 64.0, kills: 12, ..Default::default() };
+        let kit = Kit { loadout: [4, 9], weapon: 9, grenades: 3, ammo: [7; WEAPON_COUNT], reserve: [70; WEAPON_COUNT] };
+        let own = Own { ack: 99, life: 2, pos: [1.5, 0.25, -30.125], vel: [0.5, -3.0, 1.0], climb: Some([0.5; 14]), stamina: 0.4, hp: 64.0, kills: 12, kit, ..Default::default() };
         let zombie = |i: u32| Zombie { id: i, pos: [i as f32, 0.0, -2.0 * i as f32], face: 1.0, kind: (i % 3) as u8, alive: i % 2 == 0, speed: 3.0, pose: (i % 5 == 0).then_some((0.5, 1.0, 0.5, 0.25)), ..Default::default() };
         let s = Snapshot {
             tick: 5000,
@@ -535,6 +589,7 @@ mod tests {
             nades: vec![Nade { id: 77, pos: [1.0, 1.0, 1.0], rot: [0.1, 0.2, 0.3] }],
             booms: vec![Boom { id: 78, pos: [2.0, 0.1, 2.0], t: 0.5 }],
             shots: vec![crate::sim::Shot { by: 2, a: [0.0, 1.5, 0.0], b: [5.0, 1.0, -20.0] }],
+            loot: vec![Loot { pos: [12.5, 0.0, -3.25], gun: 255 }, Loot { pos: [-40.0, 2.5, 8.0], gun: 4 }],
         };
         let parts = encode_snapshot(&s);
         assert!(parts.len() > 1 && parts.iter().all(|p| p.len() <= DATAGRAM), "{:?}", parts.iter().map(Vec::len).collect::<Vec<_>>());
@@ -549,6 +604,7 @@ mod tests {
         }
         let last = back.last().unwrap();
         assert_eq!((last.nades.len(), last.booms.len(), last.shots.len()), (1, 1, 1));
+        assert_eq!(last.loot, s.loot, "boxes and crates come back where they lie");
         assert!((back[0].mates[0].yaw - 2.0).abs() < 0.001 && back[0].mates[0].ads);
     }
 }

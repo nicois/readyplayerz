@@ -17,6 +17,9 @@ struct Online {
     started: bool,
     /// who is in, the host first
     players: Vec<(u8, String)>,
+    /// found by quick match, and the seconds until it starts by itself (0 when it isn't counting down)
+    matched: bool,
+    starts_in: u8,
 }
 
 #[wasm_bindgen]
@@ -57,10 +60,11 @@ impl Client {
             .dyn_into::<WebGl2RenderingContext>()?;
         let mut renderer = Renderer::new(gl, canvas.width(), canvas.height())?;
         let seed = (js_sys::Math::random() * 4_000_000_000.0) as u32;
-        let mut game = Game::new(seed);
+        let map = crate::map::played(0);
+        let mut game = Game::on(map, seed);
         game.set_loot(true);
         renderer.upload_world(&game)?;
-        Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true, map: 0, seed, online: None, frames: Frames::default(), net_error: String::new(), queued: 0, picks: Vec::new() })
+        Ok(Client { game, renderer, acc: 0.0, last: 0.0, paused: true, map, seed, online: None, frames: Frames::default(), net_error: String::new(), queued: 0, picks: Vec::new() })
     }
 
     /// The game being played: the room's, online.
@@ -85,9 +89,10 @@ impl Client {
         self.acc = 0.0;
     }
 
-    /// A fresh game on map number `map` (0 the town, 1 the suburb), keeping the loadout picked so far.
+    /// A fresh game on map number `map` (0 the town, 1 the suburb), keeping the loadout picked so far. Only the
+    /// suburb is played for now, so any number is the suburb (see `map::played`).
     pub fn set_map(&mut self, map: u8) -> Result<(), JsValue> {
-        self.map = map.min(crate::map::MAPS - 1);
+        self.map = crate::map::played(map);
         self.end_game();
         Ok(self.renderer.upload_world(&self.game)?)
     }
@@ -355,6 +360,9 @@ impl Client {
         if let Some(o) = &mut self.online {
             o.mirror.present(self.acc / STEP);
         }
+        if !paused {
+            self.game_mut().chime(dt);
+        }
         self.renderer.render(self.game());
     }
 
@@ -403,7 +411,8 @@ impl Client {
 
     // ---- online ----
 
-    /// The first message on a new connection: to make a room on map `map` (`room` empty) or join one.
+    /// The first message on a new connection: to make a room on map `map` (`room` empty), join one, or quick match
+    /// (`room` is `net::QUICK`).
     pub fn net_hello(&mut self, room: &str, name: &str, map: u8) -> Vec<u8> {
         self.frames = Frames::default();
         self.net_error.clear();
@@ -426,11 +435,11 @@ impl Client {
                     self.picks = picked.iter().map(|&w| w as u8).collect();
                     self.acc = 0.0;
                     self.queued = 0;
-                    self.online = Some(Online { mirror, room, map, started: false, players: Vec::new() });
+                    self.online = Some(Online { mirror, room, map, started: false, players: Vec::new(), matched: false, starts_in: 0 });
                 }
-                Msg::Roster { started, players } => {
+                Msg::Roster { started, players, matched, starts_in } => {
                     if let Some(o) = &mut self.online {
-                        (o.started, o.players) = (started, players);
+                        (o.started, o.players, o.matched, o.starts_in) = (started, players, matched, starts_in);
                     }
                 }
                 Msg::Refused { why } => (self.net_error, self.queued) = (why, 0),
@@ -488,14 +497,15 @@ impl Client {
     }
 
     /// How it is going online, as JSON: whether in a room, its code and map, this player's id, whether the waves
-    /// have started, who is in (host first), the last error, and the place in line for a room (0 when not waiting).
+    /// have started, who is in (host first), whether it was found by quick match and the seconds until it starts by
+    /// itself, the last error, and the place in line for a room (0 when not waiting).
     pub fn lobby(&self) -> String {
         // names and codes are only ever letters, digits, spaces and a few marks (see `sim::host::clean_name`)
         let q = |s: &str| format!("\"{}\"", s.replace(['"', '\\'], ""));
         match &self.online {
             Some(o) => {
                 let players: Vec<String> = o.players.iter().map(|(id, name)| format!("[{id},{}]", q(name))).collect();
-                format!("{{\"online\":true,\"room\":{},\"map\":{},\"id\":{},\"started\":{},\"players\":[{}],\"error\":{}}}", q(&o.room), o.map, o.mirror.id, o.started, players.join(","), q(&self.net_error))
+                format!("{{\"online\":true,\"room\":{},\"map\":{},\"id\":{},\"started\":{},\"players\":[{}],\"matched\":{},\"startsIn\":{},\"error\":{}}}", q(&o.room), o.map, o.mirror.id, o.started, players.join(","), o.matched, o.starts_in, q(&self.net_error))
             }
             None => format!("{{\"online\":false,\"error\":{},\"queued\":{}}}", q(&self.net_error), self.queued),
         }
