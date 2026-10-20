@@ -2,6 +2,10 @@
 
 ## 2026-10-20
 
+### Edges smoothed by FXAA instead of multisampling
+- Every quality now draws the picture without multisampling and smooths its edges with an FXAA pass on the way to the screen (Medium had 2x MSAA, High 4x, Low none). On an M1 at 1920×993, High's 4x MSAA took about a quarter of each frame; the FXAA pass takes about a millisecond.
+- FXAA also smooths edges multisampling never did: the holes in the zombies' clothes and their hairlines. Side by side with 4x MSAA no difference could be seen in play.
+
 ### Weapon crates are taken with E, into any slot; pickups pop up
 - Walking over a weapon crate no longer takes its gun. In reach of one (1.6 m) the HUD says "E Take the AK-47", and what it would leave behind; E takes it, running or not.
 - The gun goes into an empty slot if there is one, and otherwise in place of the gun in hand, whatever kind either is: holding the Pistol, a rifle can replace it, for two rifles. The gun left behind is gone.
