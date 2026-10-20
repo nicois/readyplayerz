@@ -27,6 +27,8 @@ layout(location=9) in vec4 i_misc;
 // skinned bodies: the four bones that move a vertex and by how much
 layout(location=11) in vec4 a_bi;
 layout(location=12) in vec4 a_bw;
+// and which part of the body: shirt, hair, trousers or skin (see `body::SHIRT`)
+layout(location=15) in float a_part;
 // a gun drawn whole: where the vertex is in its own part, and that part's colour and material, finish and glow
 layout(location=10) in vec3 a_obj;
 layout(location=13) in vec4 a_look;
@@ -38,6 +40,9 @@ uniform float u_inst;
 uniform float u_whole;
 uniform float u_skin;
 uniform mat4 u_bones[17];
+// a body's colour for each of its parts, and whether it has hair (or a beard) at all
+uniform vec3 u_pcol[4];
+uniform float u_hairon;
 uniform float u_view;
 uniform mat3 u_envrot;
 uniform vec3 u_eyew;
@@ -60,6 +65,7 @@ flat out float v_umat;
 flat out float v_ushiny;
 flat out float v_unlit;
 flat out float v_seed;
+flat out float v_part;
 void main() {
     bool inst = u_inst > 0.5;
     bool whole = u_whole > 0.5;
@@ -91,6 +97,19 @@ void main() {
     v_ushiny = inst ? i_misc.x : whole ? a_finish.x : u_shiny;
     v_unlit = inst ? i_misc.y : whole ? a_finish.y : u_unlit;
     v_seed = inst ? i_misc.z : u_seed;
+    v_part = -1.0;
+    if (u_skin > 0.5) {
+        // a body is one draw: each part takes its own colour, and its material by what it is
+        int part = int(a_part);
+        v_part = a_part;
+        v_ucol = u_pcol[part];
+        v_umat = part == 1 ? 12.0 : part == 3 ? 9.0 : 10.0;
+        // no hair is drawn as none: off the far plane, where it is clipped away whole
+        if (part == 1 && u_hairon < 0.5) {
+            gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+            return;
+        }
+    }
     if (u_view > 0.5) {
         // the gun is drawn in the camera's own space, but it should be lit and shadowed where it is in the world
         vec3 nw = normalize(u_envrot * v_nrm);
@@ -119,6 +138,7 @@ flat in float v_umat;
 flat in float v_ushiny;
 flat in float v_unlit;
 flat in float v_seed;
+flat in float v_part;
 uniform float u_batch;
 uniform float u_pass;
 uniform float u_shon;
@@ -328,12 +348,14 @@ void main() {
     if (u_skin > 0.5) {
         float nz = noise3(v_rest * 17.0 + v_seed);
         if (v_umat > 9.5 && v_umat < 10.5) {
-            if (v_rest.y < u_cut.x + 0.035 * nz) discard;
+            // the trousers have no hem to cut, only a torn leg
+            vec4 cut = v_part > 1.5 ? vec4(-1.0, 0.0, 0.0, u_cut.w) : u_cut;
+            if (v_rest.y < cut.x + 0.035 * nz) discard;
             if (v_aux < 9.0) {
-                if (v_aux < u_cut.y + 0.05 * nz) discard;
-                if (u_cut.z != 0.0 && sign(v_rest.x) == u_cut.z) discard;
+                if (v_aux < cut.y + 0.05 * nz) discard;
+                if (cut.z != 0.0 && sign(v_rest.x) == cut.z) discard;
             }
-            if (u_cut.w != 0.0 && sign(v_rest.x) == u_cut.w && v_rest.y < 0.52 && v_rest.y > 0.1 + 0.04 * nz) discard;
+            if (cut.w != 0.0 && sign(v_rest.x) == cut.w && v_rest.y < 0.52 && v_rest.y > 0.1 + 0.04 * nz) discard;
             // moth-eaten, except on the living (a seed below zero: see `draw_mate`)
             if (v_seed >= 0.0 && noise3(v_rest * 21.0 + 7.0 + v_seed) > 0.83) discard;
         } else if (v_umat > 11.5 && v_umat < 12.5) {
@@ -623,16 +645,10 @@ struct GpuMesh {
     count: i32,
 }
 
-/// All the pieces of the body at one level of detail.
+/// The body at one level of detail, each whole (see `body::Figure::whole`): a zombie's, and a living player's.
 struct GpuFigure {
-    body: GpuMesh,
-    head: GpuMesh,
-    face: GpuMesh,
-    hands: [GpuMesh; 2],
-    shirt: GpuMesh,
-    pants: GpuMesh,
-    hair: GpuMesh,
-    crop: GpuMesh,
+    dead: GpuMesh,
+    living: GpuMesh,
 }
 
 /// One part of a gun on the GPU, with the look it is drawn in.
@@ -788,6 +804,8 @@ pub struct Renderer {
     u_cut: Option<WebGlUniformLocation>,
     u_hairk: Option<WebGlUniformLocation>,
     u_shoe: Option<WebGlUniformLocation>,
+    u_pcol: Option<WebGlUniformLocation>,
+    u_hairon: Option<WebGlUniformLocation>,
     u_wound: [Option<WebGlUniformLocation>; 3],
     targets: RefCell<Option<Targets>>,
     finish: Finish,
@@ -1547,6 +1565,8 @@ impl Renderer {
             u_cut: u("u_cut"),
             u_hairk: u("u_hairk"),
             u_shoe: u("u_shoe"),
+            u_pcol: u("u_pcol"),
+            u_hairon: u("u_hairon"),
             u_wound: [u("u_w0"), u("u_w1"), u("u_w2")],
             targets: RefCell::new(None),
             finish,
@@ -1677,8 +1697,8 @@ impl Renderer {
         unsafe {
             gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(&m.verts), GL::STATIC_DRAW);
         }
-        let stride = (crate::body::STRIDE * 4) as i32;
-        for (loc, size, off) in [(0, 3, 0), (1, 3, 12), (11, 4, 24), (12, 4, 40), (3, 1, 56)] {
+        let stride = (crate::body::WHOLE_STRIDE * 4) as i32;
+        for (loc, size, off) in [(0, 3, 0), (1, 3, 12), (11, 4, 24), (12, 4, 40), (3, 1, 56), (15, 1, 60)] {
             gl.enable_vertex_attrib_array(loc);
             gl.vertex_attrib_pointer_with_i32(loc, size, GL::FLOAT, false, stride, off);
         }
@@ -1691,16 +1711,7 @@ impl Renderer {
     }
 
     fn upload_figure(gl: &GL, f: &crate::body::Figure) -> Result<GpuFigure, String> {
-        Ok(GpuFigure {
-            body: Self::upload_skinned(gl, &f.body)?,
-            head: Self::upload_skinned(gl, &f.head)?,
-            face: Self::upload_skinned(gl, &f.face)?,
-            hands: [Self::upload_skinned(gl, &f.hands[0])?, Self::upload_skinned(gl, &f.hands[1])?],
-            shirt: Self::upload_skinned(gl, &f.shirt)?,
-            pants: Self::upload_skinned(gl, &f.pants)?,
-            hair: Self::upload_skinned(gl, &f.hair)?,
-            crop: Self::upload_skinned(gl, &f.crop)?,
-        })
+        Ok(GpuFigure { dead: Self::upload_skinned(gl, &f.whole(false))?, living: Self::upload_skinned(gl, &f.whole(true))? })
     }
 
     /// A vertex array over `mesh` that also reads one row of per-instance data (see the vertex shader) per copy.
@@ -1794,12 +1805,14 @@ impl Renderer {
         gl.uniform1f(self.u_inst.as_ref(), 0.0);
     }
 
-    /// Draws the queued zombie bodies: skin, hands, head, then clothes and hair, each posed by the zombie's bones.
+    /// Draws the queued zombie bodies, each in one draw (see `body::Figure::whole`), posed by the zombie's bones.
     fn flush_bodies(&self) {
         let gl = &self.gl;
         let shadow = self.shadow_pass.get();
         gl.uniform1f(self.u_skin.as_ref(), 1.0);
         gl.uniform_matrix4fv_with_f32_array(self.u_model.as_ref(), false, &IDENTITY);
+        gl.uniform1f(self.u_shiny.as_ref(), 0.0);
+        gl.uniform1f(self.u_unlit.as_ref(), 0.0);
         for job in self.jobs.borrow().iter() {
             // shadows need less detail than the picture: the far mesh's grid is about one texel of the shadow
             // map, which blurs its edges over three
@@ -1812,30 +1825,14 @@ impl Renderer {
             for (loc, w) in self.u_wound.iter().zip(&job.wounds) {
                 gl.uniform4f(loc.as_ref(), w[0], w[1], w[2], w[3]);
             }
-            let draw = |m: &GpuMesh, col: [f32; 3], mat: f32, shiny: f32| {
-                gl.bind_vertex_array(Some(&m.vao));
-                gl.uniform3f(self.u_color.as_ref(), col[0], col[1], col[2]);
-                gl.uniform1f(self.u_mat.as_ref(), mat);
-                gl.uniform1f(self.u_shiny.as_ref(), shiny);
-                gl.uniform1f(self.u_unlit.as_ref(), 0.0);
-                gl.draw_elements_with_i32(GL::TRIANGLES, m.count, GL::UNSIGNED_INT, 0);
-                self.count(m.count / 3);
-            };
-            // outside in: what the clothes and hair cover then fails the depth test instead of being worked out
-            // and painted over, and skin is the dearest thing to draw
-            draw(&f.shirt, job.shirt, 10.0, 0.0);
+            let (s, h, p, k) = (job.shirt, job.hair, job.pants, job.skin);
+            gl.uniform3fv_with_f32_array(self.u_pcol.as_ref(), &[s[0], s[1], s[2], h[0], h[1], h[2], p[0], p[1], p[2], k[0], k[1], k[2]]);
+            gl.uniform1f(self.u_hairon.as_ref(), if job.hair_kind[0] > 0.5 || job.hair_kind[1] > 0.5 { 1.0 } else { 0.0 });
             // the living (a seed below zero: see `draw_mate`) have their hair cut short, and a face of their own
-            let living = job.seed < 0.0;
-            if job.hair_kind[0] > 0.5 || job.hair_kind[1] > 0.5 {
-                draw(if living { &f.crop } else { &f.hair }, job.hair, 12.0, 0.0);
-            }
-            // the trousers have no hem to cut, only a torn leg
-            gl.uniform4f(self.u_cut.as_ref(), -1.0, 0.0, 0.0, job.cut[3]);
-            draw(&f.pants, job.pants, 10.0, 0.0);
-            draw(&f.body, job.skin, 9.0, 0.0);
-            draw(if living { &f.face } else { &f.head }, job.skin, 9.0, 0.0);
-            draw(&f.hands[0], job.skin, 9.0, 0.0);
-            draw(&f.hands[1], job.skin, 9.0, 0.0);
+            let m = if job.seed < 0.0 { &f.living } else { &f.dead };
+            gl.bind_vertex_array(Some(&m.vao));
+            gl.draw_elements_with_i32(GL::TRIANGLES, m.count, GL::UNSIGNED_INT, 0);
+            self.count(m.count / 3);
         }
         gl.uniform1f(self.u_skin.as_ref(), 0.0);
     }

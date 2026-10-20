@@ -24,6 +24,15 @@ pub const WRIST: usize = 15;
 /// down the arm a vertex is, or 9 when it is not on one).
 pub const STRIDE: usize = 15;
 
+/// Floats per vertex of a whole figure (see `Figure::whole`): a piece's, then which part of the figure it is.
+pub const WHOLE_STRIDE: usize = STRIDE + 1;
+
+/// The parts of a whole figure, each in a colour and material of its own: the order of `u_pcol` in the shader.
+pub const SHIRT: f32 = 0.0;
+pub const HAIR: f32 = 1.0;
+pub const PANTS: f32 = 2.0;
+pub const SKIN: f32 = 3.0;
+
 /// Where the arms hang from, and how far out they are held in the rest pose.
 pub const ARM_X: f32 = 0.205;
 pub const SHOULDER_Y: f32 = 1.41;
@@ -637,6 +646,31 @@ impl Figure {
         let crop = build(&crop, [-0.14, 1.48, -0.16], [0.14, 1.84, 0.18], 0.006 * s, false);
         Figure { body, head, face, hands, shirt, pants, hair, crop }
     }
+
+    /// Every piece in one mesh, to draw a body in one go, each vertex marked with its part (`SHIRT` and so on). Put
+    /// together outside in, so what the clothes and hair cover then fails the depth test instead of being worked
+    /// out and painted over: skin is the dearest thing to draw. `living` takes the living head and cropped hair.
+    pub fn whole(&self, living: bool) -> Mesh {
+        let pieces = [
+            (&self.shirt, SHIRT),
+            (if living { &self.crop } else { &self.hair }, HAIR),
+            (&self.pants, PANTS),
+            (&self.body, SKIN),
+            (if living { &self.face } else { &self.head }, SKIN),
+            (&self.hands[0], SKIN),
+            (&self.hands[1], SKIN),
+        ];
+        let mut out = Mesh { verts: Vec::new(), idx: Vec::new() };
+        for (m, part) in pieces {
+            let first = (out.verts.len() / WHOLE_STRIDE) as u32;
+            for v in m.verts.chunks(STRIDE) {
+                out.verts.extend_from_slice(v);
+                out.verts.push(part);
+            }
+            out.idx.extend(m.idx.iter().map(|i| i + first));
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -758,6 +792,22 @@ mod tests {
             println!("{name}: {} vertices, {} triangles", m.verts.len() / STRIDE, m.idx.len() / 3);
             assert!(m.idx.len() > 300, "{name} is nearly empty");
             assert!(m.idx.iter().all(|i| (*i as usize) < m.verts.len() / STRIDE));
+        }
+    }
+
+    #[test]
+    fn a_whole_figure_is_every_piece_with_its_part() {
+        let f = Figure::new(4.0);
+        for living in [false, true] {
+            let w = f.whole(living);
+            let (head, hair) = if living { (&f.face, &f.crop) } else { (&f.head, &f.hair) };
+            let pieces = [&f.shirt, hair, &f.pants, &f.body, head, &f.hands[0], &f.hands[1]];
+            assert_eq!(w.verts.len() / WHOLE_STRIDE, pieces.iter().map(|m| m.verts.len() / STRIDE).sum::<usize>());
+            assert_eq!(w.idx.len(), pieces.iter().map(|m| m.idx.len()).sum::<usize>());
+            assert!(w.idx.iter().all(|i| (*i as usize) < w.verts.len() / WHOLE_STRIDE));
+            // the shirt comes first, and the skin last
+            assert_eq!(w.verts[WHOLE_STRIDE - 1], SHIRT);
+            assert_eq!(*w.verts.last().unwrap(), SKIN);
         }
     }
 }

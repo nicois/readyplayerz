@@ -2,6 +2,10 @@
 
 ## 2026-10-20
 
+### A zombie is one draw, not seven
+- A body's shirt, hair, trousers, skin, head and hands are put together into one mesh, each vertex marked with its part, and drawn in one call; the shader takes each part's colour and material from the zombie's own, and leaves out the hair of one with none. The same goes for the other players. They look the same.
+- In the horde bench at Low on an M1, a frame's draw calls went from about 270 to 130 for the picture and 215 to 75 for the sun's shadow, and a frame from 5.6 ms to 5.3 (the machine was busy; the calls are what a slow laptop pays for most).
+
 ### A score when the game is over, and watching a teammate while down
 - Everyone down, a card slams on over a darkened red view: YOU DIED alone, OVERRUN online, with the wave reached, the kills and the time survived. Online it lists everyone's kills, most first.
 - Alone the game waits on the card: a click or Space plays again, from 1.2 s after dying so a shot still held doesn't skip it. Online the next game starts by itself 10 s after the last player goes down (was 4), counted down on the card.
