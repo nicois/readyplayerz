@@ -1,7 +1,7 @@
 // Synthesized sound effects. Everything is built from noise and oscillators, so there are no audio files.
 // The sim reports what happened as [code, a, b] triples; `play` turns them into sound.
 
-const SHOT = 1, HIT = 3, HEAD = 4, KILL = 5, HURT = 6, RELOAD = 7, EQUIP = 8, STEP = 9, JUMP = 10, LAND = 11, DEATH = 12, GROWL = 13, WAVE = 14, SNARL = 15, THROW = 16, BOUNCE = 17, BLAST = 18, FAR_SHOT = 19, PICKUP = 20;
+const SHOT = 1, HIT = 3, HEAD = 4, KILL = 5, HURT = 6, RELOAD = 7, EQUIP = 8, STEP = 9, JUMP = 10, LAND = 11, DEATH = 12, GROWL = 13, WAVE = 14, SNARL = 15, THROW = 16, BOUNCE = 17, BLAST = 18, FAR_SHOT = 19, PICKUP = 20, SWING = 21, SMACK = 22;
 
 // the first three formants (Hz) of a man's vowels: oo, uh, aa, aw, and the a of "cat"
 const OO = [300, 870, 2240], UH = [640, 1190, 2390], AA = [730, 1090, 2440], AW = [570, 840, 2410], AE = [660, 1720, 2410];
@@ -421,6 +421,51 @@ export class Sound {
     this.noise(this.bus(0, 0.05), t + 0.05, 0.22, "bandpass", 700, 1600, 0.12, 1.2);
   }
 
+  // the bat through the air: a whoosh that swells as it comes round to where it connects and falls away after,
+  // rising in pitch with the speed of it; the backhand a little lower
+  swing(back) {
+    const ctx = this.ctx, t = ctx.currentTime, r = (0.9 + Math.random() * 0.2) * (back ? 0.85 : 1);
+    const d = this.bus(0, 0.06);
+    const s = ctx.createBufferSource();
+    s.buffer = this.noiseBuf;
+    const f = ctx.createBiquadFilter();
+    f.type = "bandpass";
+    f.Q.value = 1.6;
+    f.frequency.setValueAtTime(350 * r, t);
+    f.frequency.exponentialRampToValueAtTime(1500 * r, t + 0.13);
+    f.frequency.exponentialRampToValueAtTime(500 * r, t + 0.3);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.5, t + 0.12);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+    s.connect(f);
+    f.connect(g);
+    g.connect(d);
+    s.start(t, Math.random() * 1.5);
+    s.stop(t + 0.32);
+  }
+
+  // the bat connecting: off a wall a hollow wooden clonk; into a zombie a heavy wet thwack with the wood ringing
+  // through it, a crack of bone for the head, and a deeper crunch for one it fells
+  smack(kind) {
+    const t = this.ctx.currentTime, d = this.bus(0, 0.12), r = 0.92 + Math.random() * 0.16;
+    this.tone(d, t, "triangle", 470 * r, 290 * r, 0.09, 0.35); // the wood
+    if (kind === 0) {
+      this.tone(d, t, "sine", 160 * r, 70, 0.12, 0.6);
+      this.noise(d, t, 0.06, "bandpass", 1600 * r, 700, 0.5, 2);
+      return;
+    }
+    const heavy = kind === 3 ? 1.3 : 1;
+    this.tone(d, t, "sine", 130 * r, 42, 0.18 * heavy, 1.0 * heavy);
+    this.noise(d, t, 0.14 * heavy, "lowpass", 1100 * r, 180, 0.9);
+    this.noise(d, t + 0.01, 0.09, "bandpass", 650 * r, 300, 0.45, 2.5); // wet
+    if (kind >= 2) {
+      // bone giving way: a sharp crack and a few splintering clicks after it
+      this.noise(d, t, 0.035, "highpass", 2600, 1800, 0.55);
+      for (let i = 0; i < 4; i++) this.noise(d, t + 0.015 + Math.random() * 0.07, 0.018, "bandpass", 1800 + Math.random() * 2500, 1200, 0.22, 4);
+    }
+  }
+
   // a grenade knocking against something: a dull metal tock, quieter further off
   bounce(speed, dist) {
     const t = this.ctx.currentTime, d = this.bus(0, 0.15), v = Math.min(speed / 10, 1) / (1 + dist / 12);
@@ -463,6 +508,8 @@ export class Sound {
         case BLAST: this.blast(a, b); break;
         case FAR_SHOT: { const w = Math.round(b / 4); this.farShot(w, a, b - 4 * w); break; }
         case PICKUP: this.pickup(); break;
+        case SWING: this.swing(a === 0); break;
+        case SMACK: this.smack(a); break;
       }
     }
   }

@@ -69,7 +69,7 @@ const LOD_RADIUS: f32 = 40.0;
 /// Side of one cell of the wall grid.
 const CELL: f32 = 4.0;
 pub const EQUIP_TIME: f32 = 0.35;
-pub const WEAPON_COUNT: usize = 11;
+pub const WEAPON_COUNT: usize = 12;
 /// The first PRIMARIES weapons are the ones a loadout picks its primary from, the rest its sidearm.
 pub const PRIMARIES: usize = 8;
 /// The sidearm everyone starts with.
@@ -78,6 +78,16 @@ pub const PISTOL: usize = 8;
 pub const NO_GUN: usize = WEAPON_COUNT;
 /// Playing for loot, the weapon crates each wave tops up to: two, and one more every third wave, up to this many.
 const MAX_CRATES: usize = 5;
+pub const BAT: usize = 11;
+/// A swing connects this long after it starts (the wind-up), reaches this far from the eye across a fan this
+/// wide each side of the aim, and takes down at most this many at once, nearest first.
+pub const STRIKE: f32 = 0.13;
+const REACH: f32 = 2.4;
+const FAN: f32 = 0.75;
+const CLEAVE: usize = 3;
+/// A swing that connects holds still this long, so the blow is felt; a kill a little longer.
+const HIT_STOP: f32 = 0.06;
+const KILL_STOP: f32 = 0.1;
 
 /// Things that happened this tick that a client may want to play a sound for.
 /// Each event is `[code, a, b]` in `Game::events`.
@@ -114,6 +124,10 @@ pub mod ev {
     pub const FAR_SHOT: f32 = 19.0;
     /// an ammo box goes into the reserves
     pub const PICKUP: f32 = 20.0;
+    /// a melee weapon swung: a = which way (see `Player::swings`)
+    pub const SWING: f32 = 21.0;
+    /// a swing connecting: a = 0 a wall, 1 a zombie, 2 its head, 3 a kill
+    pub const SMACK: f32 = 22.0;
 }
 
 mod grenade;
@@ -146,25 +160,30 @@ pub struct Weapon {
     pub speed: f32,
     /// on a reload the magazine is swapped, so unfired rounds left in it are dropped
     pub drop_mag: bool,
+    /// swung rather than fired: no magazine, no aiming, and `delay` is the time from one swing to the next
+    pub melee: bool,
 }
 
 pub static WEAPONS: [Weapon; WEAPON_COUNT] = [
-    Weapon { name: "Carbine", class: "Assault rifle", mag: 30, delay: 0.11, reload: 1.4, pellets: 1, body_dmg: 34.0, head_dmg: 75.0, spread: 0.06, ads_spread: 0.002, kick: 0.006, auto: true, zoom: 0.8, scope: false, speed: 1.0, drop_mag: true },
-    Weapon { name: "SMG", class: "SMG", mag: 35, delay: 0.065, reload: 1.2, pellets: 1, body_dmg: 20.0, head_dmg: 40.0, spread: 0.045, ads_spread: 0.007, kick: 0.004, auto: true, zoom: 0.85, scope: false, speed: 1.08, drop_mag: true },
-    Weapon { name: "Shotgun", class: "Shotgun", mag: 6, delay: 0.85, reload: 2.4, pellets: 8, body_dmg: 14.0, head_dmg: 28.0, spread: 0.07, ads_spread: 0.038, kick: 0.045, auto: false, zoom: 0.9, scope: false, speed: 1.0, drop_mag: false },
-    Weapon { name: "Sniper", class: "Sniper", mag: 5, delay: 1.3, reload: 2.6, pellets: 1, body_dmg: 100.0, head_dmg: 150.0, spread: 0.12, ads_spread: 0.0, kick: 0.03, auto: false, zoom: 0.3, scope: true, speed: 0.92, drop_mag: false },
+    Weapon { name: "Carbine", class: "Assault rifle", mag: 30, delay: 0.11, reload: 1.4, pellets: 1, body_dmg: 34.0, head_dmg: 75.0, spread: 0.06, ads_spread: 0.002, kick: 0.006, auto: true, zoom: 0.8, scope: false, speed: 1.0, drop_mag: true, melee: false },
+    Weapon { name: "SMG", class: "SMG", mag: 35, delay: 0.065, reload: 1.2, pellets: 1, body_dmg: 20.0, head_dmg: 40.0, spread: 0.045, ads_spread: 0.007, kick: 0.004, auto: true, zoom: 0.85, scope: false, speed: 1.08, drop_mag: true, melee: false },
+    Weapon { name: "Shotgun", class: "Shotgun", mag: 6, delay: 0.85, reload: 2.4, pellets: 8, body_dmg: 14.0, head_dmg: 28.0, spread: 0.07, ads_spread: 0.038, kick: 0.045, auto: false, zoom: 0.9, scope: false, speed: 1.0, drop_mag: false, melee: false },
+    Weapon { name: "Sniper", class: "Sniper", mag: 5, delay: 1.3, reload: 2.6, pellets: 1, body_dmg: 100.0, head_dmg: 150.0, spread: 0.12, ads_spread: 0.0, kick: 0.03, auto: false, zoom: 0.3, scope: true, speed: 0.92, drop_mag: false, melee: false },
     // harder hitting than the carbine and harder to hold on target
-    Weapon { name: "AK-47", class: "Assault rifle", mag: 30, delay: 0.10, reload: 1.6, pellets: 1, body_dmg: 42.0, head_dmg: 95.0, spread: 0.07, ads_spread: 0.004, kick: 0.010, auto: true, zoom: 0.8, scope: false, speed: 0.97, drop_mag: true },
+    Weapon { name: "AK-47", class: "Assault rifle", mag: 30, delay: 0.10, reload: 1.6, pellets: 1, body_dmg: 42.0, head_dmg: 95.0, spread: 0.07, ads_spread: 0.004, kick: 0.010, auto: true, zoom: 0.8, scope: false, speed: 0.97, drop_mag: true, melee: false },
     // a hose: very fast and light, but no stock to steady the sights
-    Weapon { name: "Uzi", class: "SMG", mag: 32, delay: 0.055, reload: 1.3, pellets: 1, body_dmg: 17.0, head_dmg: 34.0, spread: 0.05, ads_spread: 0.013, kick: 0.005, auto: true, zoom: 0.88, scope: false, speed: 1.1, drop_mag: true },
+    Weapon { name: "Uzi", class: "SMG", mag: 32, delay: 0.055, reload: 1.3, pellets: 1, body_dmg: 17.0, head_dmg: 34.0, spread: 0.05, ads_spread: 0.013, kick: 0.005, auto: true, zoom: 0.88, scope: false, speed: 1.1, drop_mag: true, melee: false },
     // both barrels go almost at once, then it breaks open for two more shells
-    Weapon { name: "Double barrel", class: "Shotgun", mag: 2, delay: 0.2, reload: 1.7, pellets: 10, body_dmg: 15.0, head_dmg: 30.0, spread: 0.085, ads_spread: 0.05, kick: 0.06, auto: false, zoom: 0.92, scope: false, speed: 1.02, drop_mag: false },
+    Weapon { name: "Double barrel", class: "Shotgun", mag: 2, delay: 0.2, reload: 1.7, pellets: 10, body_dmg: 15.0, head_dmg: 30.0, spread: 0.085, ads_spread: 0.05, kick: 0.06, auto: false, zoom: 0.92, scope: false, speed: 1.02, drop_mag: false, melee: false },
     // iron sights and a quicker bolt than the scoped rifle, and a head shot always kills
-    Weapon { name: "Mosin", class: "Sniper", mag: 5, delay: 1.0, reload: 2.2, pellets: 1, body_dmg: 85.0, head_dmg: 220.0, spread: 0.10, ads_spread: 0.0, kick: 0.028, auto: false, zoom: 0.55, scope: false, speed: 0.96, drop_mag: false },
-    Weapon { name: "Pistol", class: "Pistol", mag: 12, delay: 0.16, reload: 1.1, pellets: 1, body_dmg: 26.0, head_dmg: 60.0, spread: 0.04, ads_spread: 0.004, kick: 0.012, auto: false, zoom: 0.85, scope: false, speed: 1.05, drop_mag: true },
-    Weapon { name: "Revolver", class: "Pistol", mag: 6, delay: 0.42, reload: 2.0, pellets: 1, body_dmg: 60.0, head_dmg: 135.0, spread: 0.045, ads_spread: 0.003, kick: 0.035, auto: false, zoom: 0.85, scope: false, speed: 1.04, drop_mag: false },
+    Weapon { name: "Mosin", class: "Sniper", mag: 5, delay: 1.0, reload: 2.2, pellets: 1, body_dmg: 85.0, head_dmg: 220.0, spread: 0.10, ads_spread: 0.0, kick: 0.028, auto: false, zoom: 0.55, scope: false, speed: 0.96, drop_mag: false, melee: false },
+    Weapon { name: "Pistol", class: "Pistol", mag: 12, delay: 0.16, reload: 1.1, pellets: 1, body_dmg: 26.0, head_dmg: 60.0, spread: 0.04, ads_spread: 0.004, kick: 0.012, auto: false, zoom: 0.85, scope: false, speed: 1.05, drop_mag: true, melee: false },
+    Weapon { name: "Revolver", class: "Pistol", mag: 6, delay: 0.42, reload: 2.0, pellets: 1, body_dmg: 60.0, head_dmg: 135.0, spread: 0.045, ads_spread: 0.003, kick: 0.035, auto: false, zoom: 0.85, scope: false, speed: 1.04, drop_mag: false, melee: false },
     // a hand cannon: every shot throws the aim well up, so quick follow-ups take pulling it back down
-    Weapon { name: "Desert Eagle", class: "Pistol", mag: 7, delay: 0.32, reload: 1.5, pellets: 1, body_dmg: 55.0, head_dmg: 125.0, spread: 0.05, ads_spread: 0.004, kick: 0.10, auto: false, zoom: 0.85, scope: false, speed: 1.0, drop_mag: true },
+    Weapon { name: "Desert Eagle", class: "Pistol", mag: 7, delay: 0.32, reload: 1.5, pellets: 1, body_dmg: 55.0, head_dmg: 125.0, spread: 0.05, ads_spread: 0.004, kick: 0.10, auto: false, zoom: 0.85, scope: false, speed: 1.0, drop_mag: true, melee: false },
+    // never runs dry: a runner falls to one blow, a walker to one to the head, and a swing can take down three.
+    // Light in the hands, so you move quicker with it out
+    Weapon { name: "Baseball bat", class: "Melee", mag: 0, delay: 0.55, reload: 0.0, pellets: 1, body_dmg: 60.0, head_dmg: 100.0, spread: 0.0, ads_spread: 0.0, kick: 0.0, auto: true, zoom: 1.0, scope: false, speed: 1.12, drop_mag: false, melee: true },
 ];
 
 #[derive(Clone, Copy, Debug)]
@@ -338,6 +357,14 @@ pub struct Player {
     pub arc_axis: usize,
     /// 1 right after a blast close by, fading out: the view shakes
     pub shake: f32,
+    /// swings of a melee weapon this life: they go one way and then the other, by whether this is odd
+    pub swings: u32,
+    /// counts down to the swing in progress connecting, 0 once it has (see `STRIKE`)
+    pub strike_t: f32,
+    /// counts down while a swing that connected holds still, the time between swings with it (see `HIT_STOP`)
+    pub stop_t: f32,
+    /// how bloodied the melee weapon is, 0 clean to 1 soaked, from what it has hit this life
+    pub gore: f32,
 }
 
 impl Player {
@@ -389,6 +416,10 @@ impl Player {
             arc: Vec::new(),
             arc_axis: 1,
             shake: 0.0,
+            swings: 0,
+            strike_t: 0.0,
+            stop_t: 0.0,
+            gore: 0.0,
         }
     }
 
@@ -1428,6 +1459,10 @@ impl Game {
         p.aim_t = 0.0;
         p.arc.clear();
         p.shake = 0.0;
+        p.swings = 0;
+        p.strike_t = 0.0;
+        p.stop_t = 0.0;
+        p.gore = 0.0;
         p.reserve = full_reserve();
         p.arm(loot);
         p.reload_t = 0.0;
@@ -1522,6 +1557,7 @@ impl Game {
         }
         p.weapon = i;
         p.reload_t = 0.0;
+        p.strike_t = 0.0;
         p.equip_t = EQUIP_TIME;
         p.ads = 0.0;
         self.events.push([ev::EQUIP, 0.0, 0.0]);
@@ -1738,6 +1774,120 @@ impl Game {
         p.yaw += kick_y;
     }
 
+    /// Player `pi` swinging a melee weapon: it winds up and connects `STRIKE` later (see `strike`).
+    fn swing(&mut self, pi: usize) {
+        let p = &mut self.players[pi];
+        p.cooldown = p.gun().delay;
+        p.armed = false;
+        p.strike_t = STRIKE;
+        p.swings += 1;
+        self.events.push([ev::SWING, (p.swings % 2) as f32, 0.0]);
+    }
+
+    /// The swing of player `pi` connecting, at the zombies as they were at tick `seen` on the server. The first
+    /// `CLEAVE` zombies within reach across the fan it sweeps are struck, nearest first, in the head if it went
+    /// through it, and knocked off their feet the way the swing goes; with no one there, a wall within reach takes
+    /// the blow. Either way the swing stops dead a moment. On a client it only shows: the server says what it did.
+    fn strike(&mut self, pi: usize, seen: Option<u32>) {
+        let p = &self.players[pi];
+        let w = p.gun();
+        let (eye, fwd, from) = (p.eye(), p.forward(), p.body.pos);
+        let (sy, cy) = p.yaw.sin_cos();
+        let right = [cy, 0.0, sy];
+        let up = cross(right, fwd);
+        // flat across from the right, or every other swing back the other way and down from high on the left
+        let back = p.swings.is_multiple_of(2);
+        let going = if back { right } else { [-right[0], 0.0, -right[2]] };
+        let mut struck: Vec<(usize, f32, bool)> = Vec::new();
+        let mut wall = RANGE;
+        const RAYS: usize = 9;
+        for k in 0..RAYS {
+            let s = k as f32 / (RAYS - 1) as f32 * 2.0 - 1.0;
+            let (dx, dy) = (s * FAN.tan(), if back { -0.3 * s } else { 0.0 });
+            let dir = unit([fwd[0] + right[0] * dx + up[0] * dy, fwd[1] + right[1] * dx + up[1] * dy, fwd[2] + right[2] * dx + up[2] * dy]);
+            match self.trace_bots(eye, dir, seen) {
+                (dist, Some((i, head))) if dist <= REACH => match struck.iter_mut().find(|s| s.0 == i) {
+                    Some(s) => (s.1, s.2) = (s.1.min(dist), s.2 || head),
+                    None => struck.push((i, dist, head)),
+                },
+                (dist, None) => wall = wall.min(dist),
+                _ => {}
+            }
+        }
+        struck.sort_by(|a, b| a.1.total_cmp(&b.1));
+        struck.truncate(CLEAVE);
+
+        let mirror = self.role == Role::Mirror;
+        let (mut outcome, mut killed) = (0.0f32, false);
+        for &(i, _, head) in &struck {
+            let b = &self.bots[i];
+            let (at, s) = (b.body.pos, b.scale);
+            let (ax, az) = (at[0] - from[0], at[2] - from[2]);
+            let l = ax.hypot(az).max(1e-3);
+            // knocked away from the swing and along the way it goes
+            let (px, pz) = (ax / l + 0.7 * going[0], az / l + 0.7 * going[2]);
+            let pl = px.hypot(pz).max(1e-3);
+            let push = [px / pl, pz / pl];
+            let hit_at = [at[0] - ax / l * 0.25 * s, at[1] + if head { 1.6 } else { 1.15 } * s, at[2] - az / l * 0.25 * s];
+            self.blood(hit_at, [push[0], 0.0, push[1]], if head { 16 } else { 10 });
+            outcome = outcome.max(if head { ev::HEAD } else { ev::HIT });
+            let b = &mut self.bots[i];
+            b.hit_t = 1.0;
+            if mirror {
+                continue;
+            }
+            b.hp -= if head { w.head_dmg } else { w.body_dmg };
+            let dead = b.hp <= 0.0;
+            // a brute hardly gives
+            let heavy = if b.kind == 2 { 0.35 } else { 1.0 };
+            // stopped in its tracks and sent the other way, however hard it was coming on
+            let k = if dead { 7.5 } else { 5.0 } * heavy;
+            b.climb = None;
+            b.body.on_ground = false;
+            b.body.vel = [push[0] * k, b.body.vel[1].max(if dead { 3.5 } else { 2.2 } * heavy), push[1] * k];
+            if dead {
+                // down on its back, facing the one who swung
+                b.alive = false;
+                b.corpse = true;
+                b.dead_t = 0.0;
+                b.face = (-push[0]).atan2(push[1]);
+                killed = true;
+                self.players[pi].kills += 1;
+                self.players[pi].kill_t = 1.0;
+                self.blood(hit_at, [push[0], 0.4, push[1]], 24);
+                outcome = ev::KILL;
+            }
+        }
+
+        let p = &mut self.players[pi];
+        if !struck.is_empty() {
+            p.hit_marker = 1.0;
+            p.stop_t = if killed { KILL_STOP } else { HIT_STOP };
+            p.shake = p.shake.max(if killed { 0.5 } else { 0.35 });
+            p.gore = (p.gore + 0.15 * struck.len() as f32 + if killed { 0.1 } else { 0.0 }).min(1.0);
+            let smack = if killed { 3.0 } else if outcome == ev::HEAD { 2.0 } else { 1.0 };
+            self.events.push([ev::SMACK, smack, 0.0]);
+            self.events.push([outcome, 0.0, 0.0]);
+        } else if wall <= REACH {
+            p.stop_t = HIT_STOP;
+            p.shake = p.shake.max(0.25);
+            self.events.push([ev::SMACK, 0.0, 0.0]);
+            // splinters and dust off what it hit
+            if self.role != Role::Server {
+                let at = along(eye, fwd, (wall - 0.05).max(0.0));
+                for _ in 0..8 {
+                    let r = &mut self.rng;
+                    let vel = [going[0] * r.range(0.5, 2.5) - fwd[0] * r.range(0.5, 2.0), r.range(0.5, 2.5), going[2] * r.range(0.5, 2.5) - fwd[2] * r.range(0.5, 2.0)];
+                    let spin = [r.range(-10.0, 10.0), r.range(-10.0, 10.0), r.range(-10.0, 10.0)];
+                    let half = [r.range(0.006, 0.015), r.range(0.004, 0.01), r.range(0.006, 0.02)];
+                    let g = r.range(0.35, 0.55);
+                    self.debris.push(Debris { pos: at, vel, rot: [0.0; 3], spin, half, color: [g, g * 0.9, g * 0.8], life: r.range(0.4, 0.9), glow: 0.0 });
+                }
+                self.trim_debris();
+            }
+        }
+    }
+
     /// One step of the game. Playing alone that is the player too, with the keys in `Player::input`; otherwise
     /// each player is stepped on their own with `step_player` first, as their inputs come in.
     pub fn tick(&mut self, dt: f32) {
@@ -1814,7 +1964,11 @@ impl Game {
         p.kill_t = (p.kill_t - dt * 2.5).max(0.0);
         p.shake = (p.shake - dt * 1.8).max(0.0);
         p.throw_t = (p.throw_t - dt).max(0.0);
-        p.cooldown = (p.cooldown - dt).max(0.0);
+        if p.stop_t > 0.0 {
+            p.stop_t = (p.stop_t - dt).max(0.0);
+        } else {
+            p.cooldown = (p.cooldown - dt).max(0.0);
+        }
         p.since_shot += dt;
         if p.since_shot > BLOOM_REST {
             p.bloom = (p.bloom - dt * BLOOM_SETTLE).max(0.0);
@@ -1832,7 +1986,7 @@ impl Game {
             p.hp = (p.hp + 8.0 * dt).min(100.0);
         }
         p.equip_t = (p.equip_t - dt).max(0.0);
-        let aim = if inp.ads && p.reload_t <= 0.0 && p.equip_t <= 0.0 { 1.0 } else { 0.0 };
+        let aim = if inp.ads && !w.melee && p.reload_t <= 0.0 && p.equip_t <= 0.0 { 1.0 } else { 0.0 };
         p.ads += (aim - p.ads).clamp(-8.0 * dt, 8.0 * dt);
 
         let crash = self.move_player(pi, inp, dt, world);
@@ -1842,6 +1996,15 @@ impl Game {
             p.armed = true;
         }
         let on_grenade = self.tick_throw(pi, dt, inp.throw);
+        let seen = (self.role == Role::Server).then(|| inp.seen.round().max(0.0) as u32);
+        let p = &mut self.players[pi];
+        if p.strike_t > 0.0 {
+            p.strike_t -= dt;
+            if p.strike_t <= 0.0 {
+                p.strike_t = 0.0;
+                self.strike(pi, seen);
+            }
+        }
         let p = &mut self.players[pi];
         let ammo = p.ammo[p.weapon];
         if on_grenade {
@@ -1869,9 +2032,12 @@ impl Game {
         } else if !p.sprinting && (inp.reload || ammo == 0) && ammo < w.mag && p.reserve[p.weapon] > 0 {
             p.reload_t = w.reload;
             self.events.push([ev::RELOAD, p.weapon as f32, 0.0]);
-        } else if inp.fire && ammo > 0 && p.cooldown <= 0.0 && p.equip_t <= 0.0 && (w.auto || p.armed) {
-            let seen = (self.role == Role::Server).then(|| inp.seen.round().max(0.0) as u32);
-            self.player_fire(pi, seen);
+        } else if inp.fire && (ammo > 0 || w.melee) && p.cooldown <= 0.0 && p.equip_t <= 0.0 && (w.auto || p.armed) {
+            if w.melee {
+                self.swing(pi);
+            } else {
+                self.player_fire(pi, seen);
+            }
         }
         if crash > 0.0 {
             self.hurt_player(pi, crash);
@@ -2695,9 +2861,10 @@ mod tests {
 
     #[test]
     fn primaries_and_sidearms_are_where_the_loadout_expects_them() {
-        assert!(WEAPONS[..PRIMARIES].iter().all(|w| w.class != "Pistol"));
-        assert!(WEAPONS[PRIMARIES..].iter().all(|w| w.class == "Pistol"));
+        assert!(WEAPONS[..PRIMARIES].iter().all(|w| w.class != "Pistol" && !w.melee));
+        assert!(WEAPONS[PRIMARIES..].iter().all(|w| w.class == "Pistol" || w.melee));
         assert_eq!(WEAPONS[PISTOL].name, "Pistol");
+        assert!(WEAPONS[BAT].melee && WEAPONS[BAT].mag == 0);
         // a Mosin head shot does most of a brute; the double barrel empties in two
         assert!(WEAPONS[7].head_dmg >= 200.0);
         assert_eq!(WEAPONS[6].mag, 2);
@@ -2997,6 +3164,82 @@ mod tests {
         z.hp = if kind == 2 { 320.0 } else { 100.0 };
         z.scale = if kind == 2 { 1.25 } else { 1.0 };
         g.bots.push(z);
+    }
+
+    /// The bat in hand, ready to swing.
+    fn bat_out(g: &mut Game) {
+        g.pick(BAT);
+        g.select_slot(1);
+        g.players[0].equip_t = 0.0;
+        g.players[0].pitch = 0.0;
+    }
+
+    /// A swing takes its wind-up to connect, then knocks a walker back off its feet with blood flying, and holds
+    /// the swing still a moment; it never runs dry, and the bat never reloads.
+    #[test]
+    fn a_bat_swing_connects_after_its_wind_up_and_knocks_a_zombie_back() {
+        let mut g = arena();
+        bot_ahead(&mut g);
+        bat_out(&mut g);
+        g.players[0].pitch = -0.2;
+        g.players[0].input.fire = true;
+        g.tick(STEP);
+        assert!(g.events.iter().any(|e| e[0] == ev::SWING));
+        assert_eq!(g.bots[0].hp, 100.0, "struck before the wind-up was done");
+        g.players[0].input.fire = false;
+        idle(&mut g, STRIKE + STEP);
+        let b = &g.bots[0];
+        assert_eq!(b.hp, 100.0 - WEAPONS[BAT].body_dmg, "a body blow");
+        assert!(b.alive && b.body.vel[2] < -2.0 && b.body.vel[1] > 0.0, "not knocked back: {:?}", b.body.vel);
+        assert!(g.players[0].stop_t > 0.0 && g.players[0].gore > 0.0);
+        assert_eq!(g.players[0].reload_t, 0.0);
+    }
+
+    /// Level with the eye a swing goes through a walker's head and drops it in one; held down, it swings again.
+    #[test]
+    fn a_bat_to_the_head_drops_a_walker_and_held_it_keeps_swinging() {
+        let mut g = arena();
+        bot_ahead(&mut g);
+        bat_out(&mut g);
+        g.players[0].input.fire = true;
+        idle(&mut g, STRIKE + 2.0 * STEP);
+        assert!(!g.bots[0].alive, "a head blow did not kill");
+        assert_eq!(g.players[0].kills, 1);
+        idle(&mut g, 1.0);
+        assert!(g.players[0].swings >= 2, "held down, it should swing on");
+    }
+
+    /// One swing fells up to three of a crowd in front, nearest first, and nobody behind the player.
+    #[test]
+    fn a_bat_swing_cleaves_three_of_a_crowd_but_not_the_one_behind() {
+        let mut g = arena();
+        g.players[0].body.pos = [0.0, 0.0, 16.0];
+        g.players[0].yaw = 0.0;
+        for at in [[-0.9, 14.6], [0.0, 14.4], [0.9, 14.6], [0.0, 13.0], [0.0, 17.5]] {
+            g.bots.push(Bot::zombie([at[0], 0.0, at[1]], 0.0));
+        }
+        bat_out(&mut g);
+        g.players[0].input.fire = true;
+        idle(&mut g, STRIKE + 2.0 * STEP);
+        let hit: Vec<bool> = g.bots.iter().map(|b| b.hp < 100.0).collect();
+        assert_eq!(hit, [true, true, true, false, false]);
+    }
+
+    /// A swing at nothing but air comes to nothing; at a wall within reach it thuds against it.
+    #[test]
+    fn a_bat_swung_at_air_misses_and_at_a_wall_thuds() {
+        let mut g = arena();
+        bat_out(&mut g);
+        g.players[0].input.fire = true;
+        idle(&mut g, STRIKE + 2.0 * STEP);
+        assert!(!g.events.iter().any(|e| e[0] == ev::SMACK), "hit something in the open");
+        let wall = HALF - HW - 1.0;
+        g.players[0].body.pos = [0.0, 0.0, -wall];
+        g.players[0].yaw = 0.0;
+        g.players[0].cooldown = 0.0;
+        g.players[0].armed = true;
+        idle(&mut g, STRIKE + 2.0 * STEP);
+        assert!(g.events.iter().any(|e| e[0] == ev::SMACK && e[1] == 0.0), "no thud against the wall");
     }
 
     /// A new life starts with the magazine full and the reserve at twice the magazine.
