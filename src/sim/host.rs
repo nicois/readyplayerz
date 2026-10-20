@@ -194,11 +194,31 @@ impl Room {
         self.game.tick_n % SNAPSHOT_EVERY == 0
     }
 
-    /// The game as player `id` is to see it now, as datagrams.
-    pub fn snapshot_for(&self, id: u8) -> Vec<Vec<u8>> {
+    /// The game as each player in the room is to see it now, as datagrams, by player id. What everyone is sent is
+    /// encoded once and packed into each player's datagrams with their own record and everyone else's.
+    pub fn snapshots(&self) -> Vec<(u8, Vec<Vec<u8>>)> {
         let g = &self.game;
-        let Some(seat) = self.seats.iter().find(|s| s.id == id) else { return Vec::new() };
-        let own = g.players.iter().find(|p| p.id == id).map(|p| Own {
+        let shared = net::encode_records(&self.shared_snapshot());
+        let (world, rest) = shared.split_first().expect("a snapshot always says how the game is going");
+        let mates: Vec<(u8, Vec<u8>)> = g
+            .players
+            .iter()
+            .map(|p| (p.id, net::encode_records(&Snapshot { mates: vec![mate(p)], ..Default::default() }).remove(0)))
+            .collect();
+        self.seats
+            .iter()
+            .map(|seat| {
+                let own = self.own(seat).map(|own| net::encode_records(&Snapshot { own: Some(own), ..Default::default() }).remove(0));
+                let others = mates.iter().filter(|(id, _)| *id != seat.id).map(|(_, r)| r);
+                let records = own.iter().chain([world]).chain(others).chain(rest).map(Vec::as_slice);
+                (seat.id, net::pack(g.tick_n, records))
+            })
+            .collect()
+    }
+
+    /// What `seat`'s player is sent of themselves, while they are in the game.
+    fn own(&self, seat: &Seat) -> Option<Own> {
+        self.game.players.iter().find(|p| p.id == seat.id).map(|p| Own {
             ack: seat.ack,
             life: p.life,
             pos: p.body.pos,
@@ -214,27 +234,12 @@ impl Room {
             deaths: p.deaths,
             respawn_t: p.respawn_t,
             kit: p.kit(),
-        });
-        let mates = g
-            .players
-            .iter()
-            .filter(|p| p.id != id)
-            .map(|p| Mate {
-                id: p.id,
-                pos: p.body.pos,
-                yaw: p.yaw,
-                pitch: p.pitch,
-                weapon: p.weapon as u8,
-                alive: p.alive(),
-                on_ground: p.body.on_ground,
-                aiming: p.aiming,
-                reloading: p.reload_t > 0.0,
-                ads: p.ads > 0.5,
-                climbing: p.climb.is_some(),
-                hp: p.hp.max(0.0),
-                sprint: p.sprint_t,
-            })
-            .collect();
+        })
+    }
+
+    /// What everyone is sent alike: how the game is going, the zombies, grenades, blasts, shots and loot.
+    fn shared_snapshot(&self) -> Snapshot {
+        let g = &self.game;
         // the fallen only while they are still falling: after that a client lets them lie where they were last seen
         let zombies = g
             .bots
@@ -258,24 +263,42 @@ impl Room {
                 pose: b.climbing(),
             })
             .collect();
-        let snap = Snapshot {
+        Snapshot {
             tick: g.tick_n,
-            own,
+            own: None,
             world: Some(World { wave: g.wave, left: g.zombies_left(), started: g.waves_on() }),
-            mates,
+            mates: Vec::new(),
             zombies,
             nades: g.grenades.iter().map(|n| Nade { id: n.id, pos: n.pos, rot: n.rot }).collect(),
             // a blast is sent for a while, so one lost datagram doesn't lose it
             booms: g.blasts.iter().filter(|b| b.t < 0.5).map(|b| Boom { id: b.id, pos: b.pos, t: b.t }).collect(),
             shots: self.shots.clone(),
             loot: g.boxes.iter().map(|&pos| Loot { pos, gun: 255 }).chain(g.crates.iter().map(|&(pos, gun)| Loot { pos, gun: gun as u8 })).collect(),
-        };
-        net::encode_snapshot(&snap)
+        }
     }
 
     /// After the snapshots have gone out: the shots in them are not sent again.
     pub fn sent(&mut self) {
         self.shots.clear();
+    }
+}
+
+/// What the others in the room are sent of player `p`.
+fn mate(p: &Player) -> Mate {
+    Mate {
+        id: p.id,
+        pos: p.body.pos,
+        yaw: p.yaw,
+        pitch: p.pitch,
+        weapon: p.weapon as u8,
+        alive: p.alive(),
+        on_ground: p.body.on_ground,
+        aiming: p.aiming,
+        reloading: p.reload_t > 0.0,
+        ads: p.ads > 0.5,
+        climbing: p.climb.is_some(),
+        hp: p.hp.max(0.0),
+        sprint: p.sprint_t,
     }
 }
 
@@ -339,6 +362,28 @@ mod tests {
         (0..MAX_PLAYERS).for_each(|_| _ = r.join(""));
         secs(&mut r, 60.0);
         assert!(!r.game.waves_on());
+    }
+
+    /// Packing the shared records once into everyone's datagrams sends each player the very bytes a snapshot made
+    /// for them alone would, however many datagrams it takes.
+    #[test]
+    fn everyones_snapshots_are_what_each_would_be_sent_alone() {
+        let mut r = room();
+        (0..4).for_each(|_| _ = r.join(""));
+        r.start(0);
+        for _ in 0..(20.0 / STEP) as u32 {
+            r.tick();
+        }
+        r.game.boxes.push([3.0, 0.0, 4.0]);
+        r.game.crates.push(([-5.0, 0.0, 2.0], 4));
+        assert!(r.game.bots.len() > 4, "zombies enough to take more than one datagram");
+        let all = r.snapshots();
+        assert_eq!(all.iter().map(|(id, _)| *id).collect::<Vec<_>>(), [0, 1, 2, 3]);
+        for (id, datagrams) in all {
+            let seat = r.seats.iter().find(|s| s.id == id).unwrap();
+            let alone = Snapshot { own: r.own(seat), mates: r.game.players.iter().filter(|p| p.id != id).map(mate).collect(), ..r.shared_snapshot() };
+            assert_eq!(datagrams, net::encode_snapshot(&alone), "player {id}");
+        }
     }
 
     #[test]
