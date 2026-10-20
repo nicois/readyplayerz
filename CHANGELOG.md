@@ -2,6 +2,10 @@
 
 ## 2026-10-20
 
+### Edges smoothed by FXAA instead of multisampling
+- Every quality now draws the picture without multisampling and smooths its edges with an FXAA pass on the way to the screen (Medium had 2x MSAA, High 4x, Low none). On an M1 at 1920×993, High's 4x MSAA took about a quarter of each frame; the FXAA pass takes about a millisecond.
+- FXAA also smooths edges multisampling never did: the holes in the zombies' clothes and their hairlines. Side by side with 4x MSAA no difference could be seen in play.
+
 ### A load bench: what six players against a full horde cost the network and the GPU
 - `./bench.sh` plays six players against the most zombies the game lets be up (24, wave 6's mix) on the Suburb, all by script and the same every run, and holds the results to the limits in `bench/limits.txt`; it fails if one is passed, and adds a line of the results to `bench/history.tsv` to compare changes by.
 - Network (`src/sim/load.rs`, a `cargo test` on the server's own room, a minute of play): the bytes each player is sent a second, on average and in the worst second, all six together, what each sends back, a snapshot's size and datagrams, and what it is spent on (zombies, mates, own record, shots, loot); and the server's tick times, as CPU time. `./bench.sh net` runs only this.

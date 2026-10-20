@@ -454,6 +454,30 @@ void main() {
     o = vec4(grade(mix(c, u_fogc, f)), 1.0);
 }"#;
 
+// FXAA, on the finished picture on its way to the canvas: where the brightness changes sharply, blend along the
+// edge rather than across it (the widely used WebGL port of NVIDIA's FXAA). Drawn with SKY_VERT's triangle.
+const FXAA_FRAG: &str = r#"#version 300 es
+precision highp float;
+uniform sampler2D u_pic;
+uniform vec2 u_res;
+out vec4 o;
+vec3 at(vec2 p) { return texture(u_pic, p / u_res).rgb; }
+void main() {
+    vec2 p = gl_FragCoord.xy;
+    vec3 nw = at(p + vec2(-1.0, -1.0)), ne = at(p + vec2(1.0, -1.0)), sw = at(p + vec2(-1.0, 1.0)), se = at(p + vec2(1.0, 1.0)), m = at(p);
+    const vec3 L = vec3(0.299, 0.587, 0.114);
+    float lnw = dot(nw, L), lne = dot(ne, L), lsw = dot(sw, L), lse = dot(se, L), lm = dot(m, L);
+    float lmin = min(lm, min(min(lnw, lne), min(lsw, lse)));
+    float lmax = max(lm, max(max(lnw, lne), max(lsw, lse)));
+    vec2 dir = vec2(-((lnw + lne) - (lsw + lse)), (lnw + lsw) - (lne + lse));
+    float reduce = max((lnw + lne + lsw + lse) * (0.25 / 8.0), 1.0 / 128.0);
+    dir = clamp(dir / (min(abs(dir.x), abs(dir.y)) + reduce), vec2(-8.0), vec2(8.0));
+    vec3 a = 0.5 * (at(p + dir * (1.0 / 3.0 - 0.5)) + at(p + dir * (2.0 / 3.0 - 0.5)));
+    vec3 b = a * 0.5 + 0.25 * (at(p - dir * 0.5) + at(p + dir * 0.5));
+    float lb = dot(b, L);
+    o = vec4(lb < lmin || lb > lmax ? a : b, 1.0);
+}"#;
+
 const SKY_VERT: &str = r#"#version 300 es
 out vec2 v_ndc;
 void main() {
@@ -701,13 +725,13 @@ struct SkinJob {
     seed: f32,
 }
 
-/// The multisampled image the scene is drawn into, and its depth; `present` averages it onto the canvas.
+/// The picture the scene is drawn into, and its depth; `present` puts it on the canvas through the FXAA pass.
 struct Targets {
     w: u32,
     h: u32,
-    samples: i32,
-    msaa: WebGlFramebuffer,
-    rb: [web_sys::WebGlRenderbuffer; 2],
+    fbo: WebGlFramebuffer,
+    pic: WebGlTexture,
+    depth: web_sys::WebGlRenderbuffer,
 }
 
 /// Where a program takes what GRADE needs.
@@ -789,6 +813,10 @@ pub struct Renderer {
     dark: f32,
     sky: WebGlProgram,
     s_right: Option<WebGlUniformLocation>,
+    /// the FXAA pass (see `present`), with where it takes the picture and its size
+    fxaa: WebGlProgram,
+    f_pic: Option<WebGlUniformLocation>,
+    f_res: Option<WebGlUniformLocation>,
     s_up: Option<WebGlUniformLocation>,
     s_fwd: Option<WebGlUniformLocation>,
     s_tan: Option<WebGlUniformLocation>,
@@ -808,8 +836,6 @@ pub struct Renderer {
     u_soft: Option<WebGlUniformLocation>,
     shadow_fbo: WebGlFramebuffer,
     shadow_tex: WebGlTexture,
-    /// the most samples the multisampled image can have here
-    max_samples: i32,
     /// graphics quality: 0 low, 1 medium, 2 high (see `Quality`)
     pub quality: u8,
     /// spent shells and cases thrown out of the gun by a reload, and the game time they were last moved at
@@ -822,17 +848,14 @@ pub struct Renderer {
     pub height: u32,
 }
 
-/// What each graphics quality turns on. The picture's resolution is picked in JS, which sizes the canvas.
+/// What each graphics quality turns on. The picture's resolution is picked in JS, which sizes the canvas. Edges
+/// are smoothed by FXAA at every quality: multisampling them cost High a quarter of its frame, for no difference
+/// that could be seen over FXAA.
 struct Quality {
-    samples: i32,
     soft_shadows: bool,
 }
 
-const QUALITY: [Quality; 3] = [
-    Quality { samples: 0, soft_shadows: false },
-    Quality { samples: 2, soft_shadows: true },
-    Quality { samples: 4, soft_shadows: true },
-];
+const QUALITY: [Quality; 3] = [Quality { soft_shadows: false }, Quality { soft_shadows: true }, Quality { soft_shadows: true }];
 
 fn compile(gl: &GL, kind: u32, src: &str) -> Result<WebGlShader, String> {
     let s = gl.create_shader(kind).ok_or("create_shader failed")?;
@@ -1393,6 +1416,7 @@ impl Renderer {
         let fs = compile(&gl, GL::FRAGMENT_SHADER, &graded(FRAG))?;
         let prog = link(&gl, &vs, &fs)?;
         let sky = link(&gl, &compile(&gl, GL::VERTEX_SHADER, SKY_VERT)?, &compile(&gl, GL::FRAGMENT_SHADER, &graded(SKY_FRAG))?)?;
+        let fxaa = link(&gl, &compile(&gl, GL::VERTEX_SHADER, SKY_VERT)?, &compile(&gl, GL::FRAGMENT_SHADER, FXAA_FRAG)?)?;
         let (finish, s_finish) = (Finish::new(&gl, &prog), Finish::new(&gl, &sky));
 
         let guns = crate::gunmodel::guns()
@@ -1483,7 +1507,6 @@ impl Renderer {
         Self::layout(&gl);
 
         gl.enable(GL::DEPTH_TEST);
-        let max_samples = gl.get_parameter(GL::MAX_SAMPLES).ok().and_then(|v| v.as_f64()).unwrap_or(4.0) as i32;
         let u = |n: &str| gl.get_uniform_location(&prog, n);
         let u_mat = u("u_mat");
         Ok(Renderer {
@@ -1531,7 +1554,6 @@ impl Renderer {
             u_shon: u("u_shon"),
             u_shadow: u("u_shadow"),
             u_soft: u("u_soft"),
-            max_samples,
             quality: 0,
             inst_e,
             list_e: RefCell::new(Vec::new()),
@@ -1545,6 +1567,9 @@ impl Renderer {
             fog_end: FOG_END,
             dark: 0.0,
             s_right: gl.get_uniform_location(&sky, "u_right"),
+            f_pic: gl.get_uniform_location(&fxaa, "u_pic"),
+            f_res: gl.get_uniform_location(&fxaa, "u_res"),
+            fxaa,
             s_up: gl.get_uniform_location(&sky, "u_up"),
             s_fwd: gl.get_uniform_location(&sky, "u_fwd"),
             s_tan: gl.get_uniform_location(&sky, "u_tan"),
@@ -2060,33 +2085,50 @@ impl Renderer {
         gl.depth_func(GL::LESS);
     }
 
-    fn make_targets(gl: &GL, w: u32, h: u32, samples: i32) -> Result<Targets, String> {
+    fn make_targets(gl: &GL, w: u32, h: u32) -> Result<Targets, String> {
         let (wi, hi) = (w as i32, h as i32);
-        let rb_c = gl.create_renderbuffer().ok_or("renderbuffer")?;
-        gl.bind_renderbuffer(GL::RENDERBUFFER, Some(&rb_c));
-        gl.renderbuffer_storage_multisample(GL::RENDERBUFFER, samples, GL::RGBA8, wi, hi);
-        let rb_d = gl.create_renderbuffer().ok_or("renderbuffer")?;
-        gl.bind_renderbuffer(GL::RENDERBUFFER, Some(&rb_d));
-        gl.renderbuffer_storage_multisample(GL::RENDERBUFFER, samples, GL::DEPTH_COMPONENT24, wi, hi);
-        let msaa = gl.create_framebuffer().ok_or("framebuffer")?;
-        gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&msaa));
-        gl.framebuffer_renderbuffer(GL::FRAMEBUFFER, GL::COLOR_ATTACHMENT0, GL::RENDERBUFFER, Some(&rb_c));
-        gl.framebuffer_renderbuffer(GL::FRAMEBUFFER, GL::DEPTH_ATTACHMENT, GL::RENDERBUFFER, Some(&rb_d));
+        let pic = gl.create_texture().ok_or("texture")?;
+        gl.bind_texture(GL::TEXTURE_2D, Some(&pic));
+        gl.tex_storage_2d(GL::TEXTURE_2D, 1, GL::RGBA8, wi, hi);
+        for (p, v) in [
+            (GL::TEXTURE_MIN_FILTER, GL::LINEAR),
+            (GL::TEXTURE_MAG_FILTER, GL::LINEAR),
+            (GL::TEXTURE_WRAP_S, GL::CLAMP_TO_EDGE),
+            (GL::TEXTURE_WRAP_T, GL::CLAMP_TO_EDGE),
+        ] {
+            gl.tex_parameteri(GL::TEXTURE_2D, p, v as i32);
+        }
+        gl.bind_texture(GL::TEXTURE_2D, None);
+        let depth = gl.create_renderbuffer().ok_or("renderbuffer")?;
+        gl.bind_renderbuffer(GL::RENDERBUFFER, Some(&depth));
+        gl.renderbuffer_storage(GL::RENDERBUFFER, GL::DEPTH_COMPONENT24, wi, hi);
+        let fbo = gl.create_framebuffer().ok_or("framebuffer")?;
+        gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&fbo));
+        gl.framebuffer_texture_2d(GL::FRAMEBUFFER, GL::COLOR_ATTACHMENT0, GL::TEXTURE_2D, Some(&pic), 0);
+        gl.framebuffer_renderbuffer(GL::FRAMEBUFFER, GL::DEPTH_ATTACHMENT, GL::RENDERBUFFER, Some(&depth));
         if gl.check_framebuffer_status(GL::FRAMEBUFFER) != GL::FRAMEBUFFER_COMPLETE {
-            return Err("the multisampled framebuffer is incomplete".into());
+            return Err("the picture's framebuffer is incomplete".into());
         }
         gl.bind_framebuffer(GL::FRAMEBUFFER, None);
-        Ok(Targets { w, h, samples, msaa, rb: [rb_c, rb_d] })
+        Ok(Targets { w, h, fbo, pic, depth })
     }
 
-    /// Puts the finished picture on the canvas, averaging each pixel's samples on the way.
+    /// Puts the finished picture on the canvas through the FXAA pass.
     fn present(&self, t: &Targets) {
         let gl = &self.gl;
-        gl.bind_framebuffer(GL::READ_FRAMEBUFFER, Some(&t.msaa));
-        gl.bind_framebuffer(GL::DRAW_FRAMEBUFFER, None);
-        let (w, h) = (t.w as i32, t.h as i32);
-        gl.blit_framebuffer(0, 0, w, h, 0, 0, w, h, GL::COLOR_BUFFER_BIT, GL::NEAREST);
         gl.bind_framebuffer(GL::FRAMEBUFFER, None);
+        gl.viewport(0, 0, t.w as i32, t.h as i32);
+        gl.use_program(Some(&self.fxaa));
+        gl.active_texture(GL::TEXTURE0);
+        gl.bind_texture(GL::TEXTURE_2D, Some(&t.pic));
+        gl.uniform1i(self.f_pic.as_ref(), 0);
+        gl.uniform2f(self.f_res.as_ref(), t.w as f32, t.h as f32);
+        gl.disable(GL::DEPTH_TEST);
+        gl.bind_vertex_array(None);
+        gl.draw_arrays(GL::TRIANGLES, 0, 3);
+        gl.enable(GL::DEPTH_TEST);
+        // unbound, so the next frame can draw into it
+        gl.bind_texture(GL::TEXTURE_2D, None);
     }
 
     /// Gun `idx` alone on a flat grey `bg`, from its right side and a little above, sized to fill the picture: the
@@ -2258,20 +2300,18 @@ impl Renderer {
         self.shadow_pass(centre, &lvp);
 
         let q = &QUALITY[(self.quality as usize).min(QUALITY.len() - 1)];
-        let samples = q.samples.min(self.max_samples);
         let (w, h) = (self.width.max(1), self.height.max(1));
-        if self.targets.borrow().as_ref().map_or(true, |t| t.w != w || t.h != h || t.samples != samples) {
+        if self.targets.borrow().as_ref().is_none_or(|t| t.w != w || t.h != h) {
             if let Some(old) = self.targets.borrow_mut().take() {
-                gl.delete_framebuffer(Some(&old.msaa));
-                for r in &old.rb {
-                    gl.delete_renderbuffer(Some(r));
-                }
+                gl.delete_framebuffer(Some(&old.fbo));
+                gl.delete_texture(Some(&old.pic));
+                gl.delete_renderbuffer(Some(&old.depth));
             }
-            *self.targets.borrow_mut() = Some(Self::make_targets(gl, w, h, samples).expect("render targets"));
+            *self.targets.borrow_mut() = Some(Self::make_targets(gl, w, h).expect("render targets"));
         }
         let targets = self.targets.borrow();
         let t = targets.as_ref().expect("render targets");
-        gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&t.msaa));
+        gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&t.fbo));
         gl.viewport(0, 0, w as i32, h as i32);
         if let Some((gun, bg)) = self.showcase.get() {
             self.draw_showcase(t, gun, bg, aspect);
