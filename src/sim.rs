@@ -141,8 +141,11 @@ pub mod ev {
     pub const CHIME: f32 = 23.0;
 }
 
+pub mod bench;
 mod grenade;
 pub mod host;
+#[cfg(test)]
+mod load;
 pub mod mirror;
 pub use grenade::{Blast, Grenade, BLAST_T, GRENADES, MAX_GRENADES, THROW_TIME};
 
