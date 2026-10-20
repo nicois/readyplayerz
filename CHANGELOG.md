@@ -2,6 +2,12 @@
 
 ## 2026-10-20
 
+### Solo is played for loot: a pistol to start, the other guns in weapon crates
+- Alone, each life starts with only the Pistol; the primary slot is empty until a gun is found. Online keeps the picked loadout.
+- Each wave tops up weapon crates to two, plus one every third wave, up to five, placed like the ammo boxes: reachable open ground at least 10 m away.
+- A crate holds any gun but the Pistol, shown turning over it. Standing or walking over one puts the gun in its slot (a Revolver or Desert Eagle replaces the Pistol), loaded with full reserves and raised; running over one, or one holding a gun already carried, leaves it.
+- The death screen says the next life starts with the Pistol instead of naming the loadout.
+
 ### Grenades come from the ammo boxes; the boxes thin to two thirds of a wave (`deb3833`)
 - A life starts with two grenades and the ammo boxes are now the only way to get more: walking over one adds a grenade, to a cap of four (was five).
 - The once-a-minute grenade auto grant, and the HUD's "next grenade in Xs" countdown, are gone.

@@ -74,6 +74,10 @@ pub const WEAPON_COUNT: usize = 11;
 pub const PRIMARIES: usize = 8;
 /// The sidearm everyone starts with.
 pub const PISTOL: usize = 8;
+/// An empty slot of the loadout: playing for loot, a life starts with no primary.
+pub const NO_GUN: usize = WEAPON_COUNT;
+/// Playing for loot, the weapon crates each wave tops up to: two, and one more every third wave, up to this many.
+const MAX_CRATES: usize = 5;
 
 /// Things that happened this tick that a client may want to play a sound for.
 /// Each event is `[code, a, b]` in `Game::events`.
@@ -410,6 +414,11 @@ impl Player {
     pub fn gun(&self) -> &'static Weapon {
         &WEAPONS[self.weapon]
     }
+    /// Arms a new life: playing for loot only the pistol, otherwise the picked loadout. Holds the primary if there is one.
+    fn arm(&mut self, loot: bool) {
+        self.loadout = if loot { [NO_GUN, PISTOL] } else { self.picked };
+        self.weapon = if self.loadout[0] == NO_GUN { self.loadout[1] } else { self.loadout[0] };
+    }
     /// Vertical field of view, narrowing while aiming down sights.
     pub fn fov(&self) -> f32 {
         1.2 * (1.0 + (self.gun().zoom - 1.0) * self.ads)
@@ -571,6 +580,10 @@ pub struct Game {
     pub decals: Vec<(Aabb, [f32; 3])>,
     /// the ammo boxes on the ground: two thirds of the wave's zombies, rounded up, so far as the map allows
     pub boxes: Vec<V3>,
+    /// the weapon crates on the ground and the gun in each, playing for loot only
+    pub crates: Vec<(V3, usize)>,
+    /// playing for loot: a life starts with only the pistol, and the other guns are found in weapon crates
+    pub loot: bool,
     spawns: Vec<V3>,
     nav: Nav,
     pub debris: Vec<Debris>,
@@ -1151,6 +1164,7 @@ impl Game {
     fn reset_waves(&mut self) {
         self.bots.clear();
         self.boxes.clear();
+        self.crates.clear();
         self.wave = 0;
         self.to_spawn = 0;
         self.wave_t = 3.0;
@@ -1231,7 +1245,22 @@ impl Game {
         }
     }
 
-    /// Where an ammo box goes: on open ground the player can walk to, clear of the player and of the other boxes.
+    /// Top up the weapon crates, playing for loot: two, and one more every third wave, up to `MAX_CRATES`. Each
+    /// holds any gun but the pistol everyone starts with.
+    fn top_up_crates(&mut self) {
+        let target = (2 + self.wave as usize / 3).min(MAX_CRATES);
+        while self.crates.len() < target {
+            let Some(at) = self.ammo_box_pos() else { break };
+            let mut gun = (self.rng.next() as usize) % (WEAPON_COUNT - 1);
+            if gun >= PISTOL {
+                gun += 1;
+            }
+            self.crates.push((at, gun));
+        }
+    }
+
+    /// Where an ammo box or weapon crate goes: on open ground the player can walk to, clear of the player and of
+    /// the other boxes and crates.
     fn ammo_box_pos(&mut self) -> Option<V3> {
         let p = self.players[self.local].body.pos;
         for _ in 0..40 {
@@ -1254,7 +1283,7 @@ impl Game {
             if d < BOX_NEAR {
                 continue;
             }
-            if self.boxes.iter().any(|b| ((b[0] - at[0]).powi(2) + (b[2] - at[2]).powi(2)) < BOX_GAP * BOX_GAP) {
+            if self.boxes.iter().chain(self.crates.iter().map(|(c, _)| c)).any(|b| ((b[0] - at[0]).powi(2) + (b[2] - at[2]).powi(2)) < BOX_GAP * BOX_GAP) {
                 continue;
             }
             return Some(at);
@@ -1273,6 +1302,9 @@ impl Game {
                 // solo only: the boxes are not in the network snapshots
                 if self.role == Role::Solo {
                     self.top_up_boxes();
+                    if self.loot {
+                        self.top_up_crates();
+                    }
                 }
                 self.spawn_t = 0.0;
                 self.wave_t = 5.0;
@@ -1321,6 +1353,8 @@ impl Game {
             mats: map.mats,
             decals: map.decals,
             boxes: Vec::new(),
+            crates: Vec::new(),
+            loot: false,
             spawns,
             debris: Vec::new(),
             grenades: Vec::new(),
@@ -1374,6 +1408,7 @@ impl Game {
 
     /// Player `i` starting a new life at `at`, facing `yaw`.
     pub(crate) fn respawn_at(&mut self, i: usize, at: V3, yaw: f32) {
+        let loot = self.loot;
         let p = &mut self.players[i];
         p.life += 1;
         p.rng = Rng((p.id as u32 + 1) * 7919 + p.life * 104_729);
@@ -1394,8 +1429,7 @@ impl Game {
         p.arc.clear();
         p.shake = 0.0;
         p.reserve = full_reserve();
-        p.loadout = p.picked;
-        p.weapon = p.picked[0];
+        p.arm(loot);
         p.reload_t = 0.0;
         p.equip_t = 0.0;
         p.ads = 0.0;
@@ -1413,9 +1447,11 @@ impl Game {
             return false;
         }
         let slot = if i < PRIMARIES { 0 } else { 1 };
+        let loot = self.loot;
         let p = &mut self.players[pi];
         p.picked[slot] = i;
-        if p.alive() && !p.in_play {
+        // playing for loot the pick waits for a game that isn't
+        if p.alive() && !p.in_play && !loot {
             let held = p.weapon == p.loadout[slot];
             p.loadout[slot] = i;
             if held {
@@ -1425,6 +1461,15 @@ impl Game {
             }
         }
         true
+    }
+
+    /// Plays for loot or not (see `Game::loot`): from the next life, or straight away before the first is played.
+    pub fn set_loot(&mut self, on: bool) {
+        self.loot = on;
+        let p = &mut self.players[self.local];
+        if p.alive() && !p.in_play {
+            p.arm(on);
+        }
     }
 
     /// Switches to the primary (slot 0) or the sidearm (slot 1).
@@ -1705,6 +1750,7 @@ impl Game {
             (p.input.look_dx, p.input.look_dy) = (0.0, 0.0);
             self.step_player(0, inp, dt);
             self.tick_boxes();
+            self.tick_crates();
         }
         if self.role != Role::Mirror {
             let goals = self.standing();
@@ -1856,6 +1902,27 @@ impl Game {
             }
         }
         self.boxes = kept;
+    }
+
+    /// Walk over a weapon crate standing or walking and its gun takes the place of the one carried in its slot,
+    /// loaded, with full reserves, and raised. Running over one, or over one with a gun already carried, leaves it be.
+    fn tick_crates(&mut self) {
+        let pi = self.local;
+        let p = &self.players[pi];
+        if !p.alive() || p.sprinting {
+            return;
+        }
+        let body = aabb_at(p.body.pos, HW, H);
+        let Some(k) = self.crates.iter().position(|&(at, gun)| !p.loadout.contains(&gun) && overlaps(&body, &aabb_at(at, 0.45, 0.5))) else {
+            return;
+        };
+        let (_, gun) = self.crates.remove(k);
+        let p = &mut self.players[pi];
+        p.loadout[if gun < PRIMARIES { 0 } else { 1 }] = gun;
+        p.ammo[gun] = WEAPONS[gun].mag;
+        p.reserve[gun] = 2 * WEAPONS[gun].mag;
+        self.events.push([ev::PICKUP, 0.0, 0.0]);
+        self.select_for(pi, gun);
     }
 
     /// Where player `i` looks and how they move this step: turning, running, jumping, climbing and stamina, all
@@ -3211,5 +3278,77 @@ mod tests {
         assert_eq!(g.wave, 0);
         assert!(g.boxes.is_empty(), "the boxes of the old life are gone");
         assert_eq!(g.players[0].reserve, full_reserve(), "the new life starts with full reserves");
+    }
+
+    /// Playing for loot a life starts with only the pistol, and picking a loadout doesn't change that.
+    #[test]
+    fn a_loot_life_starts_with_only_the_pistol() {
+        let mut g = arena();
+        g.set_loot(true);
+        assert_eq!((g.players[0].weapon, g.players[0].loadout), (PISTOL, [NO_GUN, PISTOL]));
+        g.pick(2);
+        assert_eq!(g.players[0].loadout, [NO_GUN, PISTOL], "the pick doesn't arm a loot life");
+        g.select_slot(0);
+        assert_eq!(g.players[0].weapon, PISTOL, "nothing to switch to in the empty slot");
+        g.hurt_player(0, 1e9);
+        idle(&mut g, 4.2);
+        assert!(g.players[0].alive());
+        assert_eq!(g.players[0].loadout, [NO_GUN, PISTOL], "the next life starts with the pistol again");
+    }
+
+    /// Walking over a weapon crate takes its gun into its slot, loaded and raised; running over one, or over one
+    /// with a gun already carried, leaves it.
+    #[test]
+    fn a_weapon_crate_puts_its_gun_in_its_slot() {
+        let mut g = arena();
+        g.bots.clear();
+        g.wave_t = f32::INFINITY;
+        g.set_loot(true);
+        let p = g.players[0].body.pos;
+        g.crates.push(([p[0] + 0.5, p[1], p[2]], 4));
+        g.players[0].input.sprint = true;
+        g.players[0].input.w = true;
+        idle(&mut g, 0.2);
+        assert_eq!(g.crates.len(), 1, "not taken while running");
+        g.players[0].input = Input::default();
+        let p = g.players[0].body.pos;
+        g.crates[0].0 = [p[0] + 0.5, p[1], p[2]];
+        idle(&mut g, 0.1);
+        assert!(g.crates.is_empty(), "the crate was walked over");
+        assert_eq!((g.players[0].weapon, g.players[0].loadout), (4, [4, PISTOL]), "the AK-47 is the primary, raised");
+        assert_eq!((g.players[0].ammo[4], g.players[0].reserve[4]), (WEAPONS[4].mag, 2 * WEAPONS[4].mag));
+        assert!(g.events.iter().any(|e| e[0] == ev::PICKUP));
+        // a sidearm takes the pistol's place
+        g.crates.push(([p[0] + 0.5, p[1], p[2]], 9));
+        idle(&mut g, 0.1);
+        assert_eq!(g.players[0].loadout, [4, 9], "the Revolver replaces the pistol");
+        // the gun already carried stays in its crate
+        g.crates.push(([p[0] + 0.5, p[1], p[2]], 4));
+        idle(&mut g, 0.1);
+        assert_eq!(g.crates.len(), 1, "an AK-47 already carried is left");
+    }
+
+    /// Each wave tops up the weapon crates playing for loot, and only then; none holds the pistol.
+    #[test]
+    fn waves_bring_weapon_crates_only_playing_for_loot() {
+        let mut g = zombie_game();
+        g.players[0].hp = 1e6;
+        idle(&mut g, 0.1);
+        assert!(g.crates.is_empty(), "no crates with a loadout");
+        let mut g = zombie_game();
+        g.set_loot(true);
+        g.players[0].hp = 1e6;
+        idle(&mut g, 0.1);
+        assert_eq!(g.wave, 1);
+        assert_eq!(g.crates.len(), 2, "wave one brings two crates");
+        let p = g.players[0].body.pos;
+        for &(at, gun) in &g.crates {
+            assert!(gun < WEAPON_COUNT && gun != PISTOL, "crate with gun {gun}");
+            assert!(g.nav.reachable(at), "crate the player cannot walk to: {at:?}");
+            assert!(((at[0] - p[0]).powi(2) + (at[2] - p[2]).powi(2)).sqrt() >= BOX_NEAR);
+            for b in &g.boxes {
+                assert!(((b[0] - at[0]).powi(2) + (b[2] - at[2]).powi(2)).sqrt() >= BOX_GAP, "crate on an ammo box");
+            }
+        }
     }
 }

@@ -1984,6 +1984,18 @@ impl Renderer {
             let m = box_model([at[0] - 0.40, at[1] + 0.28, at[2] - 0.40], [at[0] + 0.40, at[1] + 0.42, at[2] + 0.40]);
             self.draw_model(&m, [0.98, 0.75, 0.2], 0.0, 0.2);
         }
+        // the weapon crates: a dark case with a red band, and its gun turning over it to show what is inside
+        for &(at, gun) in &g.crates {
+            let m = box_model([at[0] - 0.45, at[1], at[2] - 0.45], [at[0] + 0.45, at[1] + 0.5, at[2] + 0.45]);
+            self.draw_model(&m, [0.16, 0.18, 0.2], 0.0, 0.25);
+            let m = box_model([at[0] - 0.5, at[1] + 0.18, at[2] - 0.5], [at[0] + 0.5, at[1] + 0.3, at[2] + 0.5]);
+            self.draw_model(&m, [0.85, 0.12, 0.1], 0.3, 0.2);
+            let (lo, hi) = self.guns[gun].bounds;
+            let mid = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0];
+            let bob = 1.1 + 0.08 * (g.time * 2.0 + at[0]).sin();
+            let model = mul(&translate(at[0], at[1] + bob, at[2]), &mul(&rot_y(g.time * 1.2 + at[2]), &translate(-mid[0], -mid[1], -mid[2])));
+            self.draw_gun(gun, &model, 0.0, 0.0, 0.0, 0.0, 0.0, 0, false);
+        }
         for t in &g.tracers {
             // another player's shot comes out of the muzzle of the gun they are seen holding
             let mate = g.players.iter().enumerate().find(|(i, p)| *i != g.local && p.id == t.by);
