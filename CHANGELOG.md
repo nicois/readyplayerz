@@ -2,6 +2,10 @@
 
 ## 2026-10-20
 
+### Low drops the sun's shadows, and draws at fewer pixels when it must
+- Low no longer draws the sun's shadow map: on Low the pass was a fifth to a quarter of the frame, nearly all of it draw calls (about 210 a frame), which a slow laptop pays for on both its CPU and its GPU. Zombies behind the view, wanted only for their shadows, aren't drawn either. In the horde bench on an M1 at Low, a frame went from 8.7 ms to 6.0, and the slowest in twenty from 17–20 ms to 13–14. Medium and High keep their shadows.
+- The automatic resolution can now step down to 60% of the setting's on every quality; Low used to stop at 80% (40% of the screen). A weak GPU pays most for its pixels, so this is the safety net for one that still can't keep up.
+
 ### Cheaper pixels: noise from tables, and sharp screens drawn at 1.5
 - The surface patterns (skin, cloth, hair, wood, metal, brick, plaster) read their noise from two small tiling tables, a 256×256 and a 64×64×64, instead of working out four or eight random corners per lookup; a zombie's skin takes about twenty lookups a pixel. They look the same, with the speckles in other places. On an M1 at 1920×993 on High, a frame of the horde bench went from about 10.1 ms to 8.9.
 - A sharp (Retina) screen is drawn at most 1.5 pixels to the CSS pixel (was 2), so about half the pixels. On High it went from 34 to about 60 fps in the horde bench.
