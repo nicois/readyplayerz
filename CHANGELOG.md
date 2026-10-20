@@ -2,6 +2,17 @@
 
 ## 2026-10-20
 
+### A baseball bat for the secondary slot: swung, not fired (`b3de427`)
+- A new Melee class in the secondary picker, with the Baseball bat: no magazine, no reloads, no aiming, and 112% movement speed.
+- Fire swings it, alternating a flat swing from the right and a backhand chop from the left; held, it keeps swinging, every 0.55 s.
+- A swing connects 0.13 s after it starts, reaching 2.4 m across a wide arc, and hits up to three zombies, nearest first: 100 to the head (a walker or runner in one), 60 to the body (a runner in one).
+- A hit knocks the zombie off its feet the way the swing goes (a brute barely gives), sprays blood that way, holds the swing still for a moment (longer on a kill) and shakes the view; a swing at a wall in reach thuds against it and throws off splinters.
+- The bat is ash with a black-dipped barrel, a burned maker's band and grip tape over the handle and knob, held in both hands; it gathers blood coat by coat as it hits, cleaned each life. Other players are seen holding it on the shoulder.
+- New sounds: a whoosh for the swing, a wet thwack for a hit (a bone crack for the head, a deeper crunch for a kill), a wooden clonk off a wall.
+- The HUD hides the ammo count with the bat out, and the picker shows only Damage, Fire rate and Mobility for it.
+- Playing for loot, weapon crates can hold the bat; picking one up replaces the Pistol, as a Revolver or Desert Eagle does.
+- Dev: `?swing=u,n,gore` holds the bat partway through a swing, bloodied as much as `gore`, with the game paused.
+
 ### Solo is played for loot: a pistol to start, the other guns in weapon crates
 - Alone, each life starts with only the Pistol; the primary slot is empty until a gun is found. Online keeps the picked loadout.
 - Each wave tops up weapon crates to two, plus one every third wave, up to five, placed like the ammo boxes: reachable open ground at least 10 m away.
