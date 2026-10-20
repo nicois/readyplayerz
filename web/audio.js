@@ -1,7 +1,7 @@
 // Synthesized sound effects. Everything is built from noise and oscillators, so there are no audio files.
 // The sim reports what happened as [code, a, b] triples; `play` turns them into sound.
 
-const SHOT = 1, HIT = 3, HEAD = 4, KILL = 5, HURT = 6, RELOAD = 7, EQUIP = 8, STEP = 9, JUMP = 10, LAND = 11, DEATH = 12, GROWL = 13, WAVE = 14, SNARL = 15, THROW = 16, BOUNCE = 17, BLAST = 18, FAR_SHOT = 19;
+const SHOT = 1, HIT = 3, HEAD = 4, KILL = 5, HURT = 6, RELOAD = 7, EQUIP = 8, STEP = 9, JUMP = 10, LAND = 11, DEATH = 12, GROWL = 13, WAVE = 14, SNARL = 15, THROW = 16, BOUNCE = 17, BLAST = 18, FAR_SHOT = 19, PICKUP = 20;
 
 // the first three formants (Hz) of a man's vowels: oo, uh, aa, aw, and the a of "cat"
 const OO = [300, 870, 2240], UH = [640, 1190, 2390], AA = [730, 1090, 2440], AW = [570, 840, 2410], AE = [660, 1720, 2410];
@@ -392,6 +392,13 @@ export class Sound {
     this.after(150, () => this.click(0.6, 0.9));
   }
 
+  pickup() {
+    const t = this.ctx.currentTime, d = this.bus(0, 0.1);
+    this.noise(d, t, 0.07, "bandpass", 700, 1800, 0.35, 1.2);
+    this.after(90, () => this.clack(0.7, 1.1));
+    this.after(200, () => this.click(0.5, 1.4));
+  }
+
   step(speed) {
     const t = this.ctx.currentTime, d = this.bus(0, 0.08), v = Math.min(speed / 6, 1.5), r = 0.85 + Math.random() * 0.3;
     this.noise(d, t, 0.08, "lowpass", 520 * r, 160, 0.1 * v);
@@ -455,6 +462,7 @@ export class Sound {
         case BOUNCE: this.bounce(a, b); break;
         case BLAST: this.blast(a, b); break;
         case FAR_SHOT: { const w = Math.round(b / 4); this.farShot(w, a, b - 4 * w); break; }
+        case PICKUP: this.pickup(); break;
       }
     }
   }

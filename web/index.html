@@ -540,6 +540,7 @@ const STATS = [
   ["Mobility", g => g.speed - 0.8, g => `${Math.round(g.speed * 100)}%`],
   ["Reload", g => 1 / g.reload, g => `${g.reload.toFixed(1)}s`],
   ["Magazine", g => g.mag, g => g.mag],
+  ["Reserve", g => 2 * g.mag, g => `${2 * g.mag} (+${g.mag} per box)`],
 ];
 const best = STATS.map(([, f]) => Math.max(...guns.map(f)));
 // each gun's picture, made from the game's own model (see `?showcase`) and named after it, e.g. guns/ak-47.webp
@@ -918,10 +919,10 @@ function loop(t) {
       m.className = kind;
     }
   }
-  const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped, killt, px, pz, pyaw, wave, left, carried, picked, inPlay, spread, stamina, winded, carried2, picked2, grenades, nextGrenade, down, standing, team] = client.hud();
+  const [hp, ammo, mag, reloading, kills, deaths, hit, flash, respawn, weapon, ads, scoped, killt, px, pz, pyaw, wave, left, carried, picked, inPlay, spread, stamina, winded, carried2, picked2, grenades, down, standing, team, reserve] = client.hud();
   $("hp").textContent = Math.ceil(hp);
   $("am").textContent = ammo;
-  $("mg").textContent = mag;
+  $("mg").textContent = reserve;
   [carried, carried2].forEach((w, s) => {
     if (w !== shownCarried[s]) {
       shownCarried[s] = w;
@@ -951,7 +952,7 @@ function loop(t) {
   $("stamina").classList.toggle("winded", winded > 0);
   $("ring").style.setProperty("--d", `${Math.max(14, spread * innerHeight)}px`);
   $("rl").textContent = reloading ? "reloading..." : "";
-  $("gr").textContent = `${grenades} grenade${grenades === 1 ? "" : "s"} [G]` + (nextGrenade > 0 ? ` · +1 in ${Math.ceil(nextGrenade)}s` : "");
+  $("gr").textContent = `${grenades} grenade${grenades === 1 ? "" : "s"} [G]`;
   $("kd").textContent = `${kills} kills / ${deaths} deaths`;
   const waiting = lobby.online && !lobby.started ? "Waiting for the host to start" : "Get ready...";
   const squad = team > 1 ? ` \u00b7 ${standing} of ${team} standing` : "";
