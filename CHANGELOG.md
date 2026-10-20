@@ -5,6 +5,7 @@
 ### A zombie is one draw, not seven
 - A body's shirt, hair, trousers, skin, head and hands are put together into one mesh, each vertex marked with its part, and drawn in one call; the shader takes each part's colour and material from the zombie's own, and leaves out the hair of one with none. The same goes for the other players. They look the same.
 - In the horde bench at Low on an M1, a frame's draw calls went from about 270 to 130 for the picture and 215 to 75 for the sun's shadow, and a frame from 5.6 ms to 5.3 (the machine was busy; the calls are what a slow laptop pays for most).
+- `./bench.sh` holds the draw calls to the new numbers (150 a frame for the picture, 85 for the shadow, from 310 and 245), and plays the drawing bench a second time on Low, with limits of its own: 140 draw calls, at least 60 fps on an M1, and no sun's shadow at all. Its results go into `bench/history.tsv` as `low_` columns.
 
 ### A score when the game is over, and watching a teammate while down
 - Everyone down, a card slams on over a darkened red view: YOU DIED alone, OVERRUN online, with the wave reached, the kills and the time survived. Online it lists everyone's kills, most first.
