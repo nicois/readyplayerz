@@ -1528,7 +1528,6 @@ impl Game {
         true
     }
 
-    /// Plays for loot or not (see `Game::loot`): from the next life, or straight away before the first is played.
     /// The weapon crates within earshot chiming, now and then, from where each lies as the local player hears it.
     /// Called once a frame, `dt` seconds on, by whoever plays the sound: it changes nothing in the game.
     pub fn chime(&mut self, dt: f32) {
@@ -1548,6 +1547,7 @@ impl Game {
         }
     }
 
+    /// Plays for loot or not (see `Game::loot`): from the next life, or straight away before the first is played.
     pub fn set_loot(&mut self, on: bool) {
         self.loot = on;
         let p = &mut self.players[self.local];
@@ -2105,19 +2105,21 @@ impl Game {
             return;
         }
         let body = aabb_at(self.players[pi].body.pos, HW, H);
-        let mut kept = Vec::new();
-        for at in std::mem::take(&mut self.boxes) {
+        let p = &mut self.players[pi];
+        let before = self.boxes.len();
+        self.boxes.retain(|&at| {
             if !overlaps(&body, &aabb_at(at, 0.35, 0.7)) {
-                kept.push(at);
-            } else {
-                for i in 0..WEAPON_COUNT {
-                    self.players[pi].reserve[i] = (self.players[pi].reserve[i] + WEAPONS[i].mag).min(full[i]);
-                }
-                self.players[pi].grenades = (self.players[pi].grenades + 1).min(MAX_GRENADES);
-                self.events.push([ev::PICKUP, 0.0, 0.0]);
+                return true;
             }
+            for i in 0..WEAPON_COUNT {
+                p.reserve[i] = (p.reserve[i] + WEAPONS[i].mag).min(full[i]);
+            }
+            p.grenades = (p.grenades + 1).min(MAX_GRENADES);
+            false
+        });
+        for _ in self.boxes.len()..before {
+            self.events.push([ev::PICKUP, 0.0, 0.0]);
         }
-        self.boxes = kept;
     }
 
     /// Walk over a weapon crate standing or walking and its gun takes the place of the one carried in its slot,
