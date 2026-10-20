@@ -2,6 +2,10 @@
 
 ## 2026-10-20
 
+### A zombie is one draw, not seven
+- A body's shirt, hair, trousers, skin, head and hands are put together into one mesh, each vertex marked with its part, and drawn in one call; the shader takes each part's colour and material from the zombie's own, and leaves out the hair of one with none. The same goes for the other players. They look the same.
+- In the horde bench at Low on an M1, a frame's draw calls went from about 270 to 130 for the picture and 215 to 75 for the sun's shadow, and a frame from 5.6 ms to 5.3 (the machine was busy; the calls are what a slow laptop pays for most).
+
 ### Cheaper pixels: noise from tables, and sharp screens drawn at 1.5
 - The surface patterns (skin, cloth, hair, wood, metal, brick, plaster) read their noise from two small tiling tables, a 256×256 and a 64×64×64, instead of working out four or eight random corners per lookup; a zombie's skin takes about twenty lookups a pixel. They look the same, with the speckles in other places. On an M1 at 1920×993 on High, a frame of the horde bench went from about 10.1 ms to 8.9.
 - A sharp (Retina) screen is drawn at most 1.5 pixels to the CSS pixel (was 2), so about half the pixels. On High it went from 34 to about 60 fps in the horde bench.
