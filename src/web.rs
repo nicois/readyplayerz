@@ -180,8 +180,9 @@ impl Client {
     }
 
     /// Dev view: `n` other players standing in a row `dist` metres in front of the player, the first facing it and
-    /// each next one turned a quarter further round (front, side, back, other side), `turn` more than that.
-    pub fn show_mates(&mut self, n: u32, dist: f32, turn: f32) {
+    /// each next one turned a quarter further round (front, side, back, other side), `turn` more than that; moving
+    /// at `run` metres a second where they face (sprinting over 6), each a little further through a step.
+    pub fn show_mates(&mut self, n: u32, dist: f32, turn: f32, run: f32) {
         let (p, f, yaw) = (self.game.me().body.pos, self.game.me().forward(), self.game.me().yaw);
         let right = [-f[2], 0.0, f[0]];
         self.game.bots.clear();
@@ -193,6 +194,9 @@ impl Client {
             m.body.on_ground = true;
             m.yaw = yaw + std::f32::consts::PI + turn + i as f32 * std::f32::consts::FRAC_PI_2;
             m.weapon = (i as usize * 3) % crate::sim::WEAPON_COUNT;
+            m.body.vel = [m.yaw.sin() * run, 0.0, -m.yaw.cos() * run];
+            m.sprint_t = if run > 6.0 { 1.0 } else { 0.0 };
+            m.gait = i as f32 * 0.9;
             self.game.players.push(m);
         }
         self.game.local = 0;

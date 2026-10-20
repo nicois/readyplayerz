@@ -704,10 +704,11 @@ if (params.has("at")) {
 }
 if (params.has("gun")) { const [x, y, z, yaw = 0.05] = params.get("gun").split(",").map(Number); client.set_gun_offset(x, y, z, yaw); }
 if (params.has("show")) client.show_zombies(Number(params.get("show")) || 3, Number(params.get("dist")) || 2.8, Number(params.get("side")) || 0);
-// ?mates=n[,dist,turn] stands n other players dist metres ahead, turned a quarter more each (front, side, back...)
+// ?mates=n[,dist,turn,run] stands n other players dist metres ahead, turned a quarter more each (front, side,
+// back...), moving at run metres a second (sprinting over 6)
 if (params.has("mates")) {
-  const [n, dist = 2.5, turn = 0] = params.get("mates").split(",").map(Number);
-  client.show_mates(n || 4, dist, turn);
+  const [n, dist = 2.5, turn = 0, run = 0] = params.get("mates").split(",").map(Number);
+  client.show_mates(n || 4, dist, turn, run);
 }
 // ?climb=s[,side,back] freezes a zombie s (0 to 1) of the way up the first ledge ahead, seen from side metres to its
 // right and back behind it

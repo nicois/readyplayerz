@@ -502,6 +502,8 @@ pub struct Tracer {
     pub a: V3,
     pub b: V3,
     pub life: f32,
+    /// the player who fired it, for others to draw it from the gun they see them holding
+    pub by: u8,
 }
 
 /// A drop of blood. Purely cosmetic.
@@ -1588,7 +1590,7 @@ impl Game {
                 if self.role == Role::Mirror {
                     // flinching at once, as it will on the server
                     bot.hit_t = 1.0;
-                    self.tracers.push(Tracer { a: muzzle, b: along(eye, dir, dist), life: 0.06 });
+                    self.tracers.push(Tracer { a: muzzle, b: along(eye, dir, dist), life: 0.06, by: self.players[pi].id });
                     continue;
                 }
                 bot.hp -= if head { w.head_dmg } else { w.body_dmg };
@@ -1608,7 +1610,7 @@ impl Game {
                 }
             }
             let (a, b) = (muzzle, along(eye, dir, dist));
-            self.tracers.push(Tracer { a, b, life: 0.06 });
+            self.tracers.push(Tracer { a, b, life: 0.06, by: self.players[pi].id });
             if self.role == Role::Server {
                 self.shots.push(Shot { by: self.players[pi].id, a, b });
             }

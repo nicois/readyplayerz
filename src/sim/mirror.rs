@@ -38,6 +38,7 @@ impl Blend for Mate {
         m.pos = mix3(self.pos, b.pos, k);
         m.yaw = turn(self.yaw, b.yaw, k);
         m.pitch = mix(self.pitch, b.pitch, k);
+        m.sprint = mix(self.sprint, b.sprint, k);
         m
     }
 }
@@ -271,7 +272,7 @@ impl Mirror {
     /// Someone else's shot: a tracer, the sound of it from where they are, and blood if it ended in a zombie.
     fn mate_shot(&mut self, s: Shot) {
         let g = &mut self.game;
-        g.tracers.push(Tracer { a: s.a, b: s.b, life: 0.06 });
+        g.tracers.push(Tracer { a: s.a, b: s.b, life: 0.06, by: s.by });
         let me = g.me();
         let weapon = self.mates.get(&s.by).and_then(|t| t.samples.back()).map_or(0, |(_, m)| m.weapon);
         let (dx, dz) = (s.a[0] - me.body.pos[0], s.a[2] - me.body.pos[2]);
@@ -352,6 +353,12 @@ impl Mirror {
             let p = &mut g.players[i];
             // how fast they go, for the legs, from where they were a tick ago
             let was = tr.at(t - 1.0).map_or(m.pos, |m| m.pos);
+            // and the legs going by the ground covered since last drawn, so the feet keep to it
+            let moved = (m.pos[0] - p.body.pos[0]).hypot(m.pos[2] - p.body.pos[2]);
+            if m.on_ground && moved < 1.0 {
+                p.gait = (p.gait + moved) % (2.0 * STRIDE);
+            }
+            p.sprint_t = m.sprint;
             p.body = Body { pos: m.pos, vel: [(m.pos[0] - was[0]) / STEP, (m.pos[1] - was[1]) / STEP, (m.pos[2] - was[2]) / STEP], on_ground: m.on_ground };
             (p.yaw, p.pitch, p.weapon, p.hp) = (m.yaw, m.pitch, (m.weapon as usize).min(WEAPON_COUNT - 1), if m.alive { m.hp.max(1.0) } else { 0.0 });
             (p.aiming, p.ads) = (m.aiming, if m.ads { 1.0 } else { 0.0 });

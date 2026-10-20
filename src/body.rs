@@ -177,7 +177,8 @@ fn legs(p: V) -> f32 {
     d = smin(d, ell(q, [0.08, 0.04, 0.028], [0.034, 0.04, 0.045]), 0.02);
     d = smin(d, ell(q, [0.083, 0.042, -0.06], [0.045, 0.038, 0.115]), 0.02);
     d = smin(d, ell(q, [0.087, 0.026, -0.155], [0.044, 0.025, 0.045]), 0.015);
-    d
+    // the thighs apart below the crotch, a little wider than the trousers' gap (see `pants`) so they stay inside
+    d.max((0.024 - p[0].abs()).min(0.79 - p[1]))
 }
 
 /// One hand in the arm's own frame: a palm, a thumb and four curled fingers.
@@ -351,6 +352,8 @@ fn pants(p: V) -> f32 {
     d = smin(d, ell(q, [0.068, 0.875, 0.055], [0.08, 0.085, 0.07]), 0.04) - 0.014;
     let leg = cone(q, [0.092, 0.86, 0.006], [0.083, 0.13, 0.004], 0.1, 0.058);
     d = smin(d, leg, 0.03);
+    // a gap between the trouser legs below the seat, or they web together like a skirt as the legs part
+    d = d.max((0.012 - p[0].abs()).min(0.8 - p[1]));
     // shoes: a low upper over the foot and round the ankle, on a flat sole
     let shoe = smin(ell(q, [0.084, 0.05, -0.058], [0.05, 0.05, 0.13]), ell(q, [0.081, 0.085, 0.0], [0.045, 0.055, 0.048]), 0.03);
     d = smin(d, shoe.max(-p[1]), 0.02);
@@ -411,9 +414,10 @@ fn weights(p: V, segs: &[Seg]) -> ([f32; 4], [f32; 4]) {
     let side_left = p[0] < 0.0;
     let mut cand: Vec<(usize, f32)> = Vec::new();
     for s in segs {
-        // paired bones only matter on their own side, near the middle either will do
+        // paired bones only matter on their own side; near the middle either will do, but not below the crotch,
+        // where the inside of one thigh would follow the other leg
         let paired = (HIP..BONES).contains(&s.bone);
-        if paired && ((s.bone - HIP) % 2 == 0) != side_left && p[0].abs() > 0.03 {
+        if paired && ((s.bone - HIP) % 2 == 0) != side_left && (p[0].abs() > 0.03 || p[1] < 0.84) {
             continue;
         }
         let h = to_head(p);

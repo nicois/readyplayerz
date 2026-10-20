@@ -1978,7 +1978,10 @@ impl Renderer {
         }
         self.draw_brass(None);
         for t in &g.tracers {
-            self.draw_lines(&[t.a[0], t.a[1], t.a[2], t.b[0], t.b[1], t.b[2]], [1.0, 0.95, 0.6], 1.0);
+            // another player's shot comes out of the muzzle of the gun they are seen holding
+            let mate = g.players.iter().enumerate().find(|(i, p)| *i != g.local && p.id == t.by);
+            let a = mate.map_or(t.a, |(_, p)| apply(&self.mate_gun(p), [0.0, 0.0, self.guns[p.weapon].spec.muzzle_z]));
+            self.draw_lines(&[a[0], a[1], a[2], t.b[0], t.b[1], t.b[2]], [1.0, 0.95, 0.6], 1.0);
         }
         // the sky goes in last, behind everything, so only the part that shows is worked out
         self.ground_depth();
@@ -2310,16 +2313,22 @@ impl Renderer {
         let speed = p.body.vel[0].hypot(p.body.vel[2]);
         let amp = if p.body.on_ground { (speed / 5.0).min(1.0) } else { 0.3 };
         let down = if p.alive() { 0.0 } else { 1.0 };
+        // sprinting: leaning into it, longer strides with the knees up and the heels kicked back, the arms carrying
+        // the gun low across the body (see `mate_gun`)
+        let run = self.mate_run(p);
         let base = mul(&mul(&translate(at[0], at[1] + 0.1 * down, at[2]), &rot_y(-p.yaw)), &rot_x(1.5 * down));
-        let ph = g.time * (4.0 + speed * 1.1) + id as f32;
-        let bob = (ph * 2.0).cos().abs() * 0.03 * amp;
-        let pelvis = mul(&mul(&base, &translate(0.0, -bob, 0.0)), &around([0.0, 0.94, 0.0], &rot_y(ph.sin() * 0.1 * amp)));
-        let spine = mul(&pelvis, &around([0.0, 0.98, 0.0], &rot_x(-0.08 - 0.1 * amp)));
+        // the legs go by the ground covered, a step every `STRIDE` metres, so the feet keep to it
+        let ph = p.gait / crate::sim::STRIDE * PI + id as f32;
+        let bob = (ph * 2.0).cos().abs() * (0.03 + 0.03 * run) * amp;
+        let pelvis = mul(&mul(&base, &translate(0.0, -bob, 0.0)), &around([0.0, 0.94, 0.0], &rot_y(ph.sin() * (0.1 + 0.08 * run) * amp)));
+        let spine = mul(&pelvis, &around([0.0, 0.98, 0.0], &rot_x(-0.08 - 0.1 * amp - 0.3 * run)));
         // a long gun in the shoulder turns the chest to the right, the left shoulder forward to reach the
-        // handguard; the head turns back to look along the gun
-        let blade = if p.alive() && !p.aiming && !self.guns[p.weapon].spec.pistol_hold { 0.55 } else { 0.0 };
-        let chest = mul(&spine, &around([0.0, 1.16, 0.0], &mul(&rot_y(-blade), &rot_x(-0.25 * p.pitch * (1.0 - down)))));
-        let head = mul(&chest, &around([0.0, 1.54, 0.0], &mul(&rot_y(blade), &rot_x(-0.6 * p.pitch * (1.0 - down)))));
+        // handguard; the head turns back to look along the gun. Running, the chest squares up and twists against
+        // the hips, and the head comes up to look ahead
+        let blade = if p.alive() && !p.aiming && !self.guns[p.weapon].spec.pistol_hold { 0.55 * (1.0 - run) } else { 0.0 };
+        let twist = -ph.sin() * 0.12 * run * amp;
+        let chest = mul(&spine, &around([0.0, 1.16, 0.0], &mul(&rot_y(-blade + twist), &rot_x(-0.25 * p.pitch * (1.0 - down)))));
+        let head = mul(&chest, &around([0.0, 1.54, 0.0], &mul(&rot_y(blade - twist), &rot_x(-0.6 * p.pitch * (1.0 - down) + 0.3 * run))));
         let jaw = head;
         let mut bones = [IDENTITY; body::BONES];
         bones[body::PELVIS] = pelvis;
@@ -2330,7 +2339,12 @@ impl Renderer {
         for (k, side) in [-1.0f32, 1.0].iter().enumerate() {
             let side = *side;
             let phi = ph + if side > 0.0 { PI } else { 0.0 };
-            let (hip_a, knee_a) = (0.6 * amp * phi.sin(), 0.06 + 0.7 * amp * phi.cos().max(0.0));
+            // the leg swings forward while the cosine is up, the knee bending to carry the foot through. Running,
+            // the heel kicks up off the ground and the knee stays bent up front, only straightening to land
+            let walk_knee = 0.7 * phi.cos().max(0.0);
+            let run_knee = 1.7 * (0.5 + 0.5 * (phi - 0.5).cos()).powf(1.5);
+            let hip_a = (0.6 - 0.05 * run) * amp * phi.sin() + 0.25 * run * amp;
+            let knee_a = 0.06 + amp * (walk_knee + (run_knee - walk_knee) * run);
             let hip = mul(&pelvis, &around([0.0, 0.92, 0.0], &rot_x(hip_a)));
             let knee = mul(&hip, &around([0.0, 0.50, 0.0], &rot_x(-knee_a)));
             let ankle = mul(&knee, &around([0.0, 0.09, 0.0], &rot_x(-(hip_a - knee_a) * 0.7)));
@@ -2400,17 +2414,29 @@ impl Renderer {
     /// Where another player's gun is, pointing where they aim: a pistol out in front of the chest in both hands, a
     /// long gun with its butt in the right shoulder, which `draw_mate` turns back for it, so the stock stays out of
     /// the chest. A gun with no stock to speak of is held a little out from the shoulder instead.
+    /// Running, the gun comes down off the aim and across the body, muzzle low and to the left.
     fn mate_gun(&self, p: &crate::sim::Player) -> M4 {
         let at = p.body.pos;
         let body = mul(&translate(at[0], at[1], at[2]), &rot_y(-p.yaw));
         let g = &self.guns[p.weapon];
         let s = &g.spec;
+        let run = self.mate_run(p);
+        let pitch = p.pitch * (1.0 - run) - 0.65 * run;
         if s.pistol_hold {
-            let held = mul(&translate(0.1, 1.42 + 0.2 * p.pitch.sin(), -0.2), &rot_x(p.pitch));
+            let held = mul(&translate(0.1 - 0.06 * run, 1.42 + 0.2 * pitch.sin() - 0.08 * run, -0.2 + 0.08 * run), &mul(&rot_y(0.4 * run), &rot_x(pitch)));
             return mul(&body, &mul(&held, &translate(s.hold[0], s.hold[1], s.hold[2])));
         }
         let along = g.bounds.1[2].max(0.33);
-        mul(&body, &mul(&translate(0.15, 1.4, -0.03), &mul(&rot_x(p.pitch), &translate(0.0, 0.0, -along))))
+        let shoulder = translate(0.15 - 0.05 * run, 1.4 - 0.06 * run, -0.03 - 0.1 * run);
+        mul(&body, &mul(&shoulder, &mul(&mul(&rot_y(0.55 * run), &rot_x(pitch)), &mul(&rot_z(0.5 * run), &translate(0.0, 0.0, -along)))))
+    }
+
+    /// How far into a sprint another player is: 0 walking, 1 sprinting flat out.
+    fn mate_run(&self, p: &crate::sim::Player) -> f32 {
+        if !p.alive() || p.aiming || !p.body.on_ground || p.reload_t > 0.0 {
+            return 0.0;
+        }
+        p.sprint_t * ease(4.0, 7.0, p.body.vel[0].hypot(p.body.vel[2]))
     }
 
     /// Another player's gun (see `mate_gun`).

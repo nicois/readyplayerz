@@ -311,6 +311,8 @@ pub struct Mate {
     pub ads: bool,
     pub climbing: bool,
     pub hp: f32,
+    /// 0 walking, 1 sprinting, eased between the two
+    pub sprint: f32,
 }
 
 /// A zombie, as much as is needed to draw it.
@@ -406,7 +408,7 @@ pub fn encode_snapshot(s: &Snapshot) -> Vec<Vec<u8>> {
         let mut r = W::default();
         let flags = [m.alive, m.on_ground, m.aiming, m.reloading, m.ads, m.climbing];
         r.u8(MATE).u8(m.id).pos(m.pos).angle(m.yaw).signed(m.pitch, 1.6).u8(m.weapon);
-        r.u8(flags.iter().enumerate().map(|(k, &on)| (on as u8) << k).sum()).unit(m.hp, 100.0);
+        r.u8(flags.iter().enumerate().map(|(k, &on)| (on as u8) << k).sum()).unit(m.hp, 100.0).unit(m.sprint, 1.0);
         rec(&mut out, &mut w, r);
     }
     for z in &s.zombies {
@@ -467,8 +469,8 @@ pub fn decode_snapshot(b: &[u8]) -> Option<Snapshot> {
             WORLD => s.world = Some(World { wave: r.u16()? as u32, left: r.u16()? as u32, started: r.u8()? != 0 }),
             MATE => {
                 let (id, pos, yaw, pitch, weapon, flags, hp) = (r.u8()?, r.pos()?, r.angle()?, r.signed(1.6)?, r.u8()?, r.u8()?, r.unit(100.0)?);
-                let on = |k: u8| flags & (1 << k) != 0;
-                s.mates.push(Mate { id, pos, yaw, pitch, weapon, alive: on(0), on_ground: on(1), aiming: on(2), reloading: on(3), ads: on(4), climbing: on(5), hp });
+                let (on, sprint) = (|k: u8| flags & (1 << k) != 0, r.unit(1.0)?);
+                s.mates.push(Mate { id, pos, yaw, pitch, weapon, alive: on(0), on_ground: on(1), aiming: on(2), reloading: on(3), ads: on(4), climbing: on(5), hp, sprint });
             }
             ZOMBIE => {
                 let (id, pos, face, flags) = (r.u32()?, r.pos()?, r.angle()?, r.u8()?);
