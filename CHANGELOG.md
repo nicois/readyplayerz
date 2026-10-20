@@ -9,6 +9,13 @@
 - Crates are placed at least 10 m from every player in the room, not only the first.
 - A column of red light rises out of each weapon crate, pulsing and thinning as it rises, so one can be seen from across the map.
 - Each crate within 45 m chimes every 2.5 s, panned and quieter with distance, so it can be found by ear.
+- The About page and `llms.txt` say online starts each life with the Pistol too, and how the crates can be found.
+
+### Privacy and terms pages
+- New `/privacy` page: what the analytics collect (a visitor ID in the browser, game events, the device, a rough location), why, who handles it (PostHog, Cloudflare, Fly.io) and how to have it deleted, by writing to contact@readyplayerz.com.
+- New `/terms` page: free and as it is, fair play online (no cheating, attacking the server or offensive names), ownership and Finnish law.
+- The main menu's link under the menu items is now a row: About the game · Discord · Privacy · Terms, with Discord in its own blue. The About page links the Discord from the online section, and its footer links all three.
+- The About page and `llms.txt` say solo starts each life with the Pistol and finds the other guns in crates.
 
 ### A baseball bat for the secondary slot: swung, not fired (`b3de427`)
 - A new Melee class in the secondary picker, with the Baseball bat: no magazine, no reloads, no aiming, and 112% movement speed.
