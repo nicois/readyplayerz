@@ -865,6 +865,61 @@ if (params.has("climb")) {
 }
 // ?dev hands the game to the console (and to test scripts) as `client`
 if (params.has("dev")) window.client = client;
+// ?horde[=players] plays the drawing bench: a full team (six, or `players`) against a full horde, all played by
+// script, the same game every time (see sim::bench), at the quality ?gfx says and no lower. After `warm` seconds it
+// measures for `secs` and logs one line, "bench" and the results as JSON, for ./bench.sh
+const horde = params.has("horde") ? { warm: 12, secs: 15, t0: 0, frames: [], code: [], gpu: [], calls: [], tris: [], shadowCalls: [], shadowTris: [], zombies: [], pending: [] } : null;
+if (horde) {
+  client.horde(Number(params.get("horde")) || 6);
+  menu.style.visibility = "hidden";
+  const gl = canvas.getContext("webgl2");
+  // the GPU's own time for each frame, where the browser tells it
+  horde.timer = gl.getExtension("EXT_disjoint_timer_query_webgl2");
+  const info = gl.getExtension("WEBGL_debug_renderer_info");
+  horde.gpuName = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+  horde.gl = gl;
+}
+// one frame of the drawing bench: `draw` draws it, and what it took is kept once the warm-up is over
+function hordeFrame(t, dt, draw) {
+  const { gl, timer } = horde;
+  if (horde.done) return draw();
+  const q = timer && !horde.pending.length ? gl.createQuery() : null;
+  if (q) gl.beginQuery(timer.TIME_ELAPSED_EXT, q);
+  const t0 = performance.now();
+  draw();
+  const code = performance.now() - t0;
+  if (q) { gl.endQuery(timer.TIME_ELAPSED_EXT); horde.pending.push(q); }
+  for (const p of horde.pending.splice(0)) {
+    if (!gl.getQueryParameter(p, gl.QUERY_RESULT_AVAILABLE)) { horde.pending.push(p); continue; }
+    if (!gl.getParameter(timer.GPU_DISJOINT_EXT) && horde.t0) horde.gpu.push(gl.getQueryParameter(p, gl.QUERY_RESULT) / 1e6);
+    gl.deleteQuery(p);
+  }
+  if (!horde.t0) {
+    if (t > horde.warm * 1000) horde.t0 = t;
+    return;
+  }
+  const [calls, tris, shadowCalls, shadowTris, zombies, players, kills] = client.draw_counts();
+  Object.entries({ frames: dt, code, calls, tris, shadowCalls, shadowTris, zombies }).forEach(([k, v]) => horde[k].push(v));
+  Object.assign(horde, { players, kills });
+  if (t - horde.t0 < horde.secs * 1000) return;
+  const avg = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
+  const p95 = a => a.length ? [...a].sort((x, y) => x - y)[Math.floor(a.length * 0.95)] : null;
+  const max = a => a.length ? Math.max(...a) : null;
+  const r = {
+    fps: horde.frames.length * 1000 / (t - horde.t0),
+    frame_ms: avg(horde.frames), frame_ms_p95: p95(horde.frames),
+    code_ms: avg(horde.code), code_ms_p95: p95(horde.code),
+    gpu_ms: avg(horde.gpu), gpu_ms_p95: p95(horde.gpu),
+    draw_calls: avg(horde.calls), draw_calls_max: max(horde.calls),
+    triangles: avg(horde.tris), triangles_max: max(horde.tris),
+    shadow_draw_calls: avg(horde.shadowCalls), shadow_triangles: avg(horde.shadowTris),
+    zombies: avg(horde.zombies), players: horde.players, kills: horde.kills,
+    width: canvas.width, height: canvas.height, gfx: quality, gpu: horde.gpuName,
+  };
+  console.log("bench " + JSON.stringify(r));
+  document.title = "bench done";
+  horde.done = true;
+}
 const locked = () => document.pointerLockElement === canvas;
 const play = () => { sound.start(); canvas.requestPointerLock(); };
 
@@ -1124,9 +1179,11 @@ let lastFrame = 0;
 let lobbyFrames = 0;
 function loop(t) {
   const t0 = performance.now();
-  if (lastFrame) autoFrame(t, t - lastFrame);
+  // the drawing bench is drawn at the size it is asked for, whatever that costs
+  if (lastFrame && !horde) autoFrame(t, t - lastFrame);
+  if (horde) hordeFrame(t, t - lastFrame, () => client.frame(t));
+  else client.frame(t);
   lastFrame = t;
-  client.frame(t);
   net?.flush();
   // the lobby, while the menu is up, and every so often in play for the score line
   if (!locked() || ++lobbyFrames % 30 === 0) drawRoom();

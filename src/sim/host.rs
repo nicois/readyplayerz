@@ -216,6 +216,15 @@ impl Room {
             .collect()
     }
 
+    /// The snapshot player `id` is sent, before it is put in datagrams, to see what it is made of (see
+    /// `sim::load`); None if they aren't in.
+    #[cfg(test)]
+    pub(crate) fn snapshot_of(&self, id: u8) -> Option<Snapshot> {
+        let seat = self.seats.iter().find(|s| s.id == id)?;
+        let mates = self.game.players.iter().filter(|p| p.id != id).map(mate).collect();
+        Some(Snapshot { own: self.own(seat), mates, ..self.shared_snapshot() })
+    }
+
     /// What `seat`'s player is sent of themselves, while they are in the game.
     fn own(&self, seat: &Seat) -> Option<Own> {
         self.game.players.iter().find(|p| p.id == seat.id).map(|p| Own {

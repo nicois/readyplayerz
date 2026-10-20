@@ -775,6 +775,8 @@ pub struct Renderer {
     u_whole: Option<WebGlUniformLocation>,
     u_seed_f: Option<WebGlUniformLocation>,
     shadow_pass: Cell<bool>,
+    /// draw calls and triangles so far this frame, for the picture and for the sun's shadow (see `counts`)
+    counted: Cell<[u32; 4]>,
     u_bones: Option<WebGlUniformLocation>,
     u_cut: Option<WebGlUniformLocation>,
     u_hairk: Option<WebGlUniformLocation>,
@@ -1525,6 +1527,7 @@ impl Renderer {
             u_whole: u("u_whole"),
             u_seed_f: u("u_seed"),
             shadow_pass: Cell::new(false),
+            counted: Cell::new([0; 4]),
             u_bones: u("u_bones"),
             u_cut: u("u_cut"),
             u_hairk: u("u_hairk"),
@@ -1707,6 +1710,20 @@ impl Renderer {
         gl.vertex_attrib_pointer_with_i32(1, 3, GL::FLOAT, false, 24, 12);
     }
 
+    /// A draw of `tris` triangles, counted to the shadow while it is being drawn and to the picture otherwise.
+    fn count(&self, tris: i32) {
+        let mut c = self.counted.get();
+        let k = if self.shadow_pass.get() { 2 } else { 0 };
+        c[k] += 1;
+        c[k + 1] += tris.max(0) as u32;
+        self.counted.set(c);
+    }
+
+    /// The last frame's draw calls and triangles: the picture's, then the sun's shadow's.
+    pub fn counts(&self) -> [u32; 4] {
+        self.counted.get()
+    }
+
     fn draw_model(&self, model: &M4, color: [f32; 3], unlit: f32, shiny: f32) {
         self.draw_mesh(&self.cube_vao, 36, model, color, unlit, shiny, 0.0);
     }
@@ -1720,6 +1737,7 @@ impl Renderer {
         gl.uniform1f(self.u_shiny.as_ref(), shiny);
         gl.uniform1f(self.u_mat.as_ref(), mat);
         gl.draw_arrays(GL::TRIANGLES, 0, count);
+        self.count(count / 3);
     }
 
     fn queue(&self, m: &M4, col: [f32; 3], mat: f32, shiny: f32, unlit: f32) {
@@ -1756,6 +1774,7 @@ impl Renderer {
             gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &Float32Array::view(l), GL::DYNAMIC_DRAW);
         }
         gl.draw_arrays_instanced(GL::TRIANGLES, 0, self.sphere_count, (l.len() / 24) as i32);
+        self.count(self.sphere_count / 3 * (l.len() / 24) as i32);
         gl.uniform1f(self.u_inst.as_ref(), 0.0);
     }
 
@@ -1784,6 +1803,7 @@ impl Renderer {
                 gl.uniform1f(self.u_shiny.as_ref(), shiny);
                 gl.uniform1f(self.u_unlit.as_ref(), 0.0);
                 gl.draw_elements_with_i32(GL::TRIANGLES, m.count, GL::UNSIGNED_INT, 0);
+                self.count(m.count / 3);
             };
             // outside in: what the clothes and hair cover then fails the depth test instead of being worked out
             // and painted over, and skin is the dearest thing to draw
@@ -1829,6 +1849,7 @@ impl Renderer {
         gl.uniform3f(self.u_color.as_ref(), color[0], color[1], color[2]);
         gl.uniform1f(self.u_unlit.as_ref(), unlit);
         gl.draw_arrays(GL::LINES, 0, (pts.len() / 3) as i32);
+        self.count(0);
     }
 
     /// Where gun `i`'s parts reach, low corner then high, and its sight line's height and muzzle, for the bench.
@@ -1976,6 +1997,7 @@ impl Renderer {
         seen.sort_by(|a, b| a.0.total_cmp(&b.0));
         for (_, c) in seen {
             gl.draw_arrays(GL::TRIANGLES, c.first, c.count);
+            self.count(c.count / 3);
         }
         // the ground goes in after the walls, so it is only shaded where it shows. It writes no depth, so markings
         // on it can't fight each other, and it is pushed back a little so a hill just above it always wins
@@ -1983,6 +2005,7 @@ impl Renderer {
         gl.enable(GL::POLYGON_OFFSET_FILL);
         gl.polygon_offset(1.0, 4.0);
         gl.draw_arrays(GL::TRIANGLES, w.ground.0, w.ground.1);
+        self.count(w.ground.1 / 3);
         gl.disable(GL::POLYGON_OFFSET_FILL);
         gl.depth_mask(true);
         gl.uniform1f(self.u_batch.as_ref(), 0.0);
@@ -2004,6 +2027,7 @@ impl Renderer {
         gl.polygon_offset(1.0, 4.0);
         // the plain ground is the first square; the markings lie on it
         gl.draw_arrays(GL::TRIANGLES, w.ground.0, 6);
+        self.count(2);
         gl.disable(GL::POLYGON_OFFSET_FILL);
         gl.color_mask(true, true, true, true);
         gl.uniform1f(self.u_pass.as_ref(), 0.0);
@@ -2056,6 +2080,7 @@ impl Renderer {
         gl.depth_mask(false);
         gl.bind_vertex_array(None);
         gl.draw_arrays(GL::TRIANGLES, 0, 3);
+        self.count(1);
         gl.depth_mask(true);
         gl.depth_func(GL::LESS);
     }
@@ -2222,6 +2247,7 @@ impl Renderer {
                 let gap = |a: usize| (c.min[a] - centre[a]).max(centre[a] - c.max[a]).max(0.0);
                 if (gap(0).powi(2) + gap(2).powi(2)).sqrt() < SHADOW_HALF * 1.45 + 40.0 {
                     gl.draw_arrays(GL::TRIANGLES, c.first, c.count);
+                    self.count(c.count / 3);
                 }
             }
             gl.uniform1f(self.u_batch.as_ref(), 0.0);
@@ -2235,6 +2261,7 @@ impl Renderer {
     }
 
     pub fn render(&self, g: &Game) {
+        self.counted.set([0; 4]);
         let gl = &self.gl;
         let eye = g.me().eye();
         let aspect = self.width as f32 / self.height.max(1) as f32;
@@ -2871,6 +2898,7 @@ impl Renderer {
         gl.uniform1f(self.u_shiny.as_ref(), p.shiny);
         gl.uniform1f(self.u_mat.as_ref(), p.mat);
         gl.draw_elements_with_i32(GL::TRIANGLES, p.count, GL::UNSIGNED_INT, 0);
+        self.count(p.count / 3);
     }
 
     fn draw_pieces(&self, model: &M4, pieces: &[GpuPiece]) {
@@ -2890,6 +2918,7 @@ impl Renderer {
             gl.uniform_matrix4fv_with_f32_array(self.u_model.as_ref(), false, gun);
             gl.uniform1f(self.u_whole.as_ref(), 1.0);
             gl.draw_elements_with_i32(GL::TRIANGLES, g.whole.count, GL::UNSIGNED_INT, 0);
+            self.count(g.whole.count / 3);
             gl.uniform1f(self.u_whole.as_ref(), 0.0);
             return;
         }

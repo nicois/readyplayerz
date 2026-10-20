@@ -1,0 +1,43 @@
+# The limits ./bench.sh holds the game to: a name and a value a line; # starts a comment. Each is set a little
+# above what the game measured when it was set (in the comment), so a change that costs more shows. When one
+# is passed on purpose, raise it here and say why in the commit.
+
+# ---- network, from src/sim/load.rs: six players against a full horde on the Suburb. KB is 1000 bytes; on the
+# wire is the payload and 48 bytes a datagram for the IP, UDP and QUIC headers. The same every run.
+
+# what the server sends each player a second: on average (26.9), and in the worst second (28.0)
+net_down_kbps 32
+net_down_peak_kbps 34
+# all six together, out of the server (161)
+net_server_out_kbps 195
+# what each player sends the server: its last 8 inputs, 60 times a second (10.9)
+net_up_kbps 13
+# a snapshot's payload, on average (849) and at most (944). Past 1000 one takes two datagrams (net::DATAGRAM),
+# and losing either loses the snapshot
+net_snapshot_bytes 950
+net_snapshot_bytes_max 1000
+net_snapshot_datagrams_max 1
+# a server tick, with everyone's snapshot when one is due, in a release build, as CPU time: on average (1.1 with
+# the machine quiet, 1.7 with it busy), the slowest one in a hundred (3.5, 4.7) and the slowest (6). A tick has
+# 16.7 ms; one that takes longer puts the room behind
+server_tick_ms 3
+server_tick_ms_p99 8
+server_tick_ms_max 14
+
+# ---- drawing, from ?horde in headless Chrome at 1920x993 on high quality, on an M1. The counts are the same
+# from run to run, within a percent; the times change with whatever else the machine is doing, so their limits
+# only catch a large step backwards.
+
+# draw calls and triangles a frame, for the picture: on average (267, 425k) and at most (461, 593k)
+draw_calls 310
+draw_calls_max 540
+triangles 490000
+triangles_max 690000
+# and for the sun's shadow, on average (211, 213k)
+shadow_draw_calls 245
+shadow_triangles 250000
+# frames a second, at least (34 to 83 depending on how busy the machine is), and a frame's time: the slowest in
+# twenty (28 to 58 ms) and the game's own code's share on average (11 to 29 ms)
+fps 25
+frame_ms_p95 70
+code_ms 40
