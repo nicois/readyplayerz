@@ -78,7 +78,8 @@
   #ammo small { display: block; font-size: 13px; opacity: .7; }
   #score { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); font-size: 18px; text-shadow: 0 1px 3px #000; }
   #dead { position: absolute; top: 40%; width: 100%; text-align: center; font-size: 28px; display: none; text-shadow: 0 2px 6px #000; }
-  /* the menu is a stack of screens: main, loadout, the weapon picker for a slot, settings */
+  /* the menu is a stack of screens: main picks solo or online, and each of those has the loadout and a button to
+     settings; the weapon picker for a slot and settings go back to the one they came from */
   #menu { position: fixed; inset: 0; display: flex; background: linear-gradient(90deg, rgba(8,11,20,.94), rgba(8,11,20,.8) 50%, rgba(8,11,20,.4)); }
   :where(#menu) button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
   .screen { display: none; flex-direction: column; width: 100%; max-width: 1040px; padding: 7vh 6vw; box-sizing: border-box; overflow-y: auto; }
@@ -97,7 +98,19 @@
   .screen h2 { margin: 0; font-size: 30px; letter-spacing: .12em; text-transform: uppercase; }
   .back { font-size: 14px; letter-spacing: .08em; opacity: .65; }
   .back:hover { opacity: 1; color: #ffd36a; }
-  #slots { display: flex; flex-wrap: wrap; gap: 14px; }
+  /* solo's map and loadout side by side, so all of it and Play fit on the screen */
+  .setup { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 24px; align-items: start; }
+  .setup .lbl { margin-bottom: 8px; }
+  .lbl.step { margin: 16px 0 8px; }
+  /* the loadout, one gun a row with its picture beside it */
+  .slots { display: flex; flex-direction: column; gap: 10px; }
+  .slots .lslot { display: grid; grid-template-columns: 1fr 120px; column-gap: 12px; width: 100%; padding: 12px 14px; box-sizing: border-box; }
+  .slots .lslot .pic { grid-column: 2; grid-row: 1 / 4; height: 56px; margin: 0; padding: 4px 8px; }
+  .slots .lslot h3 { font-size: 20px; }
+  .slots .lslot em { grid-column: 1 / -1; }
+  .note.pending:empty { display: none; }
+  .room-map .mapcard span { display: none; }
+  .room-map .mapcard img { aspect-ratio: 21 / 9; }
   .lslot { width: 300px; max-width: 100%; padding: 16px 18px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.16); border-radius: 6px; }
   .lslot:hover { border-color: #ffd36a; background: rgba(255,211,106,.1); }
   .lslot b { font-size: 11px; font-weight: normal; letter-spacing: .12em; opacity: .6; }
@@ -189,7 +202,7 @@
   .room-map .mapcard { border: 0 !important; border-radius: 0; background: none; cursor: default; }
   #mp-status { min-height: 1.4em; margin: 18px 0 0; font-size: 13px; color: #ffd36a; }
   #mp-error { min-height: 1.4em; margin: 4px 0 0; font-size: 13px; color: #ff8a8a; }
-  @media (max-width: 760px) { .panels, .room { grid-template-columns: 1fr; } .or { justify-self: center; } }
+  @media (max-width: 760px) { .panels, .room, .setup { grid-template-columns: 1fr; } .or { justify-self: center; } }
   /* stamina, above the weapon slots: only shown while it isn't full, red while winded */
   #stamina { position: absolute; left: 50%; bottom: 70px; width: 160px; height: 4px; margin-left: -80px; background: rgba(0,0,0,.35); border-radius: 2px; overflow: hidden; opacity: 0; transition: opacity .4s; }
   #stamina.show { opacity: 1; transition: opacity .1s; }
@@ -243,19 +256,20 @@
       <button class="item" id="resume">Resume<small id="resume-sum"></small></button>
       <button class="item" data-go="s-solo">Solo<small id="solo-sum"></small></button>
       <button class="item" data-go="s-mp">Online<small id="mp-sum"></small></button>
-      <button class="item" data-go="s-loadout">Loadout<small id="sum"></small></button>
-      <button class="item" data-go="s-settings">Settings</button>
+      <button class="item to-settings">Settings</button>
       <button class="item danger" id="end">End game</button>
     </nav>
     <a class="about" href="/about" target="_blank">About the game: maps, guns, controls</a>
-    <p class="note pending"></p>
     <p id="err"></p>
   </section>
   <section class="screen" id="s-solo">
     <header><button class="back">&lsaquo; Back</button><h2>Solo</h2></header>
-    <p class="sub">Just you against the waves. Pick where to make your stand.</p>
-    <div class="maps" id="solo-maps"></div>
-    <div class="actions"><button class="btn main" id="solo-play">Play</button><button class="btn danger" id="solo-end">End game</button></div>
+    <p class="sub">Just you against the waves. Pick where to make your stand, and what to carry.</p>
+    <div class="setup">
+      <div><b class="lbl">Map</b><div class="maps small" id="solo-maps"></div></div>
+      <div><b class="lbl">Loadout</b><div class="slots" id="solo-slots"></div><p class="note pending"></p></div>
+    </div>
+    <div class="actions"><button class="btn main" id="solo-play">Play</button><button class="btn danger" id="solo-end">End game</button><button class="btn to-settings">Settings</button></div>
     <p class="note" id="solo-note"></p>
   </section>
   <section class="screen" id="s-mp">
@@ -289,17 +303,17 @@
           <ul id="mp-players"></ul>
           <div class="you"><b class="lbl">Your name</b><input id="mp-name" maxlength="16" autocomplete="off" spellcheck="false"><span>Shown to your team. Change it any time.</span></div>
         </div>
-        <div class="panel room-map"><div id="mp-room-map"></div></div>
+        <div>
+          <div class="panel room-map"><div id="mp-room-map"></div></div>
+          <b class="lbl step">Your loadout</b>
+          <div class="slots" id="mp-slots"></div>
+          <p class="note pending"></p>
+        </div>
       </div>
-      <div class="actions"><button class="btn main" id="mp-start">Start the game</button><button class="btn main" id="mp-play">Jump in</button><button class="btn danger" id="mp-leave">Leave room</button></div>
+      <div class="actions"><button class="btn main" id="mp-start">Start the game</button><button class="btn main" id="mp-play">Jump in</button><button class="btn danger" id="mp-leave">Leave room</button><button class="btn to-settings">Settings</button></div>
     </div>
     <p id="mp-status"></p>
     <p id="mp-error"></p>
-  </section>
-  <section class="screen" id="s-loadout">
-    <header><button class="back">&lsaquo; Back</button><h2>Loadout</h2></header>
-    <div id="slots"></div>
-    <p class="note pending"></p>
   </section>
   <section class="screen" id="s-pick">
     <header><button class="back">&lsaquo; Back</button><h2 id="pick-title"></h2></header>
@@ -627,21 +641,25 @@ function mapCards(parent, pick) {
   });
 }
 
-// screens, and where Back goes from each
-const BACK = { "s-loadout": "s-main", "s-settings": "s-main", "s-pick": "s-loadout", "s-mp": "s-main", "s-solo": "s-main" };
+// screens, and where Back goes from each. The gun picker and settings are opened from solo or online, and their
+// Back is set to the one they came from when opened
+const BACK = { "s-settings": "s-main", "s-pick": "s-solo", "s-mp": "s-main", "s-solo": "s-main" };
 let screen = "s-main";
 function show(id) {
   screen = id;
   document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === id));
-  if (id === "s-loadout") drawLoadout();
+  if (id === "s-solo" || id === "s-mp") drawLoadout();
   document.querySelectorAll(".pending").forEach(p => p.textContent = pendingText());
 }
+const openFrom = id => { if (screen !== id) BACK[id] = screen; show(id); };
 document.querySelectorAll(".back").forEach(b => b.addEventListener("click", () => show(BACK[screen])));
 document.querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => show(b.dataset.go)));
+document.querySelectorAll(".to-settings").forEach(b => b.addEventListener("click", () => openFrom("s-settings")));
 
+// the loadout's two cards, on both the solo screen and the room's
 function drawLoadout() {
   const { carried, picked } = loadoutNow();
-  $("slots").replaceChildren(...SLOTS.map((slot, s) => {
+  for (const box of [$("solo-slots"), $("mp-slots")]) box.replaceChildren(...SLOTS.map((slot, s) => {
     const g = guns[slot.equipped()];
     const later = picked[s] !== carried[s] ? `<em>From your next life &middot; the ${names[carried[s]]} until then</em>` : "";
     const b = el("button", "lslot", `<b>${slot.name.toUpperCase()}</b><h3>${g.name}</h3><span>${g.cls}</span>${pic(g)}${later}`);
@@ -659,7 +677,7 @@ function openPicker(s) {
   tab = guns[SLOTS[s].equipped()].cls;
   $("pick-title").textContent = `${SLOTS[s].name} weapon`;
   drawPicker();
-  show("s-pick");
+  openFrom("s-pick");
 }
 function drawPicker() {
   const slot = SLOTS[pickSlot];
@@ -676,7 +694,7 @@ function drawPicker() {
     const hover = () => { rows.forEach(r => r.classList.toggle("hl", r === b)); drawDetail(g); };
     b.addEventListener("mouseenter", hover);
     b.addEventListener("focus", hover);
-    b.addEventListener("click", () => { slot.equip(g.i); show("s-loadout"); });
+    b.addEventListener("click", () => { slot.equip(g.i); show(BACK["s-pick"]); });
     return b;
   });
   $("list").replaceChildren(...rows);
@@ -708,7 +726,7 @@ const shownCarried = [0, primaries];
 
 // dev flags: ?map=1 plays the suburb, ?seed=n makes the map from n, ?demo runs the game behind the menu (for screenshots where pointer lock isn't available),
 // ?calm removes the bots, ?at=x,z,yaw[,y,pitch] puts the player somewhere, ?primary=1-8 picks the primary,
-// ?sidearm=1-3 the sidearm, ?slot=2 holds the sidearm, ?clean hides the menu, ?screen=loadout|pick|pick2|settings
+// ?sidearm=1-3 the sidearm, ?slot=2 holds the sidearm, ?clean hides the menu, ?screen=solo|mp|pick|pick2|settings
 // opens a menu screen (pick2 is the sidearm's picker)
 const params = new URLSearchParams(location.search);
 if (params.has("gfx")) setQuality(Number(params.get("gfx"))); // 0 low, 1 medium, 2 high
@@ -827,7 +845,8 @@ document.addEventListener("pointerlockchange", () => {
   menu.style.display = locked() ? "none" : "flex";
   client.set_paused(!locked());
   music.setInPlay(locked());
-  if (!locked()) { client.release_all(); sound.cancel(); show(lobby.online ? "s-mp" : "s-main"); }
+  // paused, to the screen of the mode being played, where the loadout and settings are
+  if (!locked()) { client.release_all(); sound.cancel(); show(lobby.online ? "s-mp" : "s-solo"); }
 });
 // ---- online: a room on the game server (see net.js), made here on the map picked or joined by its code or link
 let net = null;
@@ -926,9 +945,10 @@ function drawRoom() {
     // the address bar shows the room too, so a reload comes back to it
     history.replaceState(null, "", link);
   }
-  // who is in, each in their shirt's colour, then the seats still open
+  // who is in, each in their shirt's colour, then how many seats are still open
   const names = lobby.players.map(([id, name], i) => `<li><i style="background:${SHIRTS[id % SHIRTS.length]}"></i>${name}${id === lobby.id ? "<small>you</small>" : ""}${i === 0 ? "<small>host</small>" : ""}</li>`);
-  const list = names.join("") + "<li class='empty'>Open seat</li>".repeat(Math.max(0, SEATS - names.length));
+  const open = Math.max(0, SEATS - names.length);
+  const list = names.join("") + (open ? `<li class='empty'>${open} open seat${open === 1 ? "" : "s"}</li>` : "");
   if (drawn.players !== list) $("mp-players").innerHTML = drawn.players = list;
   $("mp-count").textContent = `Players · ${lobby.players.length} of ${SEATS}`;
   // blank, the name field shows the one the room gave instead
@@ -1042,7 +1062,6 @@ function loop(t) {
     }
     slots[s].classList.toggle("on", weapon === w);
   });
-  $("sum").textContent = `${names[picked]} · ${names[picked2]}`;
   // the main menu and the solo screen: a game alone under way can be resumed or ended, a room jumped back into
   const soloOn = inPlay && !lobby.online;
   const soloMap = MAPS[client.map()].name;
